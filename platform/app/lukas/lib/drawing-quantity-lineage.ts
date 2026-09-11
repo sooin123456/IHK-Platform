@@ -51,19 +51,72 @@ export type DrawingQuantitySource = {
   rawQuantity: string;
   unit: DrawingQuantityUnit;
   measurementRuleVersion: typeof P6_MEASUREMENT_RULE_VERSION;
-  sourceAnchors: Array<{
-    sourceFileId: string;
-    sourceSha256: string;
-    sourceKind: "pdf_region" | "ifc_element";
-    pdfRegion: {
-      pageNumber: number;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    } | null;
-    ifcGlobalId: string | null;
-  }>;
+  sourceAnchors: Array<
+    {
+      sourceFileId: string;
+      sourceSha256: string;
+    } & (
+      | {
+          sourceKind: "pdf_region";
+          pdfRegion: {
+            pageNumber: number;
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+          };
+          ifcGlobalId: null;
+          dxfEntity?: never;
+          dwgEntity?: never;
+        }
+      | {
+          sourceKind: "ifc_element";
+          pdfRegion: null;
+          ifcGlobalId: string;
+          dxfEntity?: never;
+          dwgEntity?: never;
+        }
+      | {
+          sourceKind: "dxf_entity";
+          pdfRegion: null;
+          ifcGlobalId: null;
+          dxfEntity: {
+            entityKey: string;
+            entityType:
+              | "LINE"
+              | "LWPOLYLINE"
+              | "POLYLINE"
+              | "CIRCLE"
+              | "ARC"
+              | "TEXT";
+            sourceLayer: string;
+            handle: string | null;
+            unitCode: 1 | 2 | 4 | 5 | 6;
+            unitSource: "declared" | "user_selected";
+            importerVersion: 1;
+          };
+          dwgEntity?: never;
+        }
+      | {
+          sourceKind: "dwg_entity";
+          pdfRegion: null;
+          ifcGlobalId: null;
+          dxfEntity?: never;
+          dwgEntity: {
+            analysisJobId: string;
+            reportSha256: string;
+            handle: string;
+            ownerHandle: string;
+            layerHandle: string;
+            entityType: "LINE" | "LWPOLYLINE" | "CIRCLE" | "ARC" | "TEXT";
+            sourceLayer: string;
+            unitCode: 1 | 2 | 4 | 5 | 6;
+            unitSource: "declared" | "user_selected";
+            importerVersion: 1;
+          };
+        }
+    )
+  >;
   issueLinks: Array<{ issueId: string }>;
 };
 
@@ -208,16 +261,20 @@ function materialKey(identity: MaterialIdentity) {
 }
 
 function validComponent(component: P6MaterialComponentInput) {
-  return [
+  const requiredIdentity = [
     component.boqVersionId,
     component.lineId,
     component.rateComponentId,
     component.resourceId,
     component.resourceCode,
     component.resourceName,
-    component.resourceSpecification,
     component.resourceUnit,
   ].every((value) => typeof value === "string" && value.length > 0);
+  return (
+    requiredIdentity &&
+    typeof component.resourceSpecification === "string" &&
+    [...component.resourceSpecification].length <= 200
+  );
 }
 
 /** Pure approved-BOQ material handoff; it only derives selected components. */

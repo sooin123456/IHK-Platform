@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1hk-native-cad-projection-verification/1",
+  "status": "local-projection-verified",
+  "overallObjectiveComplete": false,
+  "dwgWriterIntegrated": false,
+  "productionDwgQualified": false,
+  "operatingDeployment": false,
+  "sourceFreeze": {
+    "platform/app/lukas/lib/drawing-cad-manifest.ts": "807ba6a2a4d5065c90cbd7f70bf89f9d0e49033a04d72971232e831e6ede6ff6",
+    "platform/app/lukas/lib/drawing-cad-projection.ts": "e7ed929c600e203176cbc08d22a70cf1d233455c368a53b717f8d728dc8c12d6",
+    "platform/tests/drawing-cad-projection.test.mjs": "a52bb0ede3369cf10273e0e18fdddb8ddf5e201de1a86604171fdbc520e775c0",
+    "platform/tests/fixtures/drawing-cad-fixtures.mjs": "b587a938419c9035eaf05f9df2b9fab12e3a33b269ebc7cca3653d32bb900368",
+    "platform/app/lukas/lib/drawing-blocks.ts": "2fda6b219cb232d0856c8886627465dfdf5121c35334f0e3fe1f1055940fd820"
+  },
+  "nativeSourceSha256": {
+    "drawing-native-assets.ts": "cb9ebb80091df43e907405444f4851235d90fb6a5bd6810062099037afa75b31",
+    "drawing-native-symbols.ts": "84408d4e2b57a71dc2bcfc223bf25a786aa0d04c495bd820ef75bad7b4c004c2",
+    "drawing-native-templates.ts": "7d4778b603e8e2e93c1b0218b7f022634d13b68b3a0b9d828c534f1c87b19911"
+  },
+  "checks": {
+    "rootFocused": {
+      "passed": 133,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 1022.9295
+    },
+    "rootTypecheck": {
+      "exitCode": 0
+    },
+    "independentReview": {
+      "spec": "approved",
+      "quality": "approved",
+      "critical": 0,
+      "important": 0,
+      "minor": 1
+    },
+    "m1": {
+      "exitCode": 0,
+      "appBuild": "passed",
+      "collaborationBuild": "passed",
+      "browserPassed": 23,
+      "browserFailed": 0,
+      "duration": "2.7m",
+      "databasePassed": 5,
+      "databaseConfigurationGuardSkips": 2,
+      "logSha256": "4c2d0031fc9da64745ea125f1a35a8da3386f17343b58c0e9e13735b803a492c",
+      "disposableContainersCleaned": true
+    },
+    "existingCadToolSelfTest": {
+      "passed": 9,
+      "failed": 0
+    },
+    "preview": {
+      "url": "http://127.0.0.1:4173/workspace-preview/drawing-workspace?awarenessTest=1",
+      "status": 200,
+      "canvasCount": 3,
+      "bodyLength": 2096,
+      "errorOverlays": 0,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "homeStatus": 200,
+      "homeBodyLength": 2044
+    }
+  },
+  "nativeRegression": {
+    "browser": {
+      "evidence": {
+        "consoleErrors": 0,
+        "pageErrors": 0,
+        "responseErrors": 0,
+        "requestFailures": [
+          "GET http://127.0.0.1:4000/projects/fe9a39ff-6bb7-4233-8a01-aa9c5c9719f1/workspaces/1c45a35b-acb7-4b75-aa50-01a9b7cbde6d.data net::ERR_ABORTED"
+        ]
+      },
+      "viewerEvidence": {
+        "consoleErrors": 0,
+        "pageErrors": 0,
+        "responseErrors": 0,
+        "requestFailures": []
+      },
+      "reviewerEvidence": {
+        "consoleErrors": 0,
+        "pageErrors": 0,
+        "responseErrors": 0,
+        "requestFailures": []
+      },
+      "approverEvidence": {
+        "consoleErrors": 0,
+        "pageErrors": 0,
+        "responseErrors": 0,
+        "requestFailures": []
+      }
+    },
+    "pdfPage": {
+      "width": 420,
+      "height": 297
+    },
+    "pdfSha256": "c0990e42b951c2c88c8a47df4abbe9dba0e086108e3817d84c7d1634ae1725ef",
+    "replayStatus": {
+      "reviewRequested": 200,
+      "approved": 200,
+      "changedSameRequestId": 409,
+      "approvedNewRequest": 409,
+      "viewer": 403
+    },
+    "viewerCloneStatus": 400
+  },
+  "artifactManifest": "manifest.json",
+  "deferred": [
+    "Index openings by host before high-volume DWG conversion.",
+    "Real CAD writer/re-read, immutable authorized jobs, existing DWG edit/re-save and recipient delivery qualification."
+  ],
+  "warningsRetained": [
+    "Existing empty-chunk and bundle-size build notices.",
+    "Unsigned theme cookie warning (not an auth session change).",
+    "FORCE_COLOR/NO_COLOR notices.",
+    "Expected protected collaboration state denials and unavailable shared-link counterexample.",
+    "One native editor data-navigation ERR_ABORTED; no console/page/response errors."
+  ]
+}

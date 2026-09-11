@@ -1,0 +1,134 @@
+diff --git a/tmp/1hk-resave-control-m6Q9WS/final-review-jobs.test.mjs b/platform/tests/drawing-native-dwg-resave-jobs.test.mjs
+index 427a4f6..01b17b5 100644
+--- a/tmp/1hk-resave-control-m6Q9WS/final-review-jobs.test.mjs
++++ b/platform/tests/drawing-native-dwg-resave-jobs.test.mjs
+@@ -167,87 +167,122 @@ test("untrusted request fields and changed login cannot reach service admission"
+     { edits: [] },
+     { resaverImageId: imageId },
+     { path: "private" },
+   ]) {
+     const f = edited(),
+       c = clients(f);
+     await assert.rejects(
+       jobs.requestNativeDrawingDwgResave(
+         c.user,
+         c.service,
+         { ...f.scope, requestId: result.requestId, ...extra },
+         imageId,
+       ),
+       generic,
+     );
+     assert.equal(c.calls.length, 0);
+   }
+   const f = edited(),
+     c = clients(f, { afterId: uuid(81) });
+   await assert.rejects(
+     jobs.requestNativeDrawingDwgResave(
+       c.user,
+       c.service,
+       { ...f.scope, requestId: result.requestId },
+       imageId,
+     ),
+     generic,
+   );
+   assert.equal(
+     c.calls.filter((x) => x.name === "lukas_drawing_admit_native_dwg_resave")
+       .length,
+     0,
+   );
+ });
+ test("uppercase browser UUIDs normalize and an abort-ignoring RPC cannot hang admission", async () => {
+-  const f = edited(),
+-    c = clients(f);
++  const f = edited();
++  const projectId = "93abcdef-0000-4000-8900-000000000001";
++  const requestId = "93fedcba-0000-4000-8900-000000000091";
++  f.scope.projectId = projectId;
++  f.payload.approved.projectId = projectId;
++  f.payload.analysis.scope.projectId = projectId;
++  f.canonical.revision.projectId = projectId;
++  f.rehash();
++  const normalizedScope = {
++    projectId: "93abcdef-0000-4000-8900-000000000001",
++    documentId: "93000000-0000-4000-8900-000000000002",
++    revisionId: "93000000-0000-4000-8900-000000000003",
++    revisionVersion: 7,
++    canvasId: "93000000-0000-4000-8900-000000000005",
++    snapshotSha256:
++      "7e119313537b8f0151ba9bb2bb15252c307ccb6cf8bd9ec2644ab97842fd3f72",
++  };
++  assert.deepEqual(f.scope, normalizedScope);
++  const expectedResult = { ...result, requestId };
++  const c = clients(f, { response: expectedResult });
+   const request = Object.fromEntries(
+-    Object.entries({ ...f.scope, requestId: result.requestId }).map(
+-      ([key, value]) => [key, key.endsWith("Id") ? value.toUpperCase() : value],
+-    ),
++    Object.entries({ ...f.scope, requestId }).map(([key, value]) => [
++      key,
++      key.endsWith("Id") ? value.toUpperCase() : value,
++    ]),
+   );
++  assert.equal(request.projectId, "93ABCDEF-0000-4000-8900-000000000001");
++  assert.equal(request.requestId, "93FEDCBA-0000-4000-8900-000000000091");
++  assert.notEqual(request.projectId, projectId);
++  assert.notEqual(request.requestId, requestId);
+   assert.deepEqual(
+     await jobs.requestNativeDrawingDwgResave(
+       c.user,
+       c.service,
+       request,
+       imageId,
+     ),
+-    result,
++    expectedResult,
+   );
+-  assert.deepEqual(c.calls[0].args, { p_scope: f.scope });
++  assert.deepEqual(c.calls[0], {
++    name: "lukas_qto_drawing_native_dwg_resave_source",
++    args: { p_scope: normalizedScope },
++  });
++  assert.deepEqual(c.calls[1], {
++    name: "lukas_drawing_admit_native_dwg_resave",
++    args: {
++      p_actor_id: uuid(80),
++      p_scope: normalizedScope,
++      p_request_id: "93fedcba-0000-4000-8900-000000000091",
++      p_attestation: await build(normalizedScope, f.payload, imageId),
++    },
++  });
+   const controller = new AbortController();
+   c.user.rpc = () => ({
+     abortSignal: () => {
+       queueMicrotask(() => controller.abort());
+       return new Promise(() => {});
+     },
+   });
+   await assert.rejects(
+     jobs.requestNativeDrawingDwgResave(
+       c.user,
+       c.service,
+       { ...f.scope, requestId: result.requestId },
+       imageId,
+       controller.signal,
+     ),
+     generic,
+   );
+ });
+ test("admission rejects mismatched identity, malformed responses, aborted and malformed transport", async () => {
+   for (const response of [
+     { ...result, requestId: uuid(92) },
+     { ...result, hasChanges: false },
+     { ...result, path: "private" },
+     null,
+     {},
+   ]) {
+     const f = edited(),
+       c = clients(f, { response });
+     await assert.rejects(
+       jobs.requestNativeDrawingDwgResave(
+         c.user,
+         c.service,
+         { ...f.scope, requestId: result.requestId },
+         imageId,
+       ),

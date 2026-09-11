@@ -387,6 +387,48 @@ test("IFC drawing room uses only a verified derivative bundle while PDF keeps it
   );
 });
 
+test("production SSR routes mount dot-client viewers only after hydration", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const [room, ifc] = await Promise.all([
+    readFile(
+      new URL("../app/lukas/screens/drawing-room.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/lukas/screens/ifc-browser.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  for (const source of [room, ifc]) {
+    assert.doesNotMatch(
+      source,
+      /^import\s+\w+\s+from\s+["'][^"']+\.client["'];/m,
+    );
+    assert.match(
+      source,
+      /lazy\(\s*\(\)\s*=>\s*import\(["'][^"']+\.client["']\),?\s*\)/,
+    );
+    assert.match(source, /useEffect\(\(\)\s*=>\s*setMounted\(true\),\s*\[\]\)/);
+    assert.match(source, /<Suspense/);
+  }
+});
+
+test("drawing workspace keeps the DXF request clock out of the server render", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /useRef\(new Date\(\)\.toISOString\(\)\)/);
+  assert.match(source, /useState\(""\)/);
+  assert.match(
+    source,
+    /useEffect\(\(\)\s*=>\s*\{\s*setDxfImportCreatedAt\(new Date\(\)\.toISOString\(\)\);\s*\},\s*\[\]\)/,
+  );
+});
+
 test("PDF anchors are never copied and IFC candidates require one exact identity", async () => {
   const { readFile } = await import("node:fs/promises");
   const source = await readFile(

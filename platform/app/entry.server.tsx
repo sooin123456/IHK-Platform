@@ -36,6 +36,20 @@ import en from "./locales/en"; // English translations
 import es from "./locales/es"; // Spanish translations
 import ko from "./locales/ko"; // Korean translations
 
+export function applyDocumentSecurityHeaders(headers: Headers) {
+  headers.set(
+    "Strict-Transport-Security",
+    "max-age=31536000; includeSubDomains; preload",
+  );
+  headers.set("X-Content-Type-Options", "nosniff");
+  if (!headers.has("Referrer-Policy"))
+    headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Cross-Origin-Embedder-Policy", "unsafe-none");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("X-XSS-Protection", "1; mode=block");
+}
+
 /**
  * Maximum time in milliseconds to wait for streaming content
  *
@@ -129,10 +143,7 @@ export default async function handleRequest(
             "Server-Timing",
             `drawing-workspace-ssr;dur=${ssrMs.toFixed(3)}`,
           );
-          responseHeaders.set(
-            "Strict-Transport-Security",
-            "max-age=31536000; includeSubDomains; preload",
-          );
+          applyDocumentSecurityHeaders(responseHeaders);
           if (process.env.NODE_ENV === "production") {
             // Extend and or override CSP for production depending on your needs
             // responseHeaders.set(
@@ -154,16 +165,6 @@ export default async function handleRequest(
             //     .trim(),
             // );
           }
-          responseHeaders.set("X-Content-Type-Options", "nosniff");
-          responseHeaders.set(
-            "Referrer-Policy",
-            "strict-origin-when-cross-origin",
-          );
-          responseHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
-          responseHeaders.set("Cross-Origin-Embedder-Policy", "unsafe-none");
-          responseHeaders.set("X-Frame-Options", "DENY");
-          responseHeaders.set("X-XSS-Protection", "1; mode=block");
-
           resolve(
             new Response(stream, {
               headers: responseHeaders,

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="580mm" height="580mm" viewBox="0 0 580 580">
+<rect x="0" y="0" width="580" height="580" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/seat" transform="matrix(1 0 0 1 40 40)">
+<rect x="0" y="0" width="500" height="500" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/back" transform="matrix(1 0 0 1 40 40)">
+<line x1="50" y1="75" x2="450" y2="75" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+</svg>

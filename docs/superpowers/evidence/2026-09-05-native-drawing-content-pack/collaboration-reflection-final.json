@@ -1,0 +1,90 @@
+{
+  "authority": "LOCAL_DISPOSABLE_M1_CANONICAL_COLLABORATION",
+  "browser": {
+    "name": "chromium",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36",
+    "version": "151.0.7922.34"
+  },
+  "collaborationObservationFlush": "FLUSHED",
+  "collaborationObservation": [
+    {
+      "name": "Owner",
+      "readOnly": false,
+      "violations": []
+    },
+    {
+      "name": "Editor",
+      "readOnly": false,
+      "violations": []
+    },
+    {
+      "name": "Viewer",
+      "readOnly": true,
+      "violations": []
+    }
+  ],
+  "condition": {
+    "coldWarm": "one Owner ArrowRight plus Editor bounds reflection excluded as warm-up; all recorded samples are warm",
+    "excludedWarmupSamples": 1,
+    "measurement": "Owner ArrowRight dispatch through Editor independently derived selected line-bounds render; excludes tool selection, database polling, save completion, connection, and reload",
+    "objectMix": {
+      "line": 1
+    },
+    "warmSamplesExpected": 30
+  },
+  "cpu": {
+    "logicalCount": 14,
+    "model": "Apple M3 Max"
+  },
+  "memory": {
+    "freeBytesAtMeasurement": 698433536,
+    "totalBytes": 38654705664
+  },
+  "os": {
+    "platform": "darwin",
+    "release": "25.5.0"
+  },
+  "p95CalculationError": null,
+  "p95Milliseconds": 107.45008399999642,
+  "p95Rank": 29,
+  "rawSamplesMilliseconds": [
+    47.330208999992465,
+    87.4430410000059,
+    36.045790999996825,
+    45.50716700000339,
+    42.15654100000393,
+    44.254083000007086,
+    89.67124999999942,
+    34.45508300000802,
+    85.33479100000113,
+    83.74545899999794,
+    39.73262500000419,
+    83.78183300000092,
+    39.751625000004424,
+    194.79150000000664,
+    87.8534159999981,
+    42.846375000008265,
+    85.47900000000664,
+    84.37358400000085,
+    107.45008399999642,
+    84.08400000000256,
+    47.034874999997555,
+    90.10441600000195,
+    83.64216699999815,
+    52.65200000000186,
+    94.33545799998683,
+    88.44566700000723,
+    44.122375000006286,
+    90.53608399999212,
+    41.66008299999521,
+    41.11066600000777
+  ],
+  "sampleCount": 30,
+  "sampleCountExpected": 30,
+  "status": "PASS",
+  "targetMilliseconds": 500,
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  }
+}

@@ -1,0 +1,5 @@
+msbuild 버전 17.8.49+7806cbf7b(.NET용)
+  Determining projects to restore...
+  Restored /Users/h/1hk-r2-restore-uvc74K/tools/dwg-engine-qualification/DwgEngineQualification.csproj (in 656 ms).
+  DwgEngineQualification -> /Users/h/1hk-r2-restore-uvc74K/tools/dwg-engine-qualification/bin/Release/net8.0/DwgEngineQualification.dll
+  DwgEngineQualification -> /Users/h/1hk-r2-restore-uvc74K/runtime-native-publish/

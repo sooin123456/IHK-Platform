@@ -31,8 +31,8 @@ test("P6 preview smoke keeps exact 10k/2k immutable evidence and split focus", a
   await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
   const sourceBefore = await responseDigest(page, "/__p5-current.pdf");
   expect(sourceBefore).toEqual({
-    bytes: 62_602,
-    sha256: "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
+    bytes: 8_289,
+    sha256: "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db",
   });
   const surface = page.getByLabel(/도면 화면/);
   await expect(surface).toHaveAttribute(

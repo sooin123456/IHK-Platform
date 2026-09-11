@@ -1,11 +1,15 @@
 import type { Route } from "./+types/drawing-room";
 
 import { ArrowLeft } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, data, redirect } from "react-router";
 
-import DrawingRoomClient from "~/lukas/components/drawing-room.client";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import { ProjectWorkspaceNav } from "~/lukas/components/project-workspace-nav";
-import type { DrawingProjectRole } from "~/lukas/lib/drawing-collaboration-policy";
+import {
+  canRelinkDrawingRevision,
+  type DrawingProjectRole,
+} from "~/lukas/lib/drawing-collaboration-policy";
 import {
   drawingContext,
   listDrawingAssignees,
@@ -16,8 +20,12 @@ import {
 } from "~/lukas/lib/drawing-collaboration.server";
 import {
   assertGenericDrawingAnchorMutationAllowed,
-  loadDrawingRevisionReview,
+  DrawingRevisionRelinkError,
+  loadDrawingRevisionReviewCandidate,
+  loadDrawingRevisionReviewPage,
+  loadDrawingRevisionRelinkReplay,
   parseRelinkDrawingAnchorForm,
+  parseDrawingRevisionReviewCursor,
   relinkDrawingIssueAnchor,
 } from "~/lukas/lib/drawing-revision.server";
 import {
@@ -36,6 +44,15 @@ import {
   type DrawingWorkspaceClient,
 } from "~/lukas/lib/drawing-workspace.server";
 
+const DrawingRoomClient = lazy(
+  () => import("~/lukas/components/drawing-room.client"),
+);
+export function revisionReviewFocusIssueIds(
+  revisionReview: ReadonlyArray<{ issueId: string }>,
+) {
+  return [...new Set(revisionReview.map((candidate) => candidate.issueId))];
+}
+
 export const meta: Route.MetaFunction = ({ data: page }) => [
   {
     title: page?.room?.file
@@ -49,99 +66,166 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.projectId!,
   );
-  const url = new URL(request.url);
-  const requestedIssuePage = parseDrawingIssuePage(
-    url.searchParams.get("page"),
-  );
-  const initialIssueId = parseDrawingIssueId(url.searchParams.get("issue"));
-  const requestedAnchorId = parseDrawingAnchorId(
-    url.searchParams.get("anchor"),
-  );
-  const [room, files, revisionReview, assignees] = await Promise.all([
-    loadDrawingRoom(client, project.id, params.fileId!, {
-      page: requestedIssuePage,
-      focusIssueId: initialIssueId,
-    }),
-    listDrawingFiles(client, project.id),
-    loadDrawingRevisionReview(client, project.id, params.fileId!),
-    listDrawingAssignees(client, project.id, project.owner_id),
-  ]);
-  if (room.issuePage.page !== requestedIssuePage) {
-    url.searchParams.set("page", String(room.issuePage.page));
-    throw redirect(`${url.pathname}${url.search}`, { headers });
-  }
-  const activeAnchor = drawingViewerAnchor(
-    selectDrawingAnchorForView(
-      room.anchors,
-      requestedAnchorId,
-      initialIssueId,
-      room.file.id,
-    ),
-  );
-  const ifcDerivative =
-    room.file.kind === "ifc"
-      ? await loadDrawingIfcDerivative(
-          client as unknown as DrawingWorkspaceClient,
-          room.file,
-        )
-      : null;
-  const renderBundle = adaptIfcRenderBundleDescriptor(
-    ifcDerivative
-      ? {
-          id: room.file.id,
-          sha256: room.file.sha256,
-          derivative: ifcDerivative,
-        }
-      : null,
-  );
-  const signedUrl =
-    room.file.kind === "pdf"
-      ? await (async () => {
-          const { data: signed, error } = await client.storage
-            .from("lukas-qto")
-            .createSignedUrl(room.file.storage_path, 300);
-          if (error || !signed?.signedUrl)
-            throw new Response("도면 열기 링크를 만들지 못했습니다.", {
-              status: 500,
-            });
-          return signed.signedUrl;
-        })()
-      : null;
-  return data(
-    {
-      project,
-      role,
-      room,
-      files,
-      revisionReview,
-      initialGlobalId: drawingLegacyGlobalId(
-        url.searchParams.get("anchor"),
-        url.searchParams.get("globalId"),
+  try {
+    const url = new URL(request.url);
+    const requestedIssuePage = parseDrawingIssuePage(
+      url.searchParams.get("page"),
+    );
+    const initialIssueId = parseDrawingIssueId(url.searchParams.get("issue"));
+    const requestedAnchorId = parseDrawingAnchorId(
+      url.searchParams.get("anchor"),
+    );
+    let revisionReviewCursor: string | null;
+    try {
+      revisionReviewCursor = parseDrawingRevisionReviewCursor(
+        url.searchParams.get("revisionReviewCursor"),
+      );
+    } catch {
+      throw new Response("개정 검토 페이지 커서가 올바르지 않습니다.", {
+        status: 400,
+      });
+    }
+    const revisionReview = await loadDrawingRevisionReviewPage(
+      client,
+      project.id,
+      params.fileId!,
+      revisionReviewCursor,
+    );
+    const [room, files, assignees] = await Promise.all([
+      loadDrawingRoom(client, project.id, params.fileId!, {
+        page: requestedIssuePage,
+        focusIssueId: initialIssueId,
+        focusIssueIds: revisionReviewFocusIssueIds(revisionReview.items),
+      }),
+      listDrawingFiles(client, project.id),
+      listDrawingAssignees(client, project.id, project.owner_id),
+    ]);
+    if (room.issuePage.page !== requestedIssuePage) {
+      url.searchParams.set("page", String(room.issuePage.page));
+      throw redirect(`${url.pathname}${url.search}`, { headers });
+    }
+    const activeAnchor = drawingViewerAnchor(
+      selectDrawingAnchorForView(
+        room.anchors,
+        requestedAnchorId,
+        initialIssueId,
+        room.file.id,
       ),
-      initialIssueId,
-      activeAnchor,
-      currentUserId: user.id,
-      assignees,
-      ifcDerivative,
-      renderBundle,
-      signedUrl,
-    },
-    { headers },
-  );
+    );
+    const ifcDerivative =
+      room.file.kind === "ifc"
+        ? await loadDrawingIfcDerivative(
+            client as unknown as DrawingWorkspaceClient,
+            room.file,
+          )
+        : null;
+    const renderBundle = adaptIfcRenderBundleDescriptor(
+      ifcDerivative
+        ? {
+            id: room.file.id,
+            sha256: room.file.sha256,
+            derivative: ifcDerivative,
+          }
+        : null,
+    );
+    const signedUrl =
+      room.file.kind === "pdf"
+        ? await (async () => {
+            const { data: signed, error } = await client.storage
+              .from("lukas-qto")
+              .createSignedUrl(room.file.storage_path, 300);
+            if (error || !signed?.signedUrl)
+              throw new Response("도면 열기 링크를 만들지 못했습니다.", {
+                status: 500,
+              });
+            return signed.signedUrl;
+          })()
+        : null;
+    return data(
+      {
+        project,
+        role,
+        room,
+        files,
+        revisionReview: revisionReview.items,
+        revisionReviewNextHref: revisionReview.nextCursor
+          ? (() => {
+              url.searchParams.set(
+                "revisionReviewCursor",
+                revisionReview.nextCursor,
+              );
+              return `${url.pathname}${url.search}`;
+            })()
+          : null,
+        revisionReviewPreviousHref: revisionReviewCursor
+          ? (() => {
+              if (revisionReview.previousCursor)
+                url.searchParams.set(
+                  "revisionReviewCursor",
+                  revisionReview.previousCursor,
+                );
+              else url.searchParams.delete("revisionReviewCursor");
+              return `${url.pathname}${url.search}`;
+            })()
+          : null,
+        initialGlobalId: drawingLegacyGlobalId(
+          url.searchParams.get("anchor"),
+          url.searchParams.get("globalId"),
+        ),
+        initialIssueId,
+        activeAnchor,
+        currentUserId: user.id,
+        assignees,
+        ifcDerivative,
+        renderBundle,
+        signedUrl,
+      },
+      { headers },
+    );
+  } catch (error) {
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
+  }
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  const { client, headers, project, user } = await drawingContext(
+  const { client, headers, project, role, user } = await drawingContext(
     request,
     params.projectId!,
   );
   try {
     const form = await request.formData();
     if (form.get("intent") === "relink_anchor") {
-      const result = await relinkDrawingIssueAnchor(
+      const input = parseRelinkDrawingAnchorForm(form);
+      if (!canRelinkDrawingRevision(role))
+        throw new DrawingRevisionRelinkError("forbidden", "42501");
+      if (
+        input.currentFileId !== params.fileId ||
+        input.anchor.fileId !== params.fileId
+      )
+        throw new DrawingRevisionRelinkError("rejected", "P1R01");
+      const { data: currentFile, error: currentFileError } = await client
+        .from("lukas_qto_files")
+        .select("id")
+        .eq("id", params.fileId!)
+        .eq("project_id", project.id)
+        .maybeSingle();
+      if (currentFileError)
+        throw new DrawingRevisionRelinkError("retryable", "UNKNOWN");
+      if (!currentFile)
+        throw new DrawingRevisionRelinkError("rejected", "P1R01");
+      const replay = await loadDrawingRevisionRelinkReplay(client, input);
+      if (replay)
+        return data({ ok: true, error: null, relink: replay }, { headers });
+      const candidate = await loadDrawingRevisionReviewCandidate(
         client,
-        parseRelinkDrawingAnchorForm(form),
+        project.id,
+        params.fileId!,
+        input.previousAnchorId,
       );
+      if (!candidate || candidate.sourceKind !== input.anchor.kind)
+        throw new DrawingRevisionRelinkError("rejected", "P1R01");
+      const result = await relinkDrawingIssueAnchor(client, input);
       return data({ ok: true, error: null, relink: result }, { headers });
     }
     const input = parseDrawingMutationForm(form);
@@ -158,14 +242,14 @@ export async function action({ request, params }: Route.ActionArgs) {
     await mutateDrawingIssue(client, user.id, project.id, input);
     return data({ ok: true, error: null, relink: null }, { headers });
   } catch (error) {
-    if (error instanceof Response) throw error;
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
     return data(
       {
         ok: false,
         error:
-          error instanceof Error
+          error instanceof DrawingRevisionRelinkError
             ? error.message
-            : "요청을 저장하지 못했습니다.",
+            : "요청을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         relink: null,
       },
       { status: 400, headers },
@@ -178,6 +262,8 @@ export default function DrawingRoom({
   actionData,
 }: Route.ComponentProps) {
   const { project, room, files } = loaderData;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   return (
     <main className="mx-auto w-full max-w-[1600px] px-4 pb-28 pt-6 sm:px-6 sm:pb-10">
       <Link
@@ -221,27 +307,43 @@ export default function DrawingRoom({
           원자적 작업으로 저장되었습니다.
         </p>
       ) : null}
-      <DrawingRoomClient
-        assignees={loaderData.assignees}
-        anchors={room.anchors}
-        activeAnchor={loaderData.activeAnchor}
-        approvals={room.approvals}
-        comments={room.comments}
-        events={room.events}
-        file={room.file}
-        files={files}
-        issues={room.issues}
-        issuePage={room.issuePage}
-        initialGlobalId={loaderData.initialGlobalId}
-        initialIssueId={loaderData.initialIssueId}
-        ifcDerivative={loaderData.ifcDerivative}
-        currentUserId={loaderData.currentUserId}
-        projectId={project.id}
-        revisionReview={loaderData.revisionReview}
-        role={loaderData.role as DrawingProjectRole}
-        renderBundle={loaderData.renderBundle}
-        signedUrl={loaderData.signedUrl}
-      />
+      {mounted ? (
+        <Suspense
+          fallback={
+            <p className="mt-5 rounded-xl border p-4" role="status">
+              도면과 협업 기록을 불러오는 중입니다.
+            </p>
+          }
+        >
+          <DrawingRoomClient
+            assignees={loaderData.assignees}
+            anchors={room.anchors}
+            activeAnchor={loaderData.activeAnchor}
+            approvals={room.approvals}
+            comments={room.comments}
+            events={room.events}
+            file={room.file}
+            files={files}
+            issues={room.issues}
+            issuePage={room.issuePage}
+            initialGlobalId={loaderData.initialGlobalId}
+            initialIssueId={loaderData.initialIssueId}
+            ifcDerivative={loaderData.ifcDerivative}
+            currentUserId={loaderData.currentUserId}
+            projectId={project.id}
+            revisionReview={loaderData.revisionReview}
+            revisionReviewNextHref={loaderData.revisionReviewNextHref}
+            revisionReviewPreviousHref={loaderData.revisionReviewPreviousHref}
+            role={loaderData.role as DrawingProjectRole}
+            renderBundle={loaderData.renderBundle}
+            signedUrl={loaderData.signedUrl}
+          />
+        </Suspense>
+      ) : (
+        <p className="mt-5 rounded-xl border p-4" role="status">
+          {room.file.original_filename} 도면 작업실을 준비하고 있습니다.
+        </p>
+      )}
     </main>
   );
 }

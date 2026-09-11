@@ -7,6 +7,7 @@ import {
   drawingDimensionBoundsPoints,
   drawingLayoutCorners,
   drawingTextLayout,
+  type DrawingDimensionContext,
 } from "./drawing-layout.ts";
 import { resolveDrawingStyle } from "./drawing-structure.ts";
 import { drawingTargetReferenceCleanupActions } from "./drawing-properties.ts";
@@ -236,6 +237,7 @@ function primitiveWorldBounds(
   primitive: DrawingBlockPrimitive,
   instance: DrawingBlockInstance,
   style: DrawingStyle,
+  dimensionContext?: DrawingDimensionContext,
 ): Bounds {
   const geometry = primitive.geometry;
   if (geometry.type === "circle") {
@@ -284,7 +286,11 @@ function primitiveWorldBounds(
       );
       break;
     case "dimension":
-      points = drawingDimensionBoundsPoints(geometry);
+      points = drawingDimensionBoundsPoints(
+        geometry,
+        dimensionContext,
+        style.fontSize,
+      );
       break;
   }
   return pointsBounds(
@@ -303,8 +309,7 @@ export type DrawingBlockRenderModel = {
 export function blockInstanceRenderModel(
   block: DrawingBlock,
   instance: DrawingBlockInstance,
-  styles:
-    readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
+  styles: readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
 ): DrawingBlockRenderModel {
   let definition: DrawingBlock;
   let placed: DrawingBlockInstance;
@@ -338,17 +343,25 @@ export function blockInstanceRenderModel(
 export function blockInstanceBounds(
   block: DrawingBlock,
   instance: DrawingBlockInstance,
-  styles:
-    readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
+  styles: readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
+  dimensionContext?: DrawingDimensionContext,
 ): Bounds {
   const model = blockInstanceRenderModel(block, instance, styles);
-  return blockRenderModelBounds(model);
+  return blockRenderModelBounds(model, dimensionContext);
 }
 
 /** Derives bounds from an already-resolved live model without resolving styles twice. */
-export function blockRenderModelBounds(model: DrawingBlockRenderModel): Bounds {
+export function blockRenderModelBounds(
+  model: DrawingBlockRenderModel,
+  dimensionContext?: DrawingDimensionContext,
+): Bounds {
   const bounds = model.primitives.map((primitive) =>
-    primitiveWorldBounds(primitive, model.instance, primitive.style),
+    primitiveWorldBounds(
+      primitive,
+      model.instance,
+      primitive.style,
+      dimensionContext,
+    ),
   );
   const x = Math.min(...bounds.map((value) => value.x));
   const y = Math.min(...bounds.map((value) => value.y));
@@ -390,6 +403,7 @@ function primitiveHit(
   point: Point,
   tolerance: number,
   instance: DrawingBlockInstance,
+  dimensionContext?: DrawingDimensionContext,
 ) {
   const geometry = primitive.geometry;
   const strokeTolerance = tolerance + primitive.style.strokeWidth / 2;
@@ -465,6 +479,7 @@ function primitiveHit(
       scaleY: 1,
     },
     primitive.style,
+    dimensionContext,
   );
   return pointInBounds(point, localBounds, tolerance);
 }
@@ -474,6 +489,7 @@ export function drawingBlockPrimitiveAtPoint(
   model: DrawingBlockRenderModel,
   worldPoint: Point,
   tolerance: number,
+  dimensionContext?: DrawingDimensionContext,
 ) {
   if (!Number.isFinite(tolerance) || tolerance < 0)
     throw new DrawingBlockError("Block hit tolerance must be nonnegative.");
@@ -484,7 +500,13 @@ export function drawingBlockPrimitiveAtPoint(
   return [...model.primitives]
     .reverse()
     .find((primitive) =>
-      primitiveHit(primitive, localPoint, localTolerance, model.instance),
+      primitiveHit(
+        primitive,
+        localPoint,
+        localTolerance,
+        model.instance,
+        dimensionContext,
+      ),
     );
 }
 
@@ -526,6 +548,7 @@ function unionBounds(...bounds: Bounds[]): Bounds {
 function drawingObjectRenderBounds(
   object: DrawingObject & { style: DrawingStyle },
   objects: Readonly<Record<string, DrawingObject>>,
+  dimensionContext?: DrawingDimensionContext,
 ): Bounds {
   const { geometry, style } = object;
   let bounds = geometryBounds(geometry, objects);
@@ -535,13 +558,19 @@ function drawingObjectRenderBounds(
       drawingLayoutCorners(geometry.origin, layout.width, layout.height),
     );
   } else if (geometry.type === "dimension") {
-    bounds = pointsBounds(drawingDimensionBoundsPoints(geometry));
+    bounds = pointsBounds(
+      drawingDimensionBoundsPoints(geometry, dimensionContext, style.fontSize),
+    );
   } else if (
     geometry.type === "space" ||
     geometry.type === "area" ||
     geometry.type === "grid"
   ) {
-    const label = drawingSemanticLabelLayout(geometry, object.name);
+    const label = drawingSemanticLabelLayout(
+      geometry,
+      object.name,
+      style.fontSize,
+    );
     bounds = unionBounds(
       bounds,
       pointsBounds(
@@ -579,6 +608,7 @@ function drawingObjectRenderBounds(
 
 function drawingBlockRenderBounds(
   model: DrawingBlockRenderModel & { bounds: Bounds },
+  dimensionContext?: DrawingDimensionContext,
 ) {
   const scale = Math.max(
     Math.abs(model.instance.scaleX),
@@ -588,7 +618,12 @@ function drawingBlockRenderBounds(
     (Math.max(...model.primitives.map(({ style }) => style.strokeWidth), 0) *
       scale) /
     2;
-  return expandBounds(model.bounds, strokePadding);
+  return expandBounds(
+    dimensionContext
+      ? blockRenderModelBounds(model, dimensionContext)
+      : model.bounds,
+    strokePadding,
+  );
 }
 
 /**
@@ -614,6 +649,7 @@ export function drawingVisibleCanvasObjects<T extends DrawingObject>(
 
 type DrawingCanvasRenderInput = {
   blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
+  dimensionContext?: DrawingDimensionContext;
   layers: Record<
     string,
     { visible: boolean; locked: boolean; sortOrder?: number }
@@ -625,10 +661,14 @@ export function drawingCanvasRenderItems(input: DrawingCanvasRenderInput) {
   const objectMap = Object.fromEntries(
     input.objects.map((object) => [object.id, object]),
   );
-  const sortedItems: DrawingCanvasRenderItem[] = [
+  const items: DrawingCanvasRenderItem[] = [
     ...drawingVisibleCanvasObjects(input.objects, input.layers).map(
       (object) => ({
-        bounds: drawingObjectRenderBounds(object, objectMap),
+        bounds: drawingObjectRenderBounds(
+          object,
+          objectMap,
+          input.dimensionContext,
+        ),
         id: object.id,
         kind: "object" as const,
         layerId: object.layerId,
@@ -639,7 +679,7 @@ export function drawingCanvasRenderItems(input: DrawingCanvasRenderInput) {
       input.layers[model.instance.layerId]?.visible
         ? [
             {
-              bounds: drawingBlockRenderBounds(model),
+              bounds: drawingBlockRenderBounds(model, input.dimensionContext),
               id: model.instance.id,
               kind: "block" as const,
               layerId: model.instance.layerId,
@@ -648,17 +688,31 @@ export function drawingCanvasRenderItems(input: DrawingCanvasRenderInput) {
           ]
         : [],
     ),
-  ].sort(
+  ];
+  return orderDrawingCanvasItems(items, input.layers, (item) =>
+    item.kind === "object" && item.object.geometry.type === "opening"
+      ? item.object.geometry.hostWallId
+      : null,
+  );
+}
+
+/** Shared authored ordering; does not filter visibility or calculate bounds. */
+export function orderDrawingCanvasItems<T extends { id: string; layerId: string }>(
+  input: readonly T[],
+  layers: Record<string, { sortOrder?: number }>,
+  hostId: (item: T) => string | null,
+): T[] {
+  const sortedItems = [...input].sort(
     (left, right) =>
-      (input.layers[left.layerId]?.sortOrder ?? 0) -
-        (input.layers[right.layerId]?.sortOrder ?? 0) ||
+      (layers[left.layerId]?.sortOrder ?? 0) -
+        (layers[right.layerId]?.sortOrder ?? 0) ||
       left.id.localeCompare(right.id),
   );
   const itemById = new Map(sortedItems.map((item) => [item.id, item]));
-  const waitingByHost = new Map<string, DrawingCanvasRenderItem[]>();
+  const waitingByHost = new Map<string, T[]>();
   const emittedIds = new Set<string>();
-  const items: DrawingCanvasRenderItem[] = [];
-  const emit = (item: DrawingCanvasRenderItem) => {
+  const items: T[] = [];
+  const emit = (item: T) => {
     if (emittedIds.has(item.id)) return;
     emittedIds.add(item.id);
     items.push(item);
@@ -666,14 +720,11 @@ export function drawingCanvasRenderItems(input: DrawingCanvasRenderInput) {
     waitingByHost.delete(item.id);
   };
   for (const item of sortedItems) {
-    const hostId =
-      item.kind === "object" && item.object.geometry.type === "opening"
-        ? item.object.geometry.hostWallId
-        : null;
-    if (hostId && itemById.has(hostId) && !emittedIds.has(hostId)) {
-      const waiting = waitingByHost.get(hostId);
+    const host = hostId(item);
+    if (host && itemById.has(host) && !emittedIds.has(host)) {
+      const waiting = waitingByHost.get(host);
       if (waiting) waiting.push(item);
-      else waitingByHost.set(hostId, [item]);
+      else waitingByHost.set(host, [item]);
     } else emit(item);
   }
   for (const item of sortedItems) emit(item);
@@ -681,6 +732,7 @@ export function drawingCanvasRenderItems(input: DrawingCanvasRenderInput) {
 }
 
 export function drawingCanvasViewportProjection(input: {
+  dimensionContext?: DrawingDimensionContext;
   items: readonly DrawingCanvasRenderItem[];
   layers: DrawingCanvasRenderInput["layers"];
   viewportBounds?: Bounds | null;
@@ -736,7 +788,14 @@ export function drawingCanvasViewportProjection(input: {
         return (
           broadPhase &&
           (item.kind === "object" ||
-            Boolean(drawingBlockPrimitiveAtPoint(item.model, point, tolerance)))
+            Boolean(
+              drawingBlockPrimitiveAtPoint(
+                item.model,
+                point,
+                tolerance,
+                input.dimensionContext,
+              ),
+            ))
         );
       });
     },
@@ -751,6 +810,7 @@ export function drawingCanvasRenderAdapter(
     items,
     ...drawingCanvasViewportProjection({
       items,
+      dimensionContext: input.dimensionContext,
       layers: input.layers,
       viewportBounds: input.viewportBounds,
       zoom: input.zoom,
@@ -774,6 +834,7 @@ export type DrawingBlockRenderCache = {
       }
     >;
     styles: Record<string, DrawingStyleDefinition>;
+    dimensionContext?: DrawingDimensionContext;
   }): {
     error: string | null;
     instances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
@@ -797,6 +858,7 @@ export function createDrawingBlockRenderCache(): DrawingBlockRenderCache {
           }
         >;
         styles: Record<string, DrawingStyleDefinition>;
+        dimensionContext?: DrawingDimensionContext;
       }
     | undefined;
   let result: {
@@ -811,7 +873,8 @@ export function createDrawingBlockRenderCache(): DrawingBlockRenderCache {
         previous.blocks === input.blocks &&
         previous.instances === input.instances &&
         previous.layers === input.layers &&
-        previous.styles === input.styles
+        previous.styles === input.styles &&
+        previous.dimensionContext === input.dimensionContext
       )
         return result;
       previous = input;
@@ -838,7 +901,10 @@ export function createDrawingBlockRenderCache(): DrawingBlockRenderCache {
         try {
           const model = blockInstanceRenderModel(block, instance, input.styles);
           resolveCount += 1;
-          resolved.push({ ...model, bounds: blockRenderModelBounds(model) });
+          resolved.push({
+            ...model,
+            bounds: blockRenderModelBounds(model, input.dimensionContext),
+          });
         } catch (caught) {
           error =
             caught instanceof Error
@@ -860,8 +926,7 @@ export function drawingBlockSelectionCandidates(
   instances: readonly DrawingBlockInstance[],
   blocks: Record<string, DrawingBlock>,
   layers: Record<string, { visible: boolean; locked: boolean }>,
-  styles:
-    readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
+  styles: readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
   zoom: number,
   tolerancePixels = 6,
 ): Array<{ id: string; bounds: Bounds }> {
@@ -898,6 +963,51 @@ type BlockCreateOptions = {
   createId?: () => string;
 };
 
+function selectedBlockSourceObjects(
+  state: CanonicalBlockState,
+  selectedIds: readonly string[],
+  activeLayerId: string,
+) {
+  const uniqueIds = [...new Set(selectedIds)];
+  if (uniqueIds.length === 0 || uniqueIds.length !== selectedIds.length)
+    throw new DrawingBlockError(
+      "Block selection must contain unique existing objects.",
+    );
+  const objects = uniqueIds.map((id) => state.objects[id]);
+  if (objects.some((object) => !object))
+    throw new DrawingBlockError("Block selection is partial or stale.");
+  const layer = state.layers[activeLayerId];
+  if (!layer || !layer.visible || layer.locked || layer.systemKind === "source")
+    throw new DrawingBlockError(
+      "The active block layer must be visible and unlocked.",
+    );
+  if (objects.some((object) => object.layerId !== layer.id))
+    throw new DrawingBlockError(
+      "All block objects must be on the active layer.",
+    );
+  return { layer, objects };
+}
+
+/** Keeps block creation controls aligned with the command's primitive-only boundary. */
+export function canUseDrawingSelectionForBlock(
+  inputState: DrawingDocumentState,
+  selectedIds: readonly string[],
+  activeLayerId: string,
+) {
+  try {
+    const { objects } = selectedBlockSourceObjects(
+      canonicalState(inputState),
+      selectedIds,
+      activeLayerId,
+    );
+    return objects.every((object) =>
+      DrawingPrimitiveGeometrySchema.safeParse(object.geometry).success,
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Builds the server-compatible definition + instance + object deletion atomic batch. */
 export function createBlockFromSelection(
   inputState: DrawingDocumentState,
@@ -907,23 +1017,11 @@ export function createBlockFromSelection(
   options: BlockCreateOptions,
 ): StructureCommand {
   const state = canonicalState(inputState);
-  const uniqueIds = [...new Set(selectedIds)];
-  if (uniqueIds.length === 0 || uniqueIds.length !== selectedIds.length)
-    throw new DrawingBlockError(
-      "Block selection must contain unique existing objects.",
-    );
-  const objects = uniqueIds.map((id) => state.objects[id]);
-  if (objects.some((object) => !object))
-    throw new DrawingBlockError("Block selection is partial or stale.");
-  const layer = state.layers[options.activeLayerId];
-  if (!layer || !layer.visible || layer.locked || layer.systemKind === "source")
-    throw new DrawingBlockError(
-      "The active block layer must be visible and unlocked.",
-    );
-  if (objects.some((object) => object.layerId !== layer.id))
-    throw new DrawingBlockError(
-      "All block objects must be on the active layer.",
-    );
+  const { layer, objects } = selectedBlockSourceObjects(
+    state,
+    selectedIds,
+    options.activeLayerId,
+  );
   const createId = options.createId ?? (() => crypto.randomUUID());
   const blockId = createId();
   const instanceId = createId();
@@ -963,6 +1061,27 @@ export function createBlockFromSelection(
       baseVersion: object.version,
     })),
   ]);
+}
+
+/** Rebuilds one reusable definition from selected primitives without deleting the sources. */
+export function redefineDrawingBlockFromSelection(
+  inputState: DrawingDocumentState,
+  selectedIds: readonly string[],
+  actorId: string,
+  blockId: string,
+  options: BlockCreateOptions,
+): StructureCommand {
+  const state = canonicalState(inputState);
+  const { objects } = selectedBlockSourceObjects(
+    state,
+    selectedIds,
+    options.activeLayerId,
+  );
+  const createId = options.createId ?? (() => crypto.randomUUID());
+  const converted = worldObjectsToBlockPrimitives(objects, () => createId());
+  return updateDrawingBlockCommand(state, actorId, blockId, {
+    primitives: converted.primitives,
+  });
 }
 
 export function updateDrawingBlockCommand(

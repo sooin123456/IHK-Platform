@@ -226,7 +226,7 @@ test("property commands enforce exactly one applicable target", () => {
   );
 });
 
-test("required-property review failures are stable and null is incomplete", () => {
+test("required-property review rejects blank text while zero and false remain complete", () => {
   assert.equal(typeof properties.missingRequiredDrawingProperties, "function");
   const required = propertySchema(ids.text, "Mark", "text", { required: true });
   const current = state({
@@ -246,6 +246,33 @@ test("required-property review failures are stable and null is incomplete", () =
     { schemaId: ids.text, schemaName: "Mark", targetId: ids.objectA },
     { schemaId: ids.text, schemaName: "Mark", targetId: ids.objectB },
   ]);
+  for (const blank of ["", "   ", "\n\t"]) {
+    const blankState = state({
+      propertySchemas: { [ids.text]: required },
+      propertyValues: {
+        [ids.value]: {
+          id: ids.value,
+          schemaId: ids.text,
+          objectId: ids.objectA,
+          blockInstanceId: null,
+          value: blank,
+          version: 1,
+        },
+      },
+    });
+    assert.deepEqual(
+      properties.missingRequiredDrawingProperties(blankState),
+      [
+        { schemaId: ids.text, schemaName: "Mark", targetId: ids.objectA },
+        { schemaId: ids.text, schemaName: "Mark", targetId: ids.objectB },
+      ],
+    );
+    assert.throws(
+      () => properties.parseDrawingPropertyInput(required, blank),
+      /required|필수/i,
+    );
+  }
+  assert.equal(properties.parseDrawingPropertyInput(required, " A-01 "), " A-01 ");
   const complete = state({
     propertySchemas: {
       [ids.boolean]: propertySchema(ids.boolean, "Exterior", "boolean", {
@@ -272,6 +299,15 @@ test("required-property review failures are stable and null is incomplete", () =
     },
   });
   assert.deepEqual(properties.missingRequiredDrawingProperties(complete), []);
+
+  const requiredNumber = propertySchema(ids.number, "Count", "number", {
+    required: true,
+  });
+  assert.equal(properties.parseDrawingPropertyInput(requiredNumber, "0"), 0);
+  assert.throws(
+    () => properties.parseDrawingPropertyInput(requiredNumber, ""),
+    /required|필수/i,
+  );
 });
 
 test("schema evolution fails before it can invalidate an existing value", () => {

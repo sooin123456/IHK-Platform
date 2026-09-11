@@ -58,6 +58,7 @@ const ids = {
   approver: "00000000-0000-4000-8000-000000000999",
   pdfAnchor: "00000000-0000-4000-8000-000000000997",
   ifcAnchor: "00000000-0000-4000-8000-000000000998",
+  dxfFile: "00000000-0000-4000-8000-000000000996",
 };
 
 function drawingSource() {
@@ -302,6 +303,110 @@ test("1.1 canonical input byte-sorts every source and normalizes decimals", () =
   assert.equal(canonical.drawingMappings[0].source.rawQuantity, "4.75");
   assert.equal(canonical.resources[0].unitPriceKrw, "100");
   assert.equal(canonical.components[0].coefficient, "2");
+});
+
+test("1.1 canonical input preserves strict DXF entity and unit lineage", () => {
+  const input = mixedInput();
+  const dxfAnchor = {
+    sourceFileId: ids.dxfFile,
+    sourceSha256: A,
+    sourceKind: "dxf_entity",
+    pdfRegion: null,
+    ifcGlobalId: null,
+    dxfEntity: {
+      entityKey: "entities:0",
+      entityType: "LINE",
+      sourceLayer: "A-WALL",
+      handle: "1A2B",
+      unitCode: 4,
+      unitSource: "declared",
+      importerVersion: 1,
+    },
+  };
+  for (const mapping of input.drawingMappings)
+    mapping.source.sourceAnchors.push(structuredClone(dxfAnchor));
+
+  const canonical = canonicalizeVerifiedBoqV1_1Input(input);
+  const dxf = canonical.drawingMappings[0].source.sourceAnchors.find(
+    (anchor) => anchor.sourceKind === "dxf_entity",
+  );
+  assert.deepEqual(dxf, {
+    sourceFileId: ids.dxfFile,
+    sourceSha256: A,
+    sourceKind: "dxf_entity",
+    pdfRegion: null,
+    ifcGlobalId: null,
+    dxfEntity: {
+      entityKey: "entities:0",
+      entityType: "LINE",
+      sourceLayer: "A-WALL",
+      handle: "1A2B",
+      unitCode: 4,
+      unitSource: "declared",
+      importerVersion: 1,
+    },
+  });
+
+  for (const mutate of [
+    (anchor) => (anchor.unitSource = "guessed"),
+    (anchor) => (anchor.importerVersion = 2),
+    (anchor) => (anchor.handle = "not-hex"),
+  ]) {
+    const invalid = structuredClone(input);
+    for (const mapping of invalid.drawingMappings)
+      mutate(mapping.source.sourceAnchors.at(-1).dxfEntity);
+    assert.throws(
+      () => canonicalizeVerifiedBoqV1_1Input(invalid),
+      /원본 근거 종류와 좌표가 일치하지 않습니다|DXF/i,
+    );
+  }
+});
+
+test("1.1 canonical input preserves native DWG report and handle lineage", () => {
+  const input = mixedInput();
+  const dwgAnchor = {
+    sourceFileId: "00000000-0000-4000-8000-000000000995",
+    sourceSha256: E,
+    sourceKind: "dwg_entity",
+    pdfRegion: null,
+    ifcGlobalId: null,
+    dwgEntity: {
+      analysisJobId: "00000000-0000-4000-8000-000000000994",
+      reportSha256: F,
+      handle: "4A",
+      ownerHandle: "40",
+      layerHandle: "48",
+      entityType: "LINE",
+      sourceLayer: "QA_GEOMETRY",
+      unitCode: 4,
+      unitSource: "declared",
+      importerVersion: 1,
+    },
+  };
+  for (const mapping of input.drawingMappings)
+    mapping.source.sourceAnchors.push(structuredClone(dwgAnchor));
+
+  const canonical = canonicalizeVerifiedBoqV1_1Input(input);
+  assert.deepEqual(
+    canonical.drawingMappings[0].source.sourceAnchors.find(
+      (anchor) => anchor.sourceKind === "dwg_entity",
+    ),
+    dwgAnchor,
+  );
+  for (const mutate of [
+    (anchor) => (anchor.reportSha256 = "A".repeat(64)),
+    (anchor) => (anchor.handle = "04A"),
+    (anchor) => (anchor.entityType = "POLYLINE"),
+    (anchor) => (anchor.entityKey = "entities:0"),
+  ]) {
+    const invalid = structuredClone(input);
+    for (const mapping of invalid.drawingMappings)
+      mutate(mapping.source.sourceAnchors.at(-1).dwgEntity);
+    assert.throws(
+      () => canonicalizeVerifiedBoqV1_1Input(invalid),
+      /원본 근거 종류와 좌표가 일치하지 않습니다|DWG/i,
+    );
+  }
 });
 
 test("1.1 canonical business ordering ignores anti-correlated database IDs", () => {
@@ -1003,6 +1108,26 @@ test("approved comparison UI renders every cause state and closure without a pri
     "comparison.amountCloses",
   ])
     assert.match(component, new RegExp(total.replaceAll(".", "\\.")));
+  for (const quantity of [
+    "row.previousRawQuantity",
+    "row.currentRawQuantity",
+    "row.rawQuantityDelta",
+    "row.previousFinalQuantity",
+    "row.currentFinalQuantity",
+    "row.finalQuantityDelta",
+    "quantity.rawQuantityDelta",
+    "quantity.finalQuantityDelta",
+  ])
+    assert.match(component, new RegExp(quantity.replaceAll(".", "\\.")));
+  for (const label of [
+    "이전 원수량",
+    "현재 원수량",
+    "원수량 증감",
+    "이전 최종수량",
+    "현재 최종수량",
+    "최종수량 증감",
+  ])
+    assert.match(component, new RegExp(label));
   assert.doesNotMatch(component, /primary/i);
 });
 
@@ -1086,6 +1211,116 @@ test("approved 1.1 comparison attributes each exact waterfall category", () => {
       cause,
     );
   }
+});
+
+test("approved comparison exposes exact raw and final quantity deltas by row and cause", () => {
+  const current = mixedInput();
+  current.legacyMappings[0].sourceQuantity = "12";
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(mixedInput()),
+    approved(current),
+  );
+
+  assert.equal(comparison.status, "comparable");
+  assert.deepEqual(
+    comparison.rows.find((row) => row.itemCode === "001-A"),
+    {
+      itemCode: "001-A",
+      rowState: "changed",
+      unit: "m2",
+      previousRawQuantity: "11.1875",
+      currentRawQuantity: "13.1875",
+      rawQuantityDelta: "2",
+      previousFinalQuantity: "9.938",
+      currentFinalQuantity: "11.938",
+      finalQuantityDelta: "2",
+      quantityCauses: [
+        {
+          cause: "RAW",
+          unit: "m2",
+          rawQuantityDelta: "2",
+          finalQuantityDelta: "2",
+        },
+      ],
+      causes: [{ cause: "RAW", amountDeltaKrw: "400" }],
+      previousAmountKrw: "1988",
+      currentAmountKrw: "2388",
+      amountDeltaKrw: "400",
+    },
+  );
+});
+
+test("quantity cause waterfall separates adjustment and price without floating arithmetic", () => {
+  const current = mixedInput();
+  current.lines.find((line) => line.itemCode === "001-A").signedAdjustment =
+    "0";
+  current.resources[0].unitPriceKrw = "110";
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(mixedInput()),
+    approved(current),
+  );
+  const row = comparison.rows.find((item) => item.itemCode === "001-A");
+
+  assert.equal(comparison.status, "comparable");
+  assert.equal(row.rawQuantityDelta, "0");
+  assert.equal(row.finalQuantityDelta, "1.25");
+  assert.deepEqual(row.quantityCauses, [
+    {
+      cause: "ADJUSTMENT",
+      unit: "m2",
+      rawQuantityDelta: "0",
+      finalQuantityDelta: "1.25",
+    },
+    {
+      cause: "PRICE",
+      unit: "m2",
+      rawQuantityDelta: "0",
+      finalQuantityDelta: "0",
+    },
+  ]);
+});
+
+test("added and removed rows use exact zero only for the absent side", () => {
+  const removed = mixedInput();
+  removed.lines = removed.lines.filter((line) => line.itemCode === "001-A");
+  removed.drawingMappings = removed.drawingMappings
+    .filter((mapping) => mapping.lineId === ids.lineA)
+    .map((mapping) => ({ ...mapping, allocationFactor: "1" }));
+  removed.components = removed.components.filter(
+    (component) => component.lineId === ids.lineA,
+  );
+
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(mixedInput()),
+    approved(removed),
+  );
+  const row = comparison.rows.find((item) => item.itemCode === "002-B");
+  assert.equal(row.unit, "m2");
+  assert.equal(row.previousRawQuantity, "3.5625");
+  assert.equal(row.currentRawQuantity, null);
+  assert.equal(row.rawQuantityDelta, "-3.5625");
+  assert.equal(row.previousFinalQuantity, "3.688");
+  assert.equal(row.currentFinalQuantity, null);
+  assert.equal(row.finalQuantityDelta, "-3.688");
+});
+
+test("comparison fails closed instead of subtracting quantities with different units", () => {
+  const current = mixedInput();
+  for (const line of current.lines) line.unit = "EA";
+  current.legacyMappings[0].unit = "EA";
+  for (const drawing of current.drawingMappings) {
+    drawing.source.measurementKind = "count";
+    drawing.source.unit = "EA";
+  }
+  current.resources[0].unit = "EA";
+
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(mixedInput()),
+    approved(current),
+  );
+  assert.equal(comparison.status, "review");
+  assert.deepEqual(comparison.rows, []);
+  assert.match(comparison.message, /단위/);
 });
 
 test("comparison keeps multiple visible causes and closes their exact row totals", () => {
@@ -1341,6 +1576,42 @@ test("1.0 to 1.1 replay exposes the engine switch only as FORMULA", () => {
     comparison.rows.flatMap((row) => row.causes),
     [{ cause: "FORMULA", amountDeltaKrw: "0" }],
   );
+});
+
+test("byte-identical legacy-adapted inputs still expose a 1.0 to 1.1 engine switch", () => {
+  const legacy = legacyInput();
+  const current = {
+    ...structuredClone(legacy),
+    engineVersion: "VERIFIED-BOQ-1.1",
+    legacyMappings: structuredClone(legacy.mappings),
+    drawingMappings: [],
+    priceBook: {
+      id: "historical-price-book",
+      sourceFileId: "historical-price-file",
+      sourceSha256: A,
+      effectiveDate: "1970-01-01",
+      rightsBasis: "historical-approved-input",
+    },
+  };
+  delete current.mappings;
+
+  const comparison = compareVerifiedBoqApprovedStates(
+    approved(legacy, "VERIFIED-BOQ-1.0"),
+    approved(current),
+  );
+  const row = comparison.rows.find((item) => item.itemCode === "001-A");
+
+  assert.equal(comparison.status, "comparable");
+  assert.equal(row.rowState, "changed");
+  assert.deepEqual(row.causes, [{ cause: "FORMULA", amountDeltaKrw: "0" }]);
+  assert.deepEqual(row.quantityCauses, [
+    {
+      cause: "FORMULA",
+      unit: "m2",
+      rawQuantityDelta: "0",
+      finalQuantityDelta: "0",
+    },
+  ]);
 });
 
 test("comparison fails closed for unavailable engines ambiguous rows and invalid counterfactuals", () => {

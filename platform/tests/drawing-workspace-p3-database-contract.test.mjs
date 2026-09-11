@@ -65,6 +65,56 @@ const preloadStoreFenceMigration = await readFile(
   ),
   "utf8",
 );
+const m3CanonicalHardeningMigration = await readFile(
+  new URL(
+    "../supabase/migrations/20260902005000_drawing_workspace_m3_canonical_hardening.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+
+test("M3 canonical hardening rejects anonymous bootstrap and preserves staged exact retries", () => {
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /v_actor is null\s+or private\.lukas_qto_verified_session\(\) is not true/i,
+  );
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /v_revision\.status in \('review_requested','reviewed','approved'\)/i,
+  );
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /revoke all on function private\.lukas_drawing_request_collaborative_review\(\s*uuid,uuid,text,integer,bigint,jsonb\s*\) from public,anon,authenticated,service_role/i,
+  );
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /grant execute on function public\.lukas_drawing_collaboration_bootstrap\(uuid\) to authenticated/i,
+  );
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /create or replace function private\.lukas_drawing_workspace_checkpoint_bootstrap[\s\S]*private\.lukas_drawing_workspace_capability\(p_project_id\)[\s\S]*lukas_drawing_p2_canonical_snapshot/i,
+  );
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /return private\.lukas_drawing_workspace_checkpoint_bootstrap\(\s*v_project_id,p_revision_id\s*\)/i,
+  );
+  assert.doesNotMatch(
+    m3CanonicalHardeningMigration,
+    /return private\.lukas_drawing_collaboration_bootstrap\(\s*v_actor,v_project_id,p_revision_id\s*\)/i,
+  );
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /create or replace function private\.lukas_drawing_request_review_legacy_guard[\s\S]*lukas_qto_verified_session\(\) is true[\s\S]*lukas_qto_project_feature_active\(\s*v_revision\.project_id,'realtime_collaboration'\s*\)[\s\S]*lukas_drawing_collaboration_states/i,
+  );
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /create trigger lukas_drawing_operations_touch_revision[\s\S]*after insert on public\.lukas_drawing_operations/i,
+  );
+  assert.match(
+    m3CanonicalHardeningMigration,
+    /greatest\(\s*pg_catalog\.clock_timestamp\(\),r\.updated_at\+interval '1 microsecond'\s*\)/i,
+  );
+});
 
 test("P3 collaboration migration exposes only the bounded service contracts", () => {
   assert.match(

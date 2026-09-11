@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1hk-r2-r5-runtime-validation/1",
+  "snapshotRoot": "/private/tmp/1hk-r2-r5-runtime.bQ2KdI",
+  "publishDirectory": "/private/tmp/1hk-r2-r5-runtime.bQ2KdI/runtime-native-publish",
+  "command": "/opt/homebrew/Cellar/node/26.5.0/bin/node scripts/run-drawing-workspace-m1-e2e.mjs",
+  "startedAt": "2026-09-06T04:52:49.260Z",
+  "completedAt": "2026-09-06T04:58:48.774Z",
+  "exitCode": 1,
+  "signal": null
+}

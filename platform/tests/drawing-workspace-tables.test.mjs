@@ -574,9 +574,15 @@ const semanticInspectorComponents = await vite
 const quantityInspectorComponents = await vite
   .ssrLoadModule("/app/lukas/components/drawing-quantity-inspector.tsx")
   .catch(() => ({}));
+const verifiedBoqComparisonComponents = await vite
+  .ssrLoadModule("/app/lukas/components/verified-boq-comparison.tsx")
+  .catch(() => ({}));
 const drawingInspectorComponents = await vite
   .ssrLoadModule("/app/lukas/components/drawing-inspector.tsx")
   .catch(() => ({}));
+const verifiedBoqComparisonLinks = await import(
+  "../app/lukas/lib/verified-boq-comparison-links.ts"
+);
 const semanticSchedules = await import(
   "../app/lukas/lib/drawing-semantic-schedules.ts"
 );
@@ -878,6 +884,362 @@ test("quantity inspector exposes exact confirmed primitive rows and buttons", ()
   assert.match(arc, /aria-label="길이 수량"/);
   assert.match(arc, /aria-label="개수 수량"/);
   assert.doesNotMatch(arc, /aria-label="면적 수량"/);
+
+  const calibratedLine = {
+    ...primitives[0],
+    geometry: {
+      type: "line",
+      start: { x: 10, y: 20 },
+      end: { x: 60, y: 20 },
+    },
+  };
+  const calibratedCanvas = {
+    id: ids.canvas,
+    pageId: ids.page,
+    name: "Paper",
+    spaceKind: "paper",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: {
+      sourceFileId: "10000000-0000-4000-8000-000000000097",
+      sourceSha256: "a".repeat(64),
+      pdfPageNumber: 1,
+      calibration: {
+        normalizedStart: { x: 0.1, y: 0.2 },
+        normalizedEnd: { x: 0.6, y: 0.2 },
+        realLengthMillimeters: 5_000,
+        millimetersPerNormalizedUnit: 10_000,
+      },
+    },
+    sortOrder: 0,
+    version: 1,
+  };
+  const calibratedState = {
+    revisionId: ids.revision,
+    objects: { [calibratedLine.id]: calibratedLine },
+    layers: {
+      [ids.layer]: {
+        id: ids.layer,
+        name: "Work",
+        visible: true,
+        locked: false,
+        systemKind: "work",
+        canvasId: calibratedCanvas.id,
+        sortOrder: 0,
+        version: 1,
+      },
+    },
+    structure: { canvases: { [calibratedCanvas.id]: calibratedCanvas } },
+  };
+  const calibratedEvidence =
+    semanticSchedules.deriveDrawingServerMeasurementEvidence({
+      ...lineage,
+      state: calibratedState,
+    });
+  const calibratedMarkup = renderToStaticMarkup(
+    createElement(RouterProvider, {
+      router: createMemoryRouter([
+        {
+          path: "/",
+          element: createElement(
+            quantityInspectorComponents.DrawingQuantityInspector,
+            {
+              canCreateQuantity: false,
+              canvas: calibratedCanvas,
+              evidence: calibratedEvidence,
+              hasUnconfirmedChanges: false,
+              lineage,
+              object: calibratedLine,
+              projectId: "10000000-0000-4000-8000-000000000096",
+              quantityLineage: null,
+              revisionStatus: "draft",
+              state: calibratedState,
+            },
+          ),
+        },
+      ]),
+    }),
+  );
+  assert.match(calibratedMarkup, /미리보기 · 5 m/);
+  assert.match(calibratedMarkup, /서버 측정 · 5 m/);
+});
+
+test("quantity inspector links an exact BOQ row and material-field lineage for viewers", () => {
+  const entry = object(
+    "10000000-0000-4000-8000-000000000091",
+    "Linked line",
+    "line",
+  );
+  entry.geometry = {
+    type: "line",
+    start: { x: 0, y: 0 },
+    end: { x: 1_000, y: 0 },
+  };
+  const projectId = "10000000-0000-4000-8000-000000000096";
+  const boqVersionId = "10000000-0000-4000-8000-000000000097";
+  const boqLineId = "10000000-0000-4000-8000-000000000098";
+  const renderLineage = (
+    hasMaterialLineage,
+    materialProgress = {
+      handoff: hasMaterialLineage,
+      purchaseOrder: false,
+      goodsReceipt: false,
+      siteActivity: false,
+      carbonEvidence: false,
+    },
+  ) =>
+    renderToStaticMarkup(
+      createElement(RouterProvider, {
+        router: createMemoryRouter([
+          {
+            path: "/",
+            element: createElement(
+              quantityInspectorComponents.DrawingQuantityInspector,
+              {
+                canCreateQuantity: false,
+                evidence: null,
+                hasUnconfirmedChanges: false,
+                lineage: null,
+                object: entry,
+                projectId,
+                quantityLineage: {
+                  nextCursor: null,
+                  rows: [
+                    {
+                      quantity: {
+                        id: "10000000-0000-4000-8000-000000000099",
+                        projectId,
+                        drawingRevisionId:
+                          "10000000-0000-4000-8000-000000000102",
+                        drawingRevisionVersion: 2,
+                        drawingObjectId: entry.id,
+                        drawingSnapshotSha256: "a".repeat(64),
+                        drawingObjectLineageId:
+                          "10000000-0000-4000-8000-000000000100",
+                        drawingObjectVersion: 1,
+                        objectFingerprint: "b".repeat(64),
+                        measurementKind: "length",
+                        rawQuantity: "1",
+                        unit: "m",
+                        measurementRuleVersion: "P4_MEASUREMENT_V1",
+                        createdBy: "10000000-0000-4000-8000-000000000103",
+                        createdAt: "2026-09-03T00:00:00.000Z",
+                      },
+                      boqLinks: [
+                        {
+                          id: "10000000-0000-4000-8000-000000000101",
+                          boqVersionId,
+                          boqVersionStatus: "approved",
+                          boqLineId,
+                          itemCode: "A-001",
+                          allocationFactor: "1",
+                          hasMaterialLineage,
+                          materialProgress,
+                          version: 1,
+                        },
+                      ],
+                    },
+                  ],
+                },
+                revisionStatus: "approved",
+                state: { objects: { [entry.id]: entry } },
+              },
+            ),
+          },
+        ]),
+      }),
+    );
+  const html = renderLineage(true);
+
+  assert.match(
+    html,
+    new RegExp(
+      `/projects/${projectId}/boq\\?version=${boqVersionId}(?:&amp;|&)line=${boqLineId}`,
+    ),
+  );
+  assert.match(
+    html,
+    new RegExp(
+      `/projects/${projectId}/materials\\?version=${boqVersionId}(?:&amp;|&)boqLineId=${boqLineId}`,
+    ),
+  );
+  assert.match(html, /자재 인계 및 후속 기록 확인/);
+  assert.match(html, /aria-label="객체 업무 계보 레코드 A-001"/);
+  assert.match(html, /객체 → 승인 스냅샷 → 확정 수량 → BOQ·금액 → 자재 인계/);
+  assert.match(html, /승인 완료 · A-001 · 배분 1/);
+  assert.match(
+    html,
+    new RegExp(
+      `/projects/${projectId}/boq\\?version=${boqVersionId}(?:&amp;|&)line=${boqLineId}#verified-boq-comparison-row-412d303031`,
+    ),
+  );
+  assert.match(html, /BOQ 수량·금액 상세 보기 · 비교 가능 시 변경 원인/);
+  assert.equal(
+    html.match(/min-h-9/g)?.length,
+    3,
+    "each evidence link needs a tablet-sized target",
+  );
+  assert.match(html, /자재 인계 · <\/dt><dd class="inline">연결됨/);
+  assert.match(html, /aria-label="자재 이후 진행 A-001"/);
+  assert.match(html, /자재 인계[^<]*연결됨/);
+  assert.match(html, /발주[^<]*대기/);
+  assert.match(html, /입고[^<]*대기/);
+  assert.match(html, /시공·폐기[^<]*대기/);
+  assert.match(html, /탄소 근거[^<]*대기/);
+  assert.doesNotMatch(html, /확정 근거 만들기/);
+
+  const completedHtml = renderLineage(true, {
+    handoff: true,
+    purchaseOrder: true,
+    goodsReceipt: true,
+    siteActivity: true,
+    carbonEvidence: true,
+  });
+  for (const label of ["자재 인계", "발주", "입고", "시공·폐기", "탄소 근거"])
+    assert.match(completedHtml, new RegExp(`${label}[^<]*연결됨`));
+
+  const pendingHtml = renderLineage(false);
+  assert.match(
+    pendingHtml,
+    /객체 → 승인 스냅샷 → 확정 수량 → BOQ·금액 → 자재 인계\(대기\)/,
+  );
+  assert.doesNotMatch(
+    pendingHtml,
+    /객체 → 승인 스냅샷 → 확정 수량 → BOQ·금액 → 자재 인계</,
+  );
+});
+
+test("approved BOQ comparison focuses the row linked from a drawing object", () => {
+  const html = renderToStaticMarkup(
+    createElement(verifiedBoqComparisonComponents.VerifiedBoqComparison, {
+      comparison: {
+        status: "comparable",
+        message: "원인 합계가 전체 증감과 일치합니다.",
+        rows: [
+          {
+            itemCode: "A-001",
+            rowState: "changed",
+            unit: "m",
+            previousRawQuantity: "1",
+            currentRawQuantity: "2",
+            rawQuantityDelta: "1",
+            previousFinalQuantity: "1",
+            currentFinalQuantity: "2",
+            finalQuantityDelta: "1",
+            quantityCauses: [
+              {
+                cause: "RAW",
+                unit: "m",
+                rawQuantityDelta: "1",
+                finalQuantityDelta: "1",
+              },
+            ],
+            causes: [{ cause: "RAW", amountDeltaKrw: "1000" }],
+            previousAmountKrw: "1000",
+            currentAmountKrw: "2000",
+            amountDeltaKrw: "1000",
+          },
+        ],
+        amountDeltaKrw: "1000",
+        causeAmountDeltaKrw: "1000",
+        rowAmountDeltaKrw: "1000",
+        amountCloses: true,
+      },
+      focusedItemCode: "A-001",
+      focusedLocationHash: "#verified-boq-comparison-row-412d303031",
+    }),
+  );
+
+  assert.match(html, /id="verified-boq-comparison-row-412d303031"/);
+  assert.match(html, /target:bg-indigo-50/);
+  assert.match(html, /dark:target:bg-indigo-950/);
+  assert.match(html, /dark:target:outline-indigo-300/);
+  assert.match(html, /data-linked-item="true"/);
+  assert.match(html, /tabindex="-1"/);
+  assert.doesNotMatch(html, /data-focused="true"/);
+  assert.doesNotMatch(html, /선택한 도면 객체의 BOQ 품목/);
+});
+
+test("approved BOQ comparison does not mark a row without its exact fragment", () => {
+  const comparison = {
+    status: "comparable",
+    message: "원인 합계가 전체 증감과 일치합니다.",
+    rows: [
+      {
+        itemCode: "A-001",
+        rowState: "changed",
+        unit: "m",
+        previousRawQuantity: "1",
+        currentRawQuantity: "2",
+        rawQuantityDelta: "1",
+        previousFinalQuantity: "1",
+        currentFinalQuantity: "2",
+        finalQuantityDelta: "1",
+        quantityCauses: [],
+        causes: [],
+        previousAmountKrw: "1000",
+        currentAmountKrw: "2000",
+        amountDeltaKrw: "1000",
+      },
+    ],
+    amountDeltaKrw: "1000",
+    causeAmountDeltaKrw: "1000",
+    rowAmountDeltaKrw: "1000",
+    amountCloses: true,
+  };
+  const renderComparison = (focusedLocationHash) =>
+    renderToStaticMarkup(
+      createElement(verifiedBoqComparisonComponents.VerifiedBoqComparison, {
+        comparison,
+        focusedItemCode: "A-001",
+        focusedLocationHash,
+      }),
+    );
+  const html = renderComparison("#different-fragment");
+
+  assert.match(html, /id="verified-boq-comparison-row-412d303031"/);
+  assert.doesNotMatch(html, /data-focused="true"/);
+  assert.doesNotMatch(html, /선택한 도면 객체의 BOQ 품목/);
+  assert.equal(
+    renderComparison("#verified-boq-comparison-row-412d303031"),
+    html,
+    "fragment state must not change the server/hydration markup",
+  );
+});
+
+test("approved BOQ comparison focuses only the exact drawing-object fragment", () => {
+  let focusCount = 0;
+  const row = { focus: () => (focusCount += 1) };
+
+  assert.equal(
+    verifiedBoqComparisonComponents.focusVerifiedBoqComparisonRow(
+      row,
+      "#verified-boq-comparison-row-412d303031",
+      "A-001",
+    ),
+    true,
+  );
+  assert.equal(focusCount, 1);
+  assert.equal(
+    verifiedBoqComparisonComponents.focusVerifiedBoqComparisonRow(
+      row,
+      "#verified-boq-comparison-row-B-002",
+      "A-001",
+    ),
+    false,
+  );
+  assert.equal(focusCount, 1);
+});
+
+test("BOQ comparison row fragments cannot collide across distinct item codes", () => {
+  assert.equal(
+    verifiedBoqComparisonLinks.verifiedBoqComparisonRowId("A-001"),
+    "verified-boq-comparison-row-412d303031",
+  );
+  assert.notEqual(
+    verifiedBoqComparisonLinks.verifiedBoqComparisonRowId("/"),
+    verifiedBoqComparisonLinks.verifiedBoqComparisonRowId("_2F"),
+  );
 });
 
 test("semantic schedules render read-only preview versus checkpoint-bound server evidence", () => {
@@ -949,14 +1311,45 @@ test("semantic schedules render read-only preview versus checkpoint-bound server
   ])
     assert.match(confirmed, new RegExp(label));
   assert.equal((confirmed.match(/<table/g) ?? []).length, 3);
-  assert.match(confirmed, /data-drawing-server-evidence=/);
+  assert.match(confirmed, /data-drawing-server-evidence="confirmed"/);
+  assert.match(
+    confirmed,
+    new RegExp(
+      `data-drawing-server-evidence-document-id="${lineage.documentId}"`,
+    ),
+  );
+  assert.match(
+    confirmed,
+    new RegExp(
+      `data-drawing-server-evidence-revision-id="${lineage.revisionId}"`,
+    ),
+  );
+  assert.match(confirmed, /data-drawing-server-evidence-revision-version="2"/);
+  assert.match(
+    confirmed,
+    new RegExp(
+      `data-drawing-server-evidence-snapshot-sha256="${lineage.snapshotSha256}"`,
+    ),
+  );
+  assert.match(
+    confirmed,
+    /data-drawing-server-evidence-operation-checkpoint="9"/,
+  );
+  assert.match(
+    confirmed,
+    /data-drawing-server-evidence-rule-version="P4_MEASUREMENT_V1"/,
+  );
+  assert.doesNotMatch(
+    confirmed,
+    /&quot;(?:measurements|objectFingerprints|schedules)&quot;/,
+  );
   assert.doesNotMatch(confirmed, /<form|<input|<select|<button/);
 
   const stale = render(10, true);
   assert.match(stale, /미리보기/);
   assert.match(stale, /오래됨|미확정|일치하지/);
   assert.doesNotMatch(stale, /Room schedule · 서버 증거/);
-  assert.doesNotMatch(stale, /data-drawing-server-evidence=/);
+  assert.doesNotMatch(stale, /data-drawing-server-evidence(?:=|-)/);
 });
 
 test("semantic inspector confirms only matching server object evidence", () => {

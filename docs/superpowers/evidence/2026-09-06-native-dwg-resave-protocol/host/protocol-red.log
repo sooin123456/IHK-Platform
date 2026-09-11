@@ -1,0 +1,106 @@
+✖ encoder snapshots exact bytes with a literal big endian 16 byte header and frozen identities (0.9675ms)
+✖ encoder rejects unbound source, malformed metadata, handles, types, UTF8, BOM and bounded lengths (0.265834ms)
+✖ encoder preserves native geometry and duplicate-key validation bytes without reserialization (0.160791ms)
+✖ decoder accepts strict literal success frame and exact output identities (0.5015ms)
+✖ decoder rejects malformed framing, UTF8/BOM, lengths, altered DWG and trailing bytes (0.251125ms)
+✖ decoder rejects extra shape, changed bindings, handle order/count and authority-bearing status (0.230666ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 0
+ℹ fail 6
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 54.004208
+
+✖ failing tests:
+
+test at tests/drawing-native-dwg-resave-protocol.test.mjs:34:1
+✖ encoder snapshots exact bytes with a literal big endian 16 byte header and frozen identities (0.9675ms)
+  AssertionError [ERR_ASSERTION]: Required protocol API absent: NativeDrawingDwgResaveReportSchema
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:29:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:35:57)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-protocol.test.mjs:47:1
+✖ encoder rejects unbound source, malformed metadata, handles, types, UTF8, BOM and bounded lengths (0.265834ms)
+  AssertionError [ERR_ASSERTION]: Required protocol API absent: NativeDrawingDwgResaveReportSchema
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:29:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:48:57)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-protocol.test.mjs:72:1
+✖ encoder preserves native geometry and duplicate-key validation bytes without reserialization (0.160791ms)
+  AssertionError [ERR_ASSERTION]: Required protocol API absent: NativeDrawingDwgResaveReportSchema
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:29:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:73:57)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-protocol.test.mjs:79:1
+✖ decoder accepts strict literal success frame and exact output identities (0.5015ms)
+  AssertionError [ERR_ASSERTION]: Required protocol API absent: NativeDrawingDwgResaveReportSchema
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:29:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:80:58)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-protocol.test.mjs:87:1
+✖ decoder rejects malformed framing, UTF8/BOM, lengths, altered DWG and trailing bytes (0.251125ms)
+  AssertionError [ERR_ASSERTION]: Required protocol API absent: NativeDrawingDwgResaveReportSchema
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:29:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:88:58)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-protocol.test.mjs:100:1
+✖ decoder rejects extra shape, changed bindings, handle order/count and authority-bearing status (0.230666ms)
+  AssertionError [ERR_ASSERTION]: Required protocol API absent: NativeDrawingDwgResaveReportSchema
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:29:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-protocol.test.mjs:101:102)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

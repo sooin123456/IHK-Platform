@@ -7,6 +7,8 @@ import {
 } from "./drawing-workspace.types.ts";
 
 export const DRAWING_COLLABORATION_SCHEMA_VERSION = 1 as const;
+export const DRAWING_COLLABORATION_RECONSTRUCTED_CREATED_AT =
+  "1970-01-01T00:00:00.000Z" as const;
 export const DRAWING_COLLABORATION_SERVER_ORIGIN = Symbol(
   "drawing-collaboration-server",
 );
@@ -28,6 +30,7 @@ export const DRAWING_COLLABORATION_COLLECTIONS = [
 export const DRAWING_COLLABORATION_LIMITS = {
   maxOperationBytes: 64 * 1024,
   maxOperations: 10_000,
+  maxOperationContributions: 20_000,
   maxBaseVersions: 256,
   maxActionItems: 256,
   maxResultVersions: 256,
@@ -88,7 +91,10 @@ export const DrawingCollaborationStatusSchema = z
     operationId: CanonicalUuidSchema,
     status: z.enum(["pending", "acked", "conflicted", "rejected"]),
     authoritativeSequence: PositiveIntegerSchema.nullable(),
-    resultVersions: z.record(CanonicalUuidSchema, PositiveIntegerSchema),
+    resultVersions: z.record(
+      CanonicalUuidSchema,
+      PositiveIntegerSchema.nullable(),
+    ),
   })
   .strict()
   .superRefine((status, context) => {
@@ -119,8 +125,64 @@ export type DrawingCollaborationOperation = DrawingOperationInput & {
   schemaVersion: typeof DRAWING_COLLABORATION_SCHEMA_VERSION;
 };
 
+type DrawingCollaborationOperationDigestInput = Pick<
+  DrawingOperationInput,
+  | "baseVersions"
+  | "clientOperationId"
+  | "forward"
+  | "inverse"
+  | "revisionId"
+  | "type"
+> &
+  Partial<Pick<DrawingOperationInput, "historyAction" | "originalOperationId">>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value))
+      throw new RangeError("Drawing operation digest number is invalid.");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  if (isRecord(value))
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  throw new RangeError("Drawing operation digest value is invalid.");
+}
+
+/** Immutable operation body shared by Postgres receipts and local recovery. */
+export function drawingCollaborationOperationDigestSource(
+  operation: DrawingCollaborationOperationDigestInput,
+  actorId: string,
+) {
+  if (
+    Boolean(operation.historyAction) !== Boolean(operation.originalOperationId)
+  )
+    throw new Error("Drawing operation history digest is incomplete.");
+  return canonicalJson({
+    actorId: canonicalUuid(actorId),
+    baseVersions: operation.baseVersions,
+    clientOperationId: operation.clientOperationId,
+    forward: operation.forward,
+    ...(operation.historyAction && operation.originalOperationId
+      ? {
+          historyAction: operation.historyAction,
+          originalOperationId: operation.originalOperationId,
+        }
+      : {}),
+    inverse: operation.inverse,
+    revisionId: operation.revisionId,
+    schemaVersion: DRAWING_COLLABORATION_SCHEMA_VERSION,
+    type: operation.type,
+  });
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
@@ -247,9 +309,55 @@ const DrawingCollaborationOperationValidatedSchema = z
 export const DrawingCollaborationOperationSchema =
   DrawingCollaborationOperationValidatedSchema as z.ZodType<DrawingCollaborationOperation>;
 
+/**
+ * Reconstructs only checkpoint outcomes that are also valid live-ledger entries.
+ * A null result is still a valid authoritative operation: its effects already
+ * live in the SHA-bound canonical snapshot and must not weaken live limits.
+ */
+export function drawingCollaborationOperationFromSnapshotOutcome(outcome: {
+  clientOperationId: unknown;
+  revisionId: unknown;
+  actorId: unknown;
+  operationType: unknown;
+  baseVersions: unknown;
+  forward: unknown;
+  inverse: unknown;
+  originalOperationId?: unknown;
+  historyAction?: unknown;
+}) {
+  const operation = DrawingOperationInputSchema.parse({
+    clientOperationId: outcome.clientOperationId,
+    revisionId: outcome.revisionId,
+    type: outcome.operationType,
+    baseVersions: outcome.baseVersions,
+    forward: outcome.forward,
+    inverse: outcome.inverse,
+    createdAt: DRAWING_COLLABORATION_RECONSTRUCTED_CREATED_AT,
+    ...(outcome.originalOperationId === undefined
+      ? {}
+      : { originalOperationId: outcome.originalOperationId }),
+    ...(outcome.historyAction === undefined
+      ? {}
+      : { historyAction: outcome.historyAction }),
+  });
+  const parsed = DrawingCollaborationOperationSchema.safeParse({
+    ...operation,
+    actorId: canonicalUuid(outcome.actorId),
+    schemaVersion: DRAWING_COLLABORATION_SCHEMA_VERSION,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
 export const DrawingCollaborationOperationOrderSchema = z
   .array(CanonicalUuidSchema)
-  .max(DRAWING_COLLABORATION_LIMITS.maxOperations)
+  .max(DRAWING_COLLABORATION_LIMITS.maxOperationContributions)
+  .superRefine((operationIds, context) => {
+    if (new Set(operationIds).size > DRAWING_COLLABORATION_LIMITS.maxOperations)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Too many unique drawing operations.",
+      });
+  })
   .transform((operationIds) => [...new Set(operationIds)]);
 
 const DrawingCollaborationLedgerSchema = z
@@ -311,6 +419,27 @@ function sameJsonValue(left: unknown, right: unknown): boolean {
   );
 }
 
+/**
+ * Postgres stores the durable operation body but not the client's clock. A
+ * restart therefore reconstructs that one non-authoritative field with the
+ * reserved epoch while every state-bearing field remains immutable.
+ */
+export function resolveDrawingCollaborationOperation(
+  left: DrawingCollaborationOperation,
+  right: DrawingCollaborationOperation,
+): DrawingCollaborationOperation | null {
+  if (sameJsonValue(left, right)) return left;
+  const leftReconstructed =
+    left.createdAt === DRAWING_COLLABORATION_RECONSTRUCTED_CREATED_AT;
+  const rightReconstructed =
+    right.createdAt === DRAWING_COLLABORATION_RECONSTRUCTED_CREATED_AT;
+  if (leftReconstructed === rightReconstructed) return null;
+  const { createdAt: _leftCreatedAt, ...leftDurable } = left;
+  const { createdAt: _rightCreatedAt, ...rightDurable } = right;
+  if (!sameJsonValue(leftDurable, rightDurable)) return null;
+  return leftReconstructed ? right : left;
+}
+
 /** Validates the bounded append-only suffix that a verified editor may contribute. */
 export function validateDrawingCollaborationAppend(
   currentValue: unknown,
@@ -324,9 +453,20 @@ export function validateDrawingCollaborationAppend(
   const room = parseDrawingRoomName(roomName);
   if (
     next.operationOrder.length === current.operationOrder.length &&
-    sameJsonValue(next, current)
-  )
-    return next;
+    sameJsonValue(next.operationOrder, current.operationOrder)
+  ) {
+    const operations: Record<string, DrawingCollaborationOperation> = {};
+    for (const operationId of current.operationOrder) {
+      const resolved = resolveDrawingCollaborationOperation(
+        current.operations[operationId],
+        next.operations[operationId],
+      );
+      if (!resolved)
+        throw new Error("Existing drawing operations and order are immutable.");
+      operations[operationId] = resolved;
+    }
+    return { operationOrder: next.operationOrder, operations };
+  }
   if (next.operationOrder.length <= current.operationOrder.length)
     throw new Error("Client updates must append drawing operations.");
   const currentIds = new Set(current.operationOrder);
@@ -342,14 +482,15 @@ export function validateDrawingCollaborationAppend(
   )
     throw new Error("Existing drawing operation order is immutable.");
   for (const operationId of current.operationOrder) {
-    if (
-      !nextIds.has(operationId) ||
-      !sameJsonValue(
-        next.operations[operationId],
-        current.operations[operationId],
-      )
-    )
+    const resolved = nextIds.has(operationId)
+      ? resolveDrawingCollaborationOperation(
+          current.operations[operationId],
+          next.operations[operationId],
+        )
+      : null;
+    if (!resolved)
       throw new Error("Existing drawing operations and order are immutable.");
+    next.operations[operationId] = resolved;
   }
   for (const appendedId of next.operationOrder.filter(
     (operationId) => !currentIds.has(operationId),

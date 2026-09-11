@@ -1,0 +1,16 @@
+✔ a connected transport is not shown as admitted before initial sync (66.775542ms)
+✔ transient admission retries automatically and preserves pending local changes (3019.479541ms)
+✔ permanent permission denial stops automatic retries and is not labeled offline (1218.942ms)
+✔ disposing a pending retry cancels work and late status callbacks, not the document (1218.766ms)
+✔ simultaneous refresh events share one handshake and cannot restart after disposal (68.912666ms)
+✔ a transport reconnect resynchronizes the retained document before reporting connected (1040.344166ms)
+✔ a server document-only permission revocation cannot leave a connected badge or auto retry (1230.26375ms)
+✔ retry and rejected access have distinct accessible guidance without claiming synchronization (117.140917ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7993.142583

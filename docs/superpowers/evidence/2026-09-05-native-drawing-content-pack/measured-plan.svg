@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="420mm" height="297mm" viewBox="0 0 21000 14850">
+<rect x="0" y="0" width="21000" height="14850" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8100-000000000008" data-semantic-type="wall" role="img" aria-label="남측 벽 · wall · 두께 150 mm · 높이 2700 mm" transform="matrix(1 0 0 1 0 0)">
+<line x1="2500" y1="3000" x2="8500" y2="3000" fill="none" stroke="#27313a" stroke-width="150" stroke-linecap="square"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000009" data-semantic-type="wall" role="img" aria-label="동측 벽 · wall · 두께 150 mm · 높이 2700 mm" transform="matrix(1 0 0 1 0 0)">
+<line x1="8500" y1="3000" x2="8500" y2="7000" fill="none" stroke="#27313a" stroke-width="150" stroke-linecap="square"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000010" data-semantic-type="wall" role="img" aria-label="북측 벽 · wall · 두께 150 mm · 높이 2700 mm" transform="matrix(1 0 0 1 0 0)">
+<line x1="8500" y1="7000" x2="2500" y2="7000" fill="none" stroke="#27313a" stroke-width="150" stroke-linecap="square"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000011" data-semantic-type="wall" role="img" aria-label="서측 벽 · wall · 두께 150 mm · 높이 2700 mm" transform="matrix(1 0 0 1 0 0)">
+<line x1="2500" y1="7000" x2="2500" y2="3000" fill="none" stroke="#27313a" stroke-width="150" stroke-linecap="square"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000012" data-semantic-type="opening" role="img" aria-label="출입문 개구부 · opening · door · 오프셋 2300 mm · 너비 900 mm · 높이 2100 mm · 문턱 0 mm" transform="matrix(1 0 0 1 0 0)">
+<line x1="4350" y1="3000" x2="5250" y2="3000" fill="none" stroke="#ffffff" stroke-width="154"/>
+<line x1="4350" y1="3000" x2="5250" y2="3000" fill="none" stroke="#27313a" stroke-width="10"/>
+<line x1="4350" y1="3000" x2="4350" y2="3087.5" fill="none" stroke="#27313a" stroke-width="6"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000013" data-semantic-type="space" role="img" aria-label="E-01 · 예제실 24㎡ · space · 바닥 예제 마감 · 벽 예제 마감 · 천장 예제 마감" transform="matrix(1 0 0 1 0 0)">
+<polygon points="2500,3000 8500,3000 8500,7000 2500,7000" fill="#f4f7fa" stroke="#27313a" stroke-width="25"/>
+<clipPath id="drawing-export-clip-5-semantic-label"><rect x="0" y="0" width="1800" height="168"/></clipPath>
+<g transform="translate(4600 4930) rotate(0)"><text aria-hidden="true" clip-path="url(#drawing-export-clip-5-semantic-label)" fill="#27313a" font-family="sans-serif" font-size="140" text-anchor="middle" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="900" y="0">E-01 · 예제실 24㎡</tspan></text></g>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000017/jamb-left" transform="matrix(1 0 0 1 4350 3000)">
+<line x1="0" y1="0" x2="0" y2="100" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000017/jamb-right" transform="matrix(1 0 0 1 4350 3000)">
+<line x1="900" y1="0" x2="900" y2="100" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000017/leaf" transform="matrix(1 0 0 1 4350 3000)">
+<line x1="0" y1="0" x2="0" y2="900" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000017/swing" transform="matrix(1 0 0 1 4350 3000)">
+<polyline points="900,0 869.3334,232.9371 779.4225,450 636.3963,636.3963 450,779.4225 232.9371,869.3334 0,900" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000028" transform="matrix(1 0 0 1 0 0)">
+<clipPath id="drawing-export-clip-10"><rect x="1500" y="900" width="12000" height="336"/></clipPath>
+<text x="1500" y="900" clip-path="url(#drawing-export-clip-10)" fill="#285c88" font-family="sans-serif" font-size="140" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="1500" y="900">치수 평면 예제</tspan><tspan x="1500" y="1068">예제·가정값 — 현장 확인 필요</tspan></text>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000014" transform="matrix(1 0 0 1 0 0)">
+<line x1="2500" y1="2400" x2="8500" y2="2400" fill="none" stroke="#285c88" stroke-width="18"/>
+<line x1="2500" y1="3000" x2="2500" y2="2400" fill="none" stroke="#285c88" stroke-width="18"/>
+<line x1="8500" y1="3000" x2="8500" y2="2400" fill="none" stroke="#285c88" stroke-width="18"/>
+<clipPath id="drawing-export-clip-11"><rect x="5500" y="2400" width="756" height="168"/></clipPath>
+<text x="5500" y="2400" clip-path="url(#drawing-export-clip-11)" fill="#285c88" font-family="sans-serif" font-size="140" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="5500" y="2400">6000.0 mm</tspan></text>
+</g>
+<g data-export-id="10000000-0000-4000-8100-000000000015" transform="matrix(1 0 0 1 0 0)">
+<line x1="3100" y1="3000" x2="3100" y2="7000" fill="none" stroke="#285c88" stroke-width="18"/>
+<line x1="2500" y1="3000" x2="3100" y2="3000" fill="none" stroke="#285c88" stroke-width="18"/>
+<line x1="2500" y1="7000" x2="3100" y2="7000" fill="none" stroke="#285c88" stroke-width="18"/>
+<clipPath id="drawing-export-clip-12"><rect x="3100" y="5000" width="756" height="168"/></clipPath>
+<text x="3100" y="5000" clip-path="url(#drawing-export-clip-12)" fill="#285c88" font-family="sans-serif" font-size="140" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="3100" y="5000">4000.0 mm</tspan></text>
+</g>
+</svg>

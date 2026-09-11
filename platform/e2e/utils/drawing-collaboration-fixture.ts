@@ -15,7 +15,7 @@ type VerifiedFixtureUpload = {
   bytes: Uint8Array;
   contentType: string;
   extension: string;
-  kind: "pdf" | "ifc" | "estimate" | "other";
+  kind: "pdf" | "ifc" | "dxf" | "estimate" | "other";
   originalFilename: string;
 };
 
@@ -67,7 +67,8 @@ async function cleanupDrawingResources(
 ) {
   const cleanupErrors: Error[] = [];
   let storagePurge:
-    { eventId: string; manifestSha256: string; paths: string[] } | undefined;
+    | { eventId: string; manifestSha256: string; paths: string[] }
+    | undefined;
   const attempt = async (
     label: string,
     operation: () => Promise<{ error: unknown }>,
@@ -326,6 +327,182 @@ export function requireDrawingP3ProductionCredentials(
   return normalized;
 }
 
+function isLoopbackUrl(value: string | undefined, protocols: string[]) {
+  if (!isActualProductionValue(value)) return false;
+  try {
+    const url = new URL(value!);
+    return (
+      protocols.includes(url.protocol) &&
+      ["127.0.0.1", "[::1]", "::1"].includes(url.hostname.toLowerCase())
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function requireDrawingP3DisposableCredentials(
+  environment: Record<string, string | undefined>,
+) {
+  const invalid = new Set<string>();
+  if (environment.M1_E2E_P3_DISPOSABLE !== "1")
+    invalid.add("M1_E2E_P3_DISPOSABLE");
+  if (environment.M1_E2E_DISPOSABLE !== "1")
+    invalid.add("M1_E2E_DISPOSABLE");
+  if (environment.E2E_BASE_URL !== "http://127.0.0.1:4000")
+    invalid.add("E2E_BASE_URL");
+  if (
+    environment.VITE_DRAWING_COLLABORATION_URL !== "ws://127.0.0.1:12349"
+  )
+    invalid.add("VITE_DRAWING_COLLABORATION_URL");
+  if (
+    environment.COLLABORATION_INTERNAL_URL !== "http://127.0.0.1:12349"
+  )
+    invalid.add("COLLABORATION_INTERNAL_URL");
+  if (!isLoopbackUrl(environment.SUPABASE_URL, ["http:"]))
+    invalid.add("SUPABASE_URL");
+  for (const name of [
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  ] as const)
+    if (!isDrawingP3ProductionValue(name, environment[name]))
+      invalid.add(name);
+  const databaseUrl = environment.M1_REAL_POSTGRES_DATABASE_URL;
+  if (!isLoopbackUrl(databaseUrl, ["postgres:", "postgresql:"]))
+    invalid.add("M1_REAL_POSTGRES_DATABASE_URL");
+  if (
+    environment.P3_E2E_DATABASE_ADMIN_URL !== databaseUrl ||
+    !isLoopbackUrl(environment.P3_E2E_DATABASE_ADMIN_URL, [
+      "postgres:",
+      "postgresql:",
+    ])
+  )
+    invalid.add("P3_E2E_DATABASE_ADMIN_URL");
+  for (const name of [
+    "COLLABORATION_INTERNAL_SECRET",
+    "COLLABORATION_FREEZE_SECRET",
+    "P3_E2E_RUN_ID",
+  ] as const)
+    if (!isDrawingP3ProductionValue(name, environment[name]))
+      invalid.add(name);
+  if (
+    environment.COLLABORATION_INTERNAL_SECRET?.trim() ===
+    environment.COLLABORATION_FREEZE_SECRET?.trim()
+  )
+    invalid.add("COLLABORATION_FREEZE_SECRET");
+  if (invalid.size > 0)
+    throw new Error(
+      `P3 disposable gate is UNEXECUTED: runner-owned values are required for ${[...invalid].join(
+        ", ",
+      )}`,
+    );
+  return Object.fromEntries(
+    DRAWING_P3_PRODUCTION_VARIABLES.map((name) => [
+      name,
+      environment[name]!.trim(),
+    ]),
+  ) as Record<(typeof DRAWING_P3_PRODUCTION_VARIABLES)[number], string>;
+}
+
+export function buildDrawingP3WorkspacePath(
+  fixture: Pick<DrawingFixture, "projectId">,
+  workspace: Pick<WorkspaceFixture, "documentId">,
+  documentId = workspace.documentId,
+) {
+  return `/projects/${fixture.projectId}/workspaces/${documentId}`;
+}
+
+export const DRAWING_P3_SECOND_CANVAS_BUTTON_NAME =
+  /^P2 (?:paper|model) canvas 02 \((?:용지|모델)\)$/;
+
+export const DRAWING_P3_SECOND_OBJECT_TARGET = { x: 270, y: 140 } as const;
+
+export function buildDrawingP3ReflectionGesture(index: number) {
+  if (!Number.isInteger(index) || index < 0 || index >= 30)
+    throw new Error("P3 reflection gesture index is out of range");
+  const from = {
+    x: 40 + (index % 10) * 30,
+    y: 160 + Math.floor(index / 10) * 50,
+  };
+  return { from, to: { x: from.x + 20, y: from.y + 20 } };
+}
+
+const DRAWING_P3_DISPOSABLE_IFC_CLEANUP_SHA256 = createHash("sha256")
+  .update("1HK-P3-DISPOSABLE-IFC-CLEANUP-v1", "utf8")
+  .digest("hex");
+
+export async function failDrawingP3DisposableDerivativeJobs(
+  fixture: Pick<
+    DrawingFixture,
+    | "admin"
+    | "projectId"
+    | "ifcFileId"
+    | "revisedIfcFileId"
+    | "sourceEvidence"
+  >,
+  statusClient: Pick<SupabaseClient, "rpc">,
+) {
+  const sourceIds = [
+    fixture.ifcFileId,
+    fixture.revisedIfcFileId,
+  ];
+  const expectedSources = new Set(sourceIds);
+  for (let attempt = 0; attempt < sourceIds.length; attempt += 1) {
+    const claimed = await fixture.admin.rpc(
+      "lukas_drawing_claim_ifc_derivative_job_for_converter",
+      {
+        p_converter_sha256: DRAWING_P3_DISPOSABLE_IFC_CLEANUP_SHA256,
+        p_lease_seconds: 300,
+      },
+    );
+    if (claimed.error)
+      throw new Error("Disposable IFC derivative cleanup claim failed");
+    const candidate = Array.isArray(claimed.data) ? claimed.data[0] : null;
+    if (!candidate)
+      throw new Error("Disposable IFC derivative cleanup queue is incomplete");
+    if (
+      candidate.project_id !== fixture.projectId ||
+      !expectedSources.delete(candidate.source_file_id) ||
+      typeof candidate.job_id !== "string" ||
+      typeof candidate.lease_token !== "string" ||
+      !Number.isSafeInteger(candidate.derivative_version)
+    )
+      throw new Error("Disposable IFC derivative cleanup claimed unexpected work");
+    const failed = await fixture.admin.rpc(
+      "lukas_drawing_fail_ifc_derivative_job",
+      {
+        p_job_id: candidate.job_id,
+        p_lease_token: candidate.lease_token,
+        p_derivative_version: candidate.derivative_version,
+        p_retryable: false,
+        p_error_code: "disposable_fixture_cleanup",
+        p_error_message: "Disposable fixture ended before IFC conversion.",
+      },
+    );
+    if (
+      failed.error ||
+      (failed.data !== "failed" && failed.data !== "completed")
+    )
+      throw new Error("Disposable IFC derivative cleanup transition failed");
+  }
+  if (expectedSources.size)
+    throw new Error("Disposable IFC derivative cleanup queue is incomplete");
+  for (const sourceFileId of sourceIds) {
+    const status = await statusClient.rpc(
+      "lukas_drawing_ifc_derivative_job_status",
+      {
+        p_source_file_id: sourceFileId,
+        p_source_sha256: fixture.sourceEvidence[sourceFileId]?.metadataSha256,
+      },
+    );
+    if (
+      status.error ||
+      !status.data ||
+      !["failed", "completed"].includes(status.data.state)
+    )
+      throw new Error("Disposable IFC derivative cleanup is not terminal");
+  }
+}
+
 export function buildDrawingP3Identities(runId: string) {
   if (
     !/^[a-z0-9](?:[a-z0-9-]{6,46}[a-z0-9])$/.test(runId) ||
@@ -532,7 +709,9 @@ export async function finalizeVerifiedFixtureUpload({
     finalized.sha256 !== digest ||
     finalized.byteSize !== input.bytes.byteLength
   )
-    throw finalization.error ?? new Error("Verified source finalization failed");
+    throw (
+      finalization.error ?? new Error("Verified source finalization failed")
+    );
   return { fileId: finalized.fileId, storagePath };
 }
 
@@ -904,22 +1083,26 @@ export function buildDrawingP2PerformanceFixture(input: DrawingP2FixtureInput) {
     sortOrder: index,
     version: 1,
   }));
-  const canvases = Array.from({ length: 20 }, (_, index) => ({
-    id:
-      index === 0
-        ? input.canvasId
-        : stableDrawingP2FixtureId(input, "canvas", index),
-    pageId: pages[index % pages.length].id,
-    name: `P2 ${index % 2 === 0 ? "paper" : "model"} canvas ${String(
-      index + 1,
-    ).padStart(2, "0")}`,
-    spaceKind: index % 2 === 0 ? ("paper" as const) : ("model" as const),
-    widthMillimeters: index % 2 === 0 ? 420 : 1_000,
-    heightMillimeters: index % 2 === 0 ? 297 : 1_000,
-    background: null,
-    sortOrder: Math.floor(index / pages.length),
-    version: 1,
-  }));
+  const canvases = Array.from({ length: 20 }, (_, index) => {
+    const spaceKind =
+      index < pages.length || index % 2 === 0
+        ? ("paper" as const)
+        : ("model" as const);
+    return {
+      id:
+        index === 0
+          ? input.canvasId
+          : stableDrawingP2FixtureId(input, "canvas", index),
+      pageId: pages[index % pages.length].id,
+      name: `P2 ${spaceKind} canvas ${String(index + 1).padStart(2, "0")}`,
+      spaceKind,
+      widthMillimeters: spaceKind === "paper" ? 420 : 1_000,
+      heightMillimeters: spaceKind === "paper" ? 297 : 1_000,
+      background: null,
+      sortOrder: Math.floor(index / pages.length),
+      version: 1,
+    };
+  });
   const layers = canvases.map((canvas, index) => ({
     id:
       index === 0
@@ -1116,13 +1299,49 @@ export function buildDrawingP2PerformanceFixture(input: DrawingP2FixtureInput) {
   };
 }
 
-export async function seedDrawingP2PerformanceFixture(fixture: DrawingFixture) {
-  const owner = await authenticateApiClient(fixture, fixture.owner);
+type DrawingP2PerformanceSeedOperation = {
+  operationType: "add_objects" | "mutate_structure";
+  baseVersions: Record<string, number>;
+  forward: { type: string; [key: string]: unknown };
+  inverse: { type: string; [key: string]: unknown };
+};
+
+const DRAWING_PERFORMANCE_OBJECT_BATCH_SIZE = 100;
+
+export function buildDrawingPerformanceObjectSeedOperations<
+  Object extends { id: string },
+>(objects: Object[]): DrawingP2PerformanceSeedOperation[] {
+  const operations: DrawingP2PerformanceSeedOperation[] = [];
+  for (
+    let offset = 0;
+    offset < objects.length;
+    offset += DRAWING_PERFORMANCE_OBJECT_BATCH_SIZE
+  ) {
+    const batch = objects.slice(
+      offset,
+      offset + DRAWING_PERFORMANCE_OBJECT_BATCH_SIZE,
+    );
+    operations.push({
+      operationType: "add_objects",
+      baseVersions: {},
+      forward: { type: "add_objects", objects: batch },
+      inverse: {
+        type: "delete_objects",
+        objectIds: batch.map(({ id }) => id),
+      },
+    });
+  }
+  return operations;
+}
+
+export function buildDrawingP2PerformanceSeedPlan(
+  input: DrawingP2FixtureInput,
+) {
   const performanceFixture = buildDrawingP2PerformanceFixture({
-    revisionId: fixture.blankWorkspace.revisionId,
-    pageId: fixture.blankWorkspace.pageId,
-    canvasId: fixture.blankWorkspace.canvasId,
-    layerId: fixture.blankWorkspace.workLayerId,
+    revisionId: input.revisionId,
+    pageId: input.pageId,
+    canvasId: input.canvasId,
+    layerId: input.layerId,
   });
   const initialActions = [
     ...performanceFixture.pages.slice(1).map((entity) => ({
@@ -1193,42 +1412,18 @@ export async function seedDrawingP2PerformanceFixture(fixture: DrawingFixture) {
       .reverse()
       .map(({ id }) => ({ kind: "delete_page" as const, id, baseVersion: 1 })),
   ];
-  const applyStructure = async (
-    actions: Array<Record<string, unknown>>,
-    inverseActions: Array<Record<string, unknown>>,
-    baseVersions: Record<string, number> = {},
-  ) => {
-    const { error } = await owner.rpc("lukas_drawing_apply_operation", {
-      p_revision_id: fixture.blankWorkspace.revisionId,
-      p_client_operation_id: randomUUID(),
-      p_operation_type: "mutate_structure",
-      p_base_versions: baseVersions,
-      p_forward: { type: "mutate_structure", actions },
-      p_inverse: { type: "mutate_structure", actions: inverseActions },
-    });
-    if (error) throw error;
-  };
-  await applyStructure(initialActions, initialInverse);
+  const operations: DrawingP2PerformanceSeedOperation[] = [
+    {
+      operationType: "mutate_structure",
+      baseVersions: {},
+      forward: { type: "mutate_structure", actions: initialActions },
+      inverse: { type: "mutate_structure", actions: initialInverse },
+    },
+  ];
 
-  for (
-    let offset = 0;
-    offset < performanceFixture.objects.length;
-    offset += 250
-  ) {
-    const objects = performanceFixture.objects.slice(offset, offset + 250);
-    const { error } = await owner.rpc("lukas_drawing_apply_operation", {
-      p_revision_id: fixture.blankWorkspace.revisionId,
-      p_client_operation_id: randomUUID(),
-      p_operation_type: "add_objects",
-      p_base_versions: {},
-      p_forward: { type: "add_objects", objects },
-      p_inverse: {
-        type: "delete_objects",
-        objectIds: objects.map(({ id }) => id),
-      },
-    });
-    if (error) throw error;
-  }
+  operations.push(
+    ...buildDrawingPerformanceObjectSeedOperations(performanceFixture.objects),
+  );
 
   for (
     let offset = 0;
@@ -1239,51 +1434,90 @@ export async function seedDrawingP2PerformanceFixture(fixture: DrawingFixture) {
       offset,
       offset + 100,
     );
-    await applyStructure(
-      instances.map((entity) => ({
-        kind: "put_block_instance",
-        entity,
-        baseVersion: null,
-      })),
-      instances
-        .slice()
-        .reverse()
-        .map(({ id }) => ({
-          kind: "delete_block_instance",
-          id,
-          baseVersion: 1,
+    operations.push({
+      operationType: "mutate_structure",
+      baseVersions: {},
+      forward: {
+        type: "mutate_structure",
+        actions: instances.map((entity) => ({
+          kind: "put_block_instance",
+          entity,
+          baseVersion: null,
         })),
-    );
+      },
+      inverse: {
+        type: "mutate_structure",
+        actions: instances
+          .slice()
+          .reverse()
+          .map(({ id }) => ({
+            kind: "delete_block_instance",
+            id,
+            baseVersion: 1,
+          })),
+      },
+    });
   }
-  await applyStructure(
-    [
-      ...performanceFixture.propertyValues.map((entity) => ({
-        kind: "put_property_value",
-        entity,
-        baseVersion: null,
-      })),
-      ...performanceFixture.tables.map((entity) => ({
-        kind: "put_table",
-        entity,
-        baseVersion: null,
-      })),
-    ],
-    [
-      ...performanceFixture.tables
-        .slice()
-        .reverse()
-        .map(({ id }) => ({ kind: "delete_table", id, baseVersion: 1 })),
-      ...performanceFixture.propertyValues
-        .slice()
-        .reverse()
-        .map(({ id }) => ({
-          kind: "delete_property_value",
-          id,
-          baseVersion: 1,
+  operations.push({
+    operationType: "mutate_structure",
+    baseVersions: {},
+    forward: {
+      type: "mutate_structure",
+      actions: [
+        ...performanceFixture.propertyValues.map((entity) => ({
+          kind: "put_property_value",
+          entity,
+          baseVersion: null,
         })),
-    ],
-  );
-  return performanceFixture;
+        ...performanceFixture.tables.map((entity) => ({
+          kind: "put_table",
+          entity,
+          baseVersion: null,
+        })),
+      ],
+    },
+    inverse: {
+      type: "mutate_structure",
+      actions: [
+        ...performanceFixture.tables
+          .slice()
+          .reverse()
+          .map(({ id }) => ({ kind: "delete_table", id, baseVersion: 1 })),
+        ...performanceFixture.propertyValues
+          .slice()
+          .reverse()
+          .map(({ id }) => ({
+            kind: "delete_property_value",
+            id,
+            baseVersion: 1,
+          })),
+      ],
+    },
+  });
+
+  return { performanceFixture, operations };
+}
+
+export async function seedDrawingP2PerformanceFixture(fixture: DrawingFixture) {
+  const owner = await authenticateApiClient(fixture, fixture.owner);
+  const plan = buildDrawingP2PerformanceSeedPlan({
+    revisionId: fixture.blankWorkspace.revisionId,
+    pageId: fixture.blankWorkspace.pageId,
+    canvasId: fixture.blankWorkspace.canvasId,
+    layerId: fixture.blankWorkspace.workLayerId,
+  });
+  for (const operation of plan.operations) {
+    const { error } = await owner.rpc("lukas_drawing_apply_operation", {
+      p_revision_id: fixture.blankWorkspace.revisionId,
+      p_client_operation_id: randomUUID(),
+      p_operation_type: operation.operationType,
+      p_base_versions: operation.baseVersions,
+      p_forward: operation.forward,
+      p_inverse: operation.inverse,
+    });
+    if (error) throw error;
+  }
+  return plan.performanceFixture;
 }
 
 export async function seedDrawingPerformanceObjects(
@@ -1295,20 +1529,16 @@ export async function seedDrawingPerformanceObjects(
     count,
     fixture.blankWorkspace.workLayerId,
   );
-  const { objects } = performanceFixture;
-
-  for (let offset = 0; offset < objects.length; offset += 250) {
-    const chunk = objects.slice(offset, offset + 250);
+  for (const operation of buildDrawingPerformanceObjectSeedOperations(
+    performanceFixture.objects,
+  )) {
     const { error } = await owner.rpc("lukas_drawing_apply_operation", {
       p_revision_id: fixture.blankWorkspace.revisionId,
       p_client_operation_id: randomUUID(),
-      p_operation_type: "add_objects",
-      p_base_versions: {},
-      p_forward: { type: "add_objects", objects: chunk },
-      p_inverse: {
-        type: "delete_objects",
-        objectIds: chunk.map((object) => object.id),
-      },
+      p_operation_type: operation.operationType,
+      p_base_versions: operation.baseVersions,
+      p_forward: operation.forward,
+      p_inverse: operation.inverse,
     });
     if (error) throw error;
   }
@@ -1330,10 +1560,15 @@ export async function authenticateContext(
   if (error || !token)
     throw error ?? new Error("Could not create browser login token");
   const page = await context.newPage();
+  const requestedUrl = new URL(next, baseUrl);
   await page.goto(
     `${baseUrl}/auth/confirm?token_hash=${encodeURIComponent(token)}&type=magiclink&next=${encodeURIComponent(next)}`,
   );
-  await page.waitForURL((url) => url.pathname === next);
+  await page.waitForURL(
+    (url) =>
+      url.pathname === requestedUrl.pathname &&
+      url.search === requestedUrl.search,
+  );
   return page;
 }
 

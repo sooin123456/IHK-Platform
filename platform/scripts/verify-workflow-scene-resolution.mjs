@@ -1,0 +1,13 @@
+import {chromium,expect} from '@playwright/test';import {readFile} from 'node:fs/promises';
+const browser=await chromium.launch();try{
+ const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=presentation&scenario=ifc&scope=sample',{waitUntil:'networkidle'});
+ const region=page.getByRole('region',{name:'3D 장면·프레젠테이션'});await expect(region.locator('canvas')).toBeVisible();const before=await region.locator('canvas').evaluate(canvas=>({width:canvas.width,height:canvas.height,cssWidth:canvas.style.width,cssHeight:canvas.style.height}));
+ for(const width of [1280,1920]){
+  await region.getByLabel('이미지 출력 크기',{exact:true}).selectOption(String(width));await region.getByRole('button',{name:'현재 화면 이미지 준비',exact:true}).click();const result=region.getByRole('region',{name:'장면 이미지 결과'});
+  const pixels=await result.locator('img').evaluate(async img=>{await img.decode();const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const values=ctx.getImageData(0,0,canvas.width,canvas.height-48).data,colors=new Set();for(let i=0;i<values.length;i+=64)colors.add(`${values[i]},${values[i+1]},${values[i+2]}`);return {width:canvas.width,height:canvas.height,colors:colors.size};});
+  expect(pixels.width).toBe(width);expect(pixels.colors).toBeGreaterThan(20);expect(pixels.height).toBe(Math.round(width/(before.width/before.height))+48);
+  expect(await region.locator('canvas').evaluate(canvas=>({width:canvas.width,height:canvas.height,cssWidth:canvas.style.width,cssHeight:canvas.style.height}))).toEqual(before);
+  const pending=page.waitForEvent('download');await result.getByRole('button',{name:'예시 장면 PNG 다운로드',exact:true}).click();const file=await pending,bytes=await readFile(await file.path());expect(bytes.readUInt32BE(16)).toBe(width);expect(bytes.readUInt32BE(20)).toBe(pixels.height);
+ }
+ await page.setViewportSize({width:390,height:844});await region.getByLabel('이미지 출력 크기',{exact:true}).selectOption('1280');await region.getByRole('button',{name:'현재 화면 이미지 준비',exact:true}).click();await expect(region.getByRole('region',{name:'장면 이미지 결과'})).toContainText('1280 ×');expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();expect(errors).toEqual([]);console.log('PASS fixed-resolution WebGL renders, matching PNG pixels, restored interactive canvas and mobile');
+}finally{await browser.close();}

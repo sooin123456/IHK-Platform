@@ -7,10 +7,70 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
+  SheetDescription,
   SheetFooter,
   SheetHeader,
+  SheetTitle,
   SheetTrigger,
 } from "./ui/sheet";
+
+const publicLinks = [
+  { to: "/news", label: "소식", variant: "ghost" as const },
+  { to: "/download", label: "무료 다운로드", variant: "ghost" as const },
+  {
+    to: "/inquiry",
+    label: "전문가에게 의뢰하기",
+    variant: "outline" as const,
+  },
+  {
+    to: "/workspace",
+    label: "직접 작업하기",
+    variant: "default" as const,
+  },
+  {
+    to: "/auth/magic-link",
+    label: "고객 로그인",
+    variant: "ghost" as const,
+  },
+];
+
+const authenticatedLinks = [
+  {
+    to: "/inquiry",
+    label: "전문가에게 의뢰하기",
+    variant: "outline" as const,
+  },
+  {
+    to: "/workspace",
+    label: "직접 작업하기",
+    variant: "default" as const,
+  },
+  { to: "/notifications", label: "알림", variant: "ghost" as const },
+  { to: "/logout", label: "로그아웃", variant: "ghost" as const },
+];
+
+export function NavigationMenuLinks({
+  email,
+  mobile = false,
+}: {
+  email?: string;
+  mobile?: boolean;
+}) {
+  return (email ? authenticatedLinks : publicLinks).map((link) => {
+    const button = (
+      <Button asChild key={link.to} variant={link.variant}>
+        <Link to={link.to}>{link.label}</Link>
+      </Button>
+    );
+    return mobile ? (
+      <SheetClose asChild key={link.to}>
+        {button}
+      </SheetClose>
+    ) : (
+      button
+    );
+  });
+}
 
 export function NavigationBar({
   email,
@@ -21,19 +81,11 @@ export function NavigationBar({
   avatarUrl?: string | null;
   loading: boolean;
 }) {
-  const links = email
-      ? [
-        { to: "/workspace", label: "프로젝트" },
-        { to: "/notifications", label: "알림" },
-        { to: "/logout", label: "로그아웃" },
-      ]
-    : [
-        { to: "/download", label: "무료 다운로드" },
-        { to: "/auth/magic-link", label: "고객 로그인" },
-      ];
-
   return (
-    <nav className="sticky top-0 z-50 border-b bg-background/90 px-5 text-foreground backdrop-blur-2xl md:px-10">
+    <nav
+      aria-label="주요 탐색"
+      className="sticky top-0 z-50 border-b bg-background/90 px-5 text-foreground backdrop-blur-2xl md:px-10"
+    >
       <div className="mx-auto flex h-18 max-w-[1320px] items-center justify-between">
         <Link
           className="flex items-center gap-2 font-bold tracking-tight"
@@ -47,43 +99,16 @@ export function NavigationBar({
             BIM 적산·물량산출
           </span>
         </Link>
-        <div className="hidden items-center gap-1 md:flex">
-          {!email ? (
-            <div className="mr-5 hidden items-center gap-1 lg:flex">
-              <Button asChild variant="ghost">
-                <a href="/#services">서비스</a>
-              </Button>
-              <Button asChild variant="ghost">
-                <a href="/#deliverables">결과물</a>
-              </Button>
-              <Button asChild variant="ghost">
-                <a href="/#approach">일하는 방식</a>
-              </Button>
-              <Button asChild variant="ghost">
-                <Link to="/news">소식</Link>
-              </Button>
-              <Button asChild variant="ghost">
-                <Link to="/inquiry">문의</Link>
-              </Button>
-            </div>
-          ) : null}
+        <div className="hidden items-center gap-1 lg:flex">
           {email ? (
             <span className="mr-2 max-w-48 truncate text-sm text-muted-foreground">
               {email}
             </span>
           ) : null}
           <ThemeSwitcher />
-          {links.map((link, index) => (
-            <Button
-              asChild
-              key={link.to}
-              variant={index === links.length - 1 ? "default" : "ghost"}
-            >
-              <Link to={link.to}>{link.label}</Link>
-            </Button>
-          ))}
+          <NavigationMenuLinks email={email} />
         </div>
-        <div className="flex items-center gap-1 md:hidden">
+        <div className="flex items-center gap-1 lg:hidden">
           <ThemeSwitcher />
           <Sheet>
             <SheetTrigger
@@ -94,32 +119,15 @@ export function NavigationBar({
             </SheetTrigger>
             <SheetContent>
               <SheetHeader>
-                <Link className="font-semibold" to="/">
-                  한길시스템
-                </Link>
+                <SheetTitle>
+                  <Link to="/">한길시스템</Link>
+                </SheetTitle>
+                <SheetDescription>
+                  직접 작업하거나 전문가에게 별도로 의뢰할 수 있습니다.
+                </SheetDescription>
               </SheetHeader>
               <SheetFooter className="mt-8 grid gap-2">
-                {!email ? (
-                  <>
-                    <SheetClose asChild>
-                      <Button asChild variant="outline">
-                        <Link to="/news">회사 소식</Link>
-                      </Button>
-                    </SheetClose>
-                    <SheetClose asChild>
-                      <Button asChild variant="outline">
-                        <Link to="/inquiry">문의하기</Link>
-                      </Button>
-                    </SheetClose>
-                  </>
-                ) : null}
-                {links.map((link) => (
-                  <SheetClose asChild key={link.to}>
-                    <Button asChild variant="outline">
-                      <Link to={link.to}>{link.label}</Link>
-                    </Button>
-                  </SheetClose>
-                ))}
+                <NavigationMenuLinks email={email} mobile />
               </SheetFooter>
             </SheetContent>
           </Sheet>

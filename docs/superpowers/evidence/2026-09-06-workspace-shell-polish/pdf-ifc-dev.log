@@ -1,0 +1,52 @@
+
+Running 9 tests using 1 worker
+
+(node:39923) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/9] [chromium] › e2e/drawing-workspace-p5.spec.ts:169:1 › manual P5 PDF preview serves current and opt-in predecessor bytes without interception
+[2/9] [chromium] › e2e/drawing-workspace-p5.spec.ts:200:1 › active PDF page compares only its exact predecessor with transient non-listening markers and Viewer denial
+  1) [chromium] › e2e/drawing-workspace-p5.spec.ts:200:1 › active PDF page compares only its exact predecessor with transient non-listening markers and Viewer denial 
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator:  getByRole('tab', { name: '결과', exact: true })
+    Expected: "true"
+    Received: "false"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveAttribute" with timeout 5000ms
+      - waiting for getByRole('tab', { name: '결과', exact: true })
+        14 × locator resolved to <button role="tab" tabindex="-1" type="button" aria-selected="false" id="drawing-estimate-result-tab" aria-controls="drawing-estimate-result-panel" class="min-h-9 rounded px-3 font-bold text-white aria-selected:bg-indigo-500">결과</button>
+           - unexpected value "false"
+
+
+      385 |   await expect(
+      386 |     page.getByRole("tab", { name: "결과", exact: true }),
+    > 387 |   ).toHaveAttribute("aria-selected", "true");
+          |     ^
+      388 |   const objectTab = page.getByRole("tab", { name: "객체", exact: true });
+      389 |   await objectTab.click();
+      390 |   await expect(objectTab).toHaveAttribute("aria-selected", "true");
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-p5.spec.ts:387:5
+
+    Error Context: test-results/drawing-workspace-p5-activ-ff914-g-markers-and-Viewer-denial-chromium/error-context.md
+
+
+[3/9] [chromium] › e2e/drawing-workspace-p5.spec.ts:406:1 › a non-current PDF mode queues one fresh capability while cancellation is pending
+[4/9] [chromium] › e2e/drawing-workspace-p5.spec.ts:522:1 › a failed PDF capability settles until a new user selection retries
+[5/9] [chromium] › e2e/drawing-workspace-p5.spec.ts:591:1 › disabling PDF compare cancels pending predecessor work and clears transient resources
+[6/9] [chromium] › e2e/drawing-workspace-p5.spec.ts:629:1 › mounted PDF inspector uses operation commands for exact link and unlink
+[7/9] [chromium] › e2e/drawing-workspace-p5.spec.ts:675:1 › mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries cached GLB without refetch
+[8/9] [chromium] › e2e/drawing-workspace-p5.spec.ts:766:1 › cold split paints the fitted IFC model without a manual fit
+(node:39952) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[9/9] [chromium] › e2e/drawing-workspace-p6.spec.ts:26:1 › P6 preview smoke keeps exact 10k/2k immutable evidence and split focus
+  1 failed
+    [chromium] › e2e/drawing-workspace-p5.spec.ts:200:1 › active PDF page compares only its exact predecessor with transient non-listening markers and Viewer denial 
+  6 did not run
+  2 passed (16.5s)

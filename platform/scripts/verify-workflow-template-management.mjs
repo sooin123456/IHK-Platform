@@ -1,0 +1,46 @@
+import {chromium,expect} from '@playwright/test';
+const browser=await chromium.launch();
+try{
+ const page=await browser.newPage();page.setDefaultTimeout(7000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const base='http://127.0.0.1:4181/workspace-preview/flow';
+ await page.goto(`${base}?page=library`,{waitUntil:'networkidle'});
+ await page.getByLabel('템플릿 작업 이름',{exact:true}).fill('유지할 원본');
+ await page.getByRole('button',{name:'이 템플릿으로 작업 만들기',exact:true}).click();
+ await expect(page).toHaveURL(/blank=/);const original=page.url();
+ await page.goto(`${base}?page=library`);
+ const library=page.getByRole('region',{name:'내 도면 재사용 템플릿'});
+ await library.getByLabel('보관할 템플릿 이름',{exact:true}).fill('초기 표준');
+ await library.getByRole('button',{name:'선택 페이지를 템플릿으로 보관',exact:true}).click();
+ await library.getByLabel('재사용 작업 이름',{exact:true}).fill('유지할 복사본');
+ await library.getByRole('button',{name:'내 템플릿으로 새 작업 만들기',exact:true}).click();
+ await expect(page).toHaveURL(/blank=/);const copy=page.url();
+ await page.goto(`${base}?page=library`);
+ const manage=page.getByRole('region',{name:'선택 템플릿 관리'});
+ await manage.locator('summary').click();
+ await manage.getByLabel('템플릿 변경 이름',{exact:true}).fill('   ');
+ await manage.getByRole('button',{name:'템플릿 이름 저장',exact:true}).click();
+ await expect(manage.getByRole('alert')).toBeVisible();
+ await expect(library.getByRole('heading',{name:'초기 표준',exact:true})).toBeVisible();
+ await manage.getByLabel('템플릿 변경 이름',{exact:true}).fill('다듬은 표준');
+ await page.reload();await manage.locator('summary').click();
+ await expect(manage.getByLabel('템플릿 변경 이름',{exact:true})).toHaveValue('다듬은 표준');
+ await manage.getByRole('button',{name:'템플릿 이름 저장',exact:true}).click();
+ await expect(library.getByRole('heading',{name:'다듬은 표준',exact:true})).toBeVisible();
+ await page.reload();await manage.locator('summary').click();
+ await manage.getByRole('button',{name:'템플릿 삭제',exact:true}).click();
+ await expect(manage).toContainText('이미 만든 도면은 삭제하지 않습니다');
+ await expect(manage.getByRole('button',{name:'선택 템플릿만 삭제',exact:true})).toBeDisabled();
+ await page.setViewportSize({width:390,height:844});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await manage.screenshot({path:'/tmp/1hk-template-management.png'});
+ await manage.getByRole('button',{name:'삭제 취소',exact:true}).click();
+ await expect(library.getByRole('heading',{name:'다듬은 표준',exact:true})).toBeVisible();
+ await manage.getByRole('button',{name:'템플릿 삭제',exact:true}).click();
+ await manage.getByLabel('이 템플릿을 목록에서 삭제함을 확인합니다',{exact:true}).check();
+ await manage.getByRole('button',{name:'선택 템플릿만 삭제',exact:true}).click();
+ await expect(library).toContainText('보관된 내 템플릿이 없습니다');
+ await page.reload();await expect(library).toContainText('보관된 내 템플릿이 없습니다');
+ for(const url of [original,copy]){await page.goto(url);await expect(page.getByRole('button',{name:'회의실 구상 객체',exact:true})).toBeVisible();}
+ expect(errors).toEqual([]);console.log('PASS template rename draft/reload, invalid name, cancel/confirmed removal, original and copy preservation');
+}finally{await browser.close();}

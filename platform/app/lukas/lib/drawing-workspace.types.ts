@@ -453,10 +453,95 @@ const DrawingIfcObjectSourceSchema = z
   })
   .strict();
 
+const DrawingDxfEntityKeySchema = z
+  .string()
+  .min(1)
+  .max(1_024)
+  .refine(isP4UnicodeScalarText, "유효한 DXF entity key여야 합니다.")
+  .refine(
+    (value) => value === value.trim(),
+    "DXF entity key 앞뒤 공백을 제거해야 합니다.",
+  )
+  .refine(
+    (value) => !/[\u0001-\u001f\u007f]/u.test(value),
+    "DXF entity key에 제어 문자를 사용할 수 없습니다.",
+  );
+
+const DrawingDxfObjectSourceSchema = z
+  .object({
+    id: Uuid,
+    objectId: Uuid,
+    revisionId: Uuid,
+    sourceFileId: Uuid,
+    sourceSha256: DrawingSourceSha256Schema,
+    sourceKind: z.literal("dxf_entity"),
+    entityKey: DrawingDxfEntityKeySchema,
+    entityType: z.enum([
+      "LINE",
+      "LWPOLYLINE",
+      "POLYLINE",
+      "CIRCLE",
+      "ARC",
+      "TEXT",
+    ]),
+    sourceLayer: DrawingLayerNameSchema,
+    handle: z
+      .string()
+      .regex(/^[0-9A-F]{1,32}$/)
+      .nullable(),
+    unitCode: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(4),
+      z.literal(5),
+      z.literal(6),
+    ]),
+    unitSource: z.enum(["declared", "user_selected"]),
+    importerVersion: z.literal(1),
+    version: PositiveInteger,
+  })
+  .strict();
+
+export const DrawingNativeDwgEntityPayloadSchema = z
+  .object({
+    analysisJobId: Uuid,
+    reportSha256: DrawingSourceSha256Schema,
+    handle: z.string().regex(/^[1-9A-F][0-9A-F]{0,15}$/),
+    ownerHandle: z.string().regex(/^[1-9A-F][0-9A-F]{0,15}$/),
+    layerHandle: z.string().regex(/^[1-9A-F][0-9A-F]{0,15}$/),
+    entityType: z.enum(["LINE", "LWPOLYLINE", "CIRCLE", "ARC", "TEXT"]),
+    sourceLayer: DrawingLayerNameSchema,
+    unitCode: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(4),
+      z.literal(5),
+      z.literal(6),
+    ]),
+    unitSource: z.enum(["declared", "user_selected"]),
+    importerVersion: z.literal(1),
+  })
+  .strict();
+
+const DrawingNativeDwgObjectSourceSchema = z
+  .object({
+    id: Uuid,
+    objectId: Uuid,
+    revisionId: Uuid,
+    sourceFileId: Uuid,
+    sourceSha256: DrawingSourceSha256Schema,
+    sourceKind: z.literal("dwg_entity"),
+    ...DrawingNativeDwgEntityPayloadSchema.shape,
+    version: PositiveInteger,
+  })
+  .strict();
+
 /** Canonical persisted evidence. Ephemeral URLs, pixels, renderer IDs, and markers are excluded. */
 export const DrawingObjectSourceSchema = z.union([
   DrawingPdfObjectSourceSchema,
   DrawingIfcObjectSourceSchema,
+  DrawingDxfObjectSourceSchema,
+  DrawingNativeDwgObjectSourceSchema,
 ]);
 
 const LegacyDrawingObjectSourceSchema = z
@@ -699,6 +784,29 @@ export const DrawingPageSchema = z
   })
   .strict();
 
+export const DrawingOutputProfileSchema = z
+  .object({
+    paper: ExactTrimmedName,
+    orientation: z.enum(["portrait", "landscape"]),
+    widthMillimeters: PositiveFinite,
+    heightMillimeters: PositiveFinite,
+    scaleDenominator: PositiveFinite,
+  })
+  .strict()
+  .superRefine((profile, context) => {
+    if (
+      (profile.orientation === "landscape" &&
+        profile.widthMillimeters <= profile.heightMillimeters) ||
+      (profile.orientation === "portrait" &&
+        profile.heightMillimeters <= profile.widthMillimeters)
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orientation"],
+        message: "Output profile orientation and dimensions do not agree.",
+      });
+  });
+
 export const DrawingCanvasSchema = z
   .object({
     id: Uuid,
@@ -716,10 +824,38 @@ export const DrawingCanvasSchema = z
       })
       .strict()
       .nullable(),
+    outputProfile: DrawingOutputProfileSchema.optional(),
     sortOrder: NonNegativeInteger,
     version: PositiveInteger,
   })
-  .strict();
+  .strict()
+  .superRefine((canvas, context) => {
+    const profile = canvas.outputProfile;
+    if (!profile) return;
+    const expectedWidth = profile.widthMillimeters * profile.scaleDenominator;
+    const expectedHeight = profile.heightMillimeters * profile.scaleDenominator;
+    const close = (actual: number, expected: number) =>
+      Number.isFinite(expected) &&
+      expected > 0 &&
+      Math.abs(actual - expected) <=
+        Number.EPSILON * Math.max(Math.abs(actual), Math.abs(expected)) * 8;
+    const hasAtMostSixDecimalPlaces = (value: number) => {
+      const [mantissa, exponentText = "0"] = value.toString().split("e");
+      const fraction = (mantissa.split(".")[1] ?? "").replace(/0+$/, "");
+      return Math.max(0, fraction.length - Number(exponentText)) <= 6;
+    };
+    if (
+      !close(canvas.widthMillimeters, expectedWidth) ||
+      !close(canvas.heightMillimeters, expectedHeight) ||
+      !hasAtMostSixDecimalPlaces(canvas.widthMillimeters) ||
+      !hasAtMostSixDecimalPlaces(canvas.heightMillimeters)
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputProfile"],
+        message: "Output profile dimensions and scale do not match the canvas.",
+      });
+  });
 
 export const DrawingStyleDefinitionSchema = z
   .object({
@@ -1017,6 +1153,16 @@ const DrawingOperationLayerPatchSchema = z
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0);
+export const DrawingHistoryGroupSchema = z
+  .object({
+    id: Uuid,
+    kind: z.enum(["dxf_import", "dwg_import"]),
+    index: z.number().int().nonnegative().max(47),
+    count: z.number().int().min(1).max(48),
+  })
+  .strict()
+  .refine((group) => group.index < group.count);
+
 const DrawingOperationPayloadSchemas = {
   add_objects: z
     .object({
@@ -1059,6 +1205,7 @@ const DrawingOperationPayloadSchemas = {
     .object({
       type: z.literal("mutate_structure"),
       actions: z.array(DrawingStructureActionSchema).min(1),
+      historyGroup: DrawingHistoryGroupSchema.optional(),
     })
     .strict(),
   mutate_objects_with_references: z
@@ -1077,6 +1224,20 @@ const DrawingOperationPayloadSchemas = {
     })
     .strict(),
 } as const;
+
+function historyGroupMatchesSourceKind(
+  payload: z.infer<(typeof DrawingOperationPayloadSchemas)["mutate_structure"]>,
+) {
+  if (!payload.historyGroup) return true;
+  const expectedSourceKind =
+    payload.historyGroup.kind === "dxf_import" ? "dxf_entity" : "dwg_entity";
+  return payload.actions.every((action) => {
+    if (action.kind !== "put_source") return true;
+    if (!("entity" in action)) return false;
+    const source = DrawingObjectSourceSchema.safeParse(action.entity);
+    return source.success && source.data.sourceKind === expectedSourceKind;
+  });
+}
 
 export const DrawingOperationInputSchema = z
   .object({
@@ -1139,6 +1300,42 @@ export const DrawingOperationInputSchema = z
         path: ["inverse"],
         message: "도면 작업 inverse가 올바르지 않습니다.",
       });
+    if (
+      operation.type === "mutate_structure" &&
+      forward.success &&
+      inverse.success &&
+      JSON.stringify(
+        (forward.data as { historyGroup?: DrawingHistoryGroup }).historyGroup,
+      ) !==
+        JSON.stringify(
+          (inverse.data as { historyGroup?: DrawingHistoryGroup }).historyGroup,
+        )
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["inverse", "historyGroup"],
+        message: "도면 작업 이력 그룹은 정방향과 역방향이 같아야 합니다.",
+      });
+    if (
+      operation.type === "mutate_structure" &&
+      forward.success &&
+      inverse.success &&
+      (!historyGroupMatchesSourceKind(
+        forward.data as z.infer<
+          (typeof DrawingOperationPayloadSchemas)["mutate_structure"]
+        >,
+      ) ||
+        !historyGroupMatchesSourceKind(
+          inverse.data as z.infer<
+            (typeof DrawingOperationPayloadSchemas)["mutate_structure"]
+          >,
+        ))
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["forward", "historyGroup", "kind"],
+        message: "도면 가져오기 이력 종류와 원본 종류가 일치해야 합니다.",
+      });
   });
 
 export type PdfCalibration = z.infer<typeof PdfCalibrationSchema>;
@@ -1148,6 +1345,7 @@ export type DrawingLayerInput = z.infer<typeof DrawingLayerInputSchema>;
 export type DrawingLayer = z.infer<typeof DrawingLayerSchema>;
 export type DrawingStructureLayer = z.infer<typeof DrawingStructureLayerSchema>;
 export type DrawingPage = z.infer<typeof DrawingPageSchema>;
+export type DrawingOutputProfile = z.infer<typeof DrawingOutputProfileSchema>;
 export type DrawingCanvas = z.infer<typeof DrawingCanvasSchema>;
 export type DrawingStyleDefinition = z.infer<
   typeof DrawingStyleDefinitionSchema
@@ -1158,6 +1356,7 @@ export type DrawingBlockInstance = z.infer<typeof DrawingBlockInstanceSchema>;
 export type DrawingPropertySchema = z.infer<typeof DrawingPropertySchemaSchema>;
 export type DrawingPropertyValue = z.infer<typeof DrawingPropertyValueSchema>;
 export type DrawingTable = z.infer<typeof DrawingTableSchema>;
+export type DrawingHistoryGroup = z.infer<typeof DrawingHistoryGroupSchema>;
 type DrawingStructureObject = Omit<DrawingObject, "style"> & {
   style: DrawingStyleOverride;
 };

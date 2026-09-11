@@ -23,16 +23,35 @@ import {
 } from "./verified-boq.server.ts";
 
 export type VerifiedBoqCause =
-  "RAW" | "MAPPING" | "ADJUSTMENT" | "PRICE" | "FORMULA";
+  | "RAW"
+  | "MAPPING"
+  | "ADJUSTMENT"
+  | "PRICE"
+  | "FORMULA";
 
 export type VerifiedBoqCauseDelta = {
   cause: VerifiedBoqCause;
   amountDeltaKrw: string;
 };
 
+export type VerifiedBoqQuantityCauseDelta = {
+  cause: VerifiedBoqCause;
+  unit: string;
+  rawQuantityDelta: string | null;
+  finalQuantityDelta: string | null;
+};
+
 export type VerifiedBoqV1_1ComparisonRow = {
   itemCode: string;
   rowState: "added" | "removed" | "changed" | "unchanged";
+  unit: string;
+  previousRawQuantity: string | null;
+  currentRawQuantity: string | null;
+  rawQuantityDelta: string | null;
+  previousFinalQuantity: string | null;
+  currentFinalQuantity: string | null;
+  finalQuantityDelta: string | null;
+  quantityCauses: VerifiedBoqQuantityCauseDelta[];
   causes: VerifiedBoqCauseDelta[];
   previousAmountKrw: string;
   currentAmountKrw: string;
@@ -129,7 +148,9 @@ const causes: VerifiedBoqCause[] = [
   "FORMULA",
 ];
 
-function review(): VerifiedBoqV1_1Comparison {
+function review(
+  message = "승인 내역 변경 원인을 자동 재현할 수 없습니다.",
+): VerifiedBoqV1_1Comparison {
   return {
     status: "review",
     rows: [],
@@ -137,7 +158,7 @@ function review(): VerifiedBoqV1_1Comparison {
     causeAmountDeltaKrw: "0",
     rowAmountDeltaKrw: "0",
     amountCloses: false,
-    message: "승인 내역 변경 원인을 자동 재현할 수 없습니다.",
+    message,
   };
 }
 
@@ -406,6 +427,42 @@ function resultLines(result: VerifiedBoqResult | VerifiedBoqV1_1Result) {
   return rows;
 }
 
+type ResultLine = VerifiedBoqResult["lines"][number];
+type QuantityField = "rawQuantity" | "finalQuantity";
+
+function quantityDelta(
+  previous: ResultLine | undefined,
+  current: ResultLine | undefined,
+  field: QuantityField,
+) {
+  if (previous && current && previous.unit !== current.unit)
+    throw new Error("quantity unit mismatch");
+  const left = previous
+    ? previous[field] === null
+      ? null
+      : parseExactDecimal(previous[field])
+    : exactZero;
+  const right = current
+    ? current[field] === null
+      ? null
+      : parseExactDecimal(current[field])
+    : exactZero;
+  return left === null || right === null
+    ? null
+    : exactToString(subtractExact(right, left));
+}
+
+function hasChangedUnit(
+  previous: Map<string, ResultLine>,
+  current: Map<string, ResultLine>,
+) {
+  for (const [code, left] of previous) {
+    const right = current.get(code);
+    if (right && left.unit !== right.unit) return true;
+  }
+  return false;
+}
+
 function rowAmount(
   rows: Map<string, VerifiedBoqResult["lines"][number]>,
   code: string,
@@ -588,13 +645,32 @@ export function compareVerifiedBoqApprovedStates(
   try {
     const previousReplay = replay(previous);
     const currentReplay = replay(current);
+    const previousRows = resultLines(previousReplay.result);
+    const currentRows = resultLines(currentReplay.result);
+    if (hasChangedUnit(previousRows, currentRows))
+      return review("동일 품목의 단위가 달라 자동 비교하지 않습니다.");
     if (
+      previous.engineVersion === current.engineVersion &&
       canonicalJson(previousReplay.input) === canonicalJson(currentReplay.input)
     ) {
       const rows = previousReplay.result.lines
         .map((line) => ({
           itemCode: line.itemCode,
           rowState: "unchanged" as const,
+          unit: line.unit,
+          previousRawQuantity: line.rawQuantity,
+          currentRawQuantity: line.rawQuantity,
+          rawQuantityDelta:
+            line.rawQuantity === null
+              ? null
+              : quantityDelta(line, line, "rawQuantity"),
+          previousFinalQuantity: line.finalQuantity,
+          currentFinalQuantity: line.finalQuantity,
+          finalQuantityDelta:
+            line.finalQuantity === null
+              ? null
+              : quantityDelta(line, line, "finalQuantity"),
+          quantityCauses: [],
           causes: [],
           previousAmountKrw: line.amountKrw ?? "0",
           currentAmountKrw: line.amountKrw ?? "0",
@@ -674,6 +750,7 @@ export function compareVerifiedBoqApprovedStates(
     let causeTotal = exactZero;
     const rows = codes.map((itemCode) => {
       const rowCauses: VerifiedBoqCauseDelta[] = [];
+      const quantityCauses: VerifiedBoqQuantityCauseDelta[] = [];
       for (let index = 0; index < causes.length; index += 1) {
         const amount = subtractExact(
           rowAmount(rowsByStage[index + 1], itemCode),
@@ -682,15 +759,35 @@ export function compareVerifiedBoqApprovedStates(
         if (
           visible.get(causes[index])?.has(itemCode) ||
           compareExact(amount, exactZero) !== 0
-        )
+        ) {
           rowCauses.push({
             cause: causes[index],
             amountDeltaKrw: exactToString(amount),
           });
+          quantityCauses.push({
+            cause: causes[index],
+            unit:
+              rowsByStage.at(-1)!.get(itemCode)?.unit ??
+              rowsByStage[0].get(itemCode)?.unit ??
+              "",
+            rawQuantityDelta: quantityDelta(
+              rowsByStage[index].get(itemCode),
+              rowsByStage[index + 1].get(itemCode),
+              "rawQuantity",
+            ),
+            finalQuantityDelta: quantityDelta(
+              rowsByStage[index].get(itemCode),
+              rowsByStage[index + 1].get(itemCode),
+              "finalQuantity",
+            ),
+          });
+        }
         causeTotal = addExact(causeTotal, amount);
       }
       const previousAmount = rowAmount(rowsByStage[0], itemCode);
       const currentAmount = rowAmount(rowsByStage.at(-1)!, itemCode);
+      const previousRow = rowsByStage[0].get(itemCode);
+      const currentRow = rowsByStage.at(-1)!.get(itemCode);
       const delta = subtractExact(currentAmount, previousAmount);
       const existed = rowsByStage[0].has(itemCode);
       const exists = rowsByStage.at(-1)!.has(itemCode);
@@ -703,6 +800,18 @@ export function compareVerifiedBoqApprovedStates(
             : compareExact(delta, exactZero) !== 0 || rowCauses.length
               ? ("changed" as const)
               : ("unchanged" as const),
+        unit: currentRow?.unit ?? previousRow?.unit ?? "",
+        previousRawQuantity: previousRow?.rawQuantity ?? null,
+        currentRawQuantity: currentRow?.rawQuantity ?? null,
+        rawQuantityDelta: quantityDelta(previousRow, currentRow, "rawQuantity"),
+        previousFinalQuantity: previousRow?.finalQuantity ?? null,
+        currentFinalQuantity: currentRow?.finalQuantity ?? null,
+        finalQuantityDelta: quantityDelta(
+          previousRow,
+          currentRow,
+          "finalQuantity",
+        ),
+        quantityCauses,
         causes: rowCauses,
         previousAmountKrw: exactToString(previousAmount),
         currentAmountKrw: exactToString(currentAmount),

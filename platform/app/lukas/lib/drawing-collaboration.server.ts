@@ -3,12 +3,14 @@ import type { Database, Json } from "database.types";
 import { redirect } from "react-router";
 import { z } from "zod";
 
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import makeServerClient from "../../core/lib/supa-client.server.ts";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 
 import {
   drawingIssuePageInfo,
   drawingIssueRange,
-  mergeFocusedIssue,
+  mergeFocusedIssues,
 } from "./drawing-pagination.ts";
 
 import {
@@ -413,7 +415,8 @@ export async function drawingContext(request: Request, projectId: string) {
   const {
     data: { user },
   } = await baseClient.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
 
   const { data: project } = await baseClient
     .from("lukas_qto_projects")
@@ -421,7 +424,10 @@ export async function drawingContext(request: Request, projectId: string) {
     .eq("id", projectId)
     .single();
   if (!project)
-    throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+    throw mergeResponseHeaders(
+      new Response("프로젝트를 찾을 수 없습니다.", { status: 404 }),
+      headers,
+    );
 
   const client = baseClient as unknown as DrawingClient;
   let role: string | null = null;
@@ -437,7 +443,10 @@ export async function drawingContext(request: Request, projectId: string) {
     role = membership?.role ?? null;
   }
   if (!role)
-    throw new Response("프로젝트 접근 권한이 없습니다.", { status: 403 });
+    throw mergeResponseHeaders(
+      new Response("프로젝트 접근 권한이 없습니다.", { status: 403 }),
+      headers,
+    );
   return { client, headers, project, role, user };
 }
 
@@ -451,7 +460,7 @@ export async function listDrawingFiles(
       "id, project_id, kind, original_filename, storage_path, content_type, byte_size, sha256, immutable, created_at",
     )
     .eq("project_id", projectId)
-    .in("kind", ["ifc", "pdf"])
+    .in("kind", ["ifc", "pdf", "dxf"])
     .order("created_at", { ascending: false });
   if (error)
     throw new Error(`도면 파일을 불러오지 못했습니다: ${error.message}`);
@@ -520,7 +529,11 @@ export async function loadDrawingRoom(
   client: DrawingClient,
   projectId: string,
   fileId: string,
-  options: { page?: number; focusIssueId?: string | null } = {},
+  options: {
+    page?: number;
+    focusIssueId?: string | null;
+    focusIssueIds?: readonly string[];
+  } = {},
 ) {
   const { data: file, error: fileError } = await client
     .from("lukas_qto_files")
@@ -550,24 +563,35 @@ export async function loadDrawingRoom(
   if (issueError)
     throw new Error(`도면 이슈를 불러오지 못했습니다: ${issueError.message}`);
   const pageInfo = drawingIssuePageInfo(requestedPage, count ?? 0);
-  let focusedIssue: DrawingIssue | null = null;
-  if (
-    options.focusIssueId &&
-    !(issues ?? []).some((issue) => issue.id === options.focusIssueId)
-  ) {
+  const pageIssueIds = new Set((issues ?? []).map((issue) => issue.id));
+  const missingFocusedIds = [
+    ...new Set(
+      [options.focusIssueId, ...(options.focusIssueIds ?? [])].filter(
+        (issueId): issueId is string =>
+          Boolean(issueId) && !pageIssueIds.has(issueId!),
+      ),
+    ),
+  ];
+  let focusedIssues: DrawingIssue[] = [];
+  if (missingFocusedIds.length) {
     const { data: focused, error: focusedError } = await client
       .from("lukas_drawing_issues")
       .select("*")
       .eq("project_id", projectId)
-      .eq("id", options.focusIssueId)
-      .maybeSingle();
+      .in("id", missingFocusedIds);
     if (focusedError)
       throw new Error(
         `선택한 도면 이슈를 불러오지 못했습니다: ${focusedError.message}`,
       );
-    focusedIssue = focused;
+    const focusedById = new Map(
+      (focused ?? []).map((issue) => [issue.id, issue as DrawingIssue]),
+    );
+    focusedIssues = missingFocusedIds.flatMap((issueId) => {
+      const issue = focusedById.get(issueId);
+      return issue ? [issue] : [];
+    });
   }
-  const visibleIssues = mergeFocusedIssue(issues ?? [], focusedIssue);
+  const visibleIssues = mergeFocusedIssues(issues ?? [], focusedIssues);
   const issueIds = visibleIssues.map((issue) => issue.id);
   if (issueIds.length === 0)
     return {

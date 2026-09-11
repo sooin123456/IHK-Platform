@@ -1,12 +1,15 @@
 import type {
   AppliedDrawingCommand,
   DrawingCommand,
+  DrawingDocumentState,
 } from "./drawing-commands.ts";
 import * as Y from "yjs";
 import {
   DRAWING_COLLABORATION_SCHEMA_VERSION,
   DrawingCollaborationMetaSchema,
   DrawingCollaborationOperationSchema,
+  DrawingCollaborationStatusSchema,
+  drawingCollaborationOperationDigestSource,
   type DrawingCollaborationOperation,
 } from "./drawing-collaboration-protocol.ts";
 import type {
@@ -28,22 +31,70 @@ export type DrawingCollaborationAwareness = {
   subscribe(listener: () => void): () => void;
 };
 
-export type DrawingCollaborationRecentOutcome = {
+export type DrawingCollaborationRecentOutcomeReceipt = {
   revisionId: string;
   clientOperationId: string;
   actorId: string;
-  operationType: DrawingOperationInput["type"];
-  baseVersions: DrawingOperationInput["baseVersions"];
-  forward: DrawingOperationInput["forward"];
-  inverse: DrawingOperationInput["inverse"];
-  originalOperationId?: string;
-  historyAction?: "undo" | "redo";
   sequence: number;
   resultVersions: Record<string, number | null>;
+  operationSha256: string;
 };
 
+const MAX_DRAWING_COLLABORATION_RECENT_OUTCOMES = 256;
+
+export function drawingCollaborationRecentOutcomesKey(
+  outcomes: readonly DrawingCollaborationRecentOutcomeReceipt[],
+) {
+  return JSON.stringify(
+    outcomes.map((outcome) => [
+      outcome.clientOperationId,
+      outcome.actorId,
+      outcome.sequence,
+      outcome.operationSha256,
+      Object.entries(outcome.resultVersions).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ]),
+  );
+}
+
+export function assertDrawingCollaborationRecentOutcomeReceipts({
+  revisionId,
+  baseOperationSequence,
+  recentOutcomes,
+}: {
+  revisionId: string;
+  baseOperationSequence: number;
+  recentOutcomes: DrawingCollaborationRecentOutcomeReceipt[];
+}) {
+  if (
+    recentOutcomes.length > MAX_DRAWING_COLLABORATION_RECENT_OUTCOMES ||
+    new Set(recentOutcomes.map((outcome) => outcome.clientOperationId)).size !==
+      recentOutcomes.length ||
+    new Set(recentOutcomes.map((outcome) => outcome.sequence)).size !==
+      recentOutcomes.length ||
+    recentOutcomes.some(
+      (outcome, index) =>
+        outcome.revisionId !== revisionId ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          outcome.actorId,
+        ) ||
+        !/^[0-9a-f]{64}$/.test(outcome.operationSha256) ||
+        !DrawingCollaborationStatusSchema.safeParse({
+          operationId: outcome.clientOperationId,
+          status: "acked",
+          authoritativeSequence: outcome.sequence,
+          resultVersions: outcome.resultVersions,
+        }).success ||
+        outcome.sequence > baseOperationSequence ||
+        (index > 0 && recentOutcomes[index - 1].sequence >= outcome.sequence),
+    )
+  )
+    throw new Error("Drawing collaboration bootstrap outcomes are invalid.");
+}
+
 export type DrawingCollaborationConnection = {
-  phase: "connected" | "connecting" | "degraded";
+  phase: "connected" | "connecting" | "degraded" | "retrying" | "denied";
   flush(): void;
   refreshToken(): Promise<void>;
   dispose(): void;
@@ -51,15 +102,24 @@ export type DrawingCollaborationConnection = {
 };
 
 export function drawingCollaborationPhaseForProviderStatus(status: string) {
-  if (status === "connected") return "connected" as const;
   if (status === "disconnected") return "degraded" as const;
+  // An open socket is not proof that the room was admitted and synchronized.
   return "connecting" as const;
 }
 
 type DrawingCollaborationCapability =
-  "admin" | "editor" | "reviewer" | "approver" | "commenter" | "viewer";
+  | "admin"
+  | "editor"
+  | "reviewer"
+  | "approver"
+  | "commenter"
+  | "viewer";
 type DrawingCollaborationRevisionStatus =
-  "draft" | "review_requested" | "reviewed" | "approved" | "superseded";
+  | "draft"
+  | "review_requested"
+  | "reviewed"
+  | "approved"
+  | "superseded";
 
 export function drawingCollaborationAuthority({
   bootstrap,
@@ -216,20 +276,140 @@ export async function openDrawingCollaborationConnection({
   if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:")
     throw new Error("Drawing collaboration URL must use WebSocket.");
   const { HocuspocusProvider } = await import("@hocuspocus/provider");
+  let phase: DrawingCollaborationConnection["phase"] = "connecting";
+  let disposed = false;
+  let socketConnected = false;
+  let awaitingSync = true;
+  let generation = 0;
+  let retryDelay = 1000;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearRetry = () => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+  };
+  const publishPhase = (next: DrawingCollaborationConnection["phase"]) => {
+    if (disposed || phase === next) return;
+    phase = next;
+    onPhase?.(next);
+  };
+  const refreshToken = async () => {
+    if (
+      disposed ||
+      phase === "denied" ||
+      !socketConnected ||
+      awaitingSync ||
+      retryTimer !== null
+    )
+      return;
+    awaitingSync = true;
+    const attemptGeneration = generation;
+    provider.synced = false;
+    if (phase !== "retrying") publishPhase("connecting");
+    await provider.sendToken();
+    if (
+      disposed ||
+      generation !== attemptGeneration ||
+      !socketConnected ||
+      !awaitingSync
+    )
+      return;
+    // Hocuspocus discards the sync frames of a refused admission. Token refresh
+    // alone reauthenticates, but never requests the retained document again.
+    provider.startSync();
+  };
   onPhase?.("connecting");
   const provider = new HocuspocusProvider({
     url: parsed.toString(),
     name: drawingRoomName(projectId, revisionId),
     document,
     token: resolveToken,
-    onStatus: ({ status }) =>
-      onPhase?.(drawingCollaborationPhaseForProviderStatus(status)),
+    onOpen: () => {
+      if (disposed) return;
+      generation++;
+      clearRetry();
+      awaitingSync = true;
+    },
+    onStatus: ({ status }) => {
+      if (disposed) return;
+      socketConnected = status === "connected";
+      if (!socketConnected) {
+        generation++;
+        clearRetry();
+        awaitingSync = false;
+      }
+      if (phase === "denied") return;
+      if (socketConnected && (phase === "connected" || phase === "retrying"))
+        return;
+      publishPhase(drawingCollaborationPhaseForProviderStatus(status));
+    },
+    onClose: ({ event }) => {
+      if (disposed || phase === "denied") return;
+      // Document-only CLOSE frames do not close the shared WebSocket or emit
+      // a transport status. Never retain an admitted badge after room removal.
+      generation++;
+      awaitingSync = false;
+      clearRetry();
+      const denied =
+        event.code === 4401 ||
+        event.code === 4403 ||
+        [
+          "permission-revoked",
+          "review-freeze",
+          "Unauthorized",
+          "Forbidden",
+        ].includes(event.reason);
+      publishPhase(denied ? "denied" : "degraded");
+      if (denied) provider.disconnect();
+    },
+    onSynced: ({ state }) => {
+      if (
+        disposed ||
+        phase === "denied" ||
+        !state ||
+        !socketConnected ||
+        !provider.isAuthenticated
+      )
+        return;
+      awaitingSync = false;
+      clearRetry();
+      retryDelay = 1000;
+      publishPhase("connected");
+    },
+    onAuthenticationFailed: ({ reason }) => {
+      if (disposed || phase === "denied") return;
+      generation++;
+      awaitingSync = false;
+      provider.synced = false;
+      clearRetry();
+      if (reason !== "drawing-reconciling") {
+        publishPhase("denied");
+        provider.disconnect();
+        return;
+      }
+      publishPhase("retrying");
+      // Only the server's explicit transient admission reason is retryable.
+      // A lease may outlive a minute; cap the rate, not the recovery window.
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void refreshToken().catch(() => {
+          if (!disposed) {
+            awaitingSync = false;
+            publishPhase("degraded");
+          }
+        });
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 10_000);
+    },
   });
   const awareness = provider.awareness;
   return {
-    phase: "connecting",
-    flush: () => provider.flushPendingUpdates(),
-    refreshToken: () => provider.sendToken(),
+    get phase() {
+      return phase;
+    },
+    flush: () => {
+      if (!disposed) provider.flushPendingUpdates();
+    },
+    refreshToken,
     ...(awareness
       ? {
           awareness: {
@@ -244,7 +424,13 @@ export async function openDrawingCollaborationConnection({
           },
         }
       : {}),
-    dispose: () => provider.destroy(),
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      generation++;
+      clearRetry();
+      provider.destroy();
+    },
   };
 }
 
@@ -254,18 +440,47 @@ type DraftCommandAdapter = Pick<
   | "preparePersistedLocal"
   | "prepareRecordedLocal"
   | "appendDurableLocal"
+  | "hydrateCanonicalHistory"
 >;
 
 type RepairDraftAdapter = Pick<
   DrawingDraftAdapter,
   "operations" | "preparePersistedLocal" | "appendDurableLocal"
->;
+> &
+  Partial<
+    Pick<
+      DrawingDraftAdapter,
+      | "isOperationCheckpointAcknowledged"
+      | "operationStatus"
+      | "recordLocalAcknowledgement"
+    >
+  >;
 
-type RepairOutbox = Pick<DrawingOutbox, "entries" | "enqueue" | "markAcked">;
+type RepairOutbox = Pick<DrawingOutbox, "entries" | "enqueue" | "markAcked"> &
+  Partial<Pick<DrawingOutbox, "acknowledgements" | "recoverOperation">>;
 
 function operationInput(operation: DrawingCollaborationOperation) {
   const { actorId: _actor, schemaVersion: _schema, ...input } = operation;
   return DrawingOperationInputSchema.parse(input);
+}
+
+function sameDrawingResultVersions(
+  left: Record<string, number | null>,
+  right: Record<string, number | null>,
+) {
+  const leftEntries = Object.entries(left).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const rightEntries = Object.entries(right).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  return (
+    leftEntries.length === rightEntries.length &&
+    leftEntries.every(
+      ([id, version], index) =>
+        id === rightEntries[index][0] && version === rightEntries[index][1],
+    )
+  );
 }
 
 function collaborationOperation(
@@ -291,28 +506,51 @@ function collaborationOperation(
   });
 }
 
-function outcomeOperation(
-  outcome: DrawingCollaborationRecentOutcome,
-): DrawingCollaborationOperation {
-  return DrawingCollaborationOperationSchema.parse({
-    clientOperationId: outcome.clientOperationId,
-    revisionId: outcome.revisionId,
-    actorId: outcome.actorId,
+async function drawingCollaborationOperationSha256(
+  operation: DrawingOperationInput,
+  actorId: string,
+) {
+  const bytes = new TextEncoder().encode(
+    drawingCollaborationOperationDigestSource(operation, actorId),
+  );
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function acceptedRecoveryOperation(
+  operation: DrawingOperationInput & { actorId?: string },
+  actorId: string,
+) {
+  const candidate = {
+    clientOperationId: operation.clientOperationId,
+    revisionId: operation.revisionId,
+    actorId,
     schemaVersion: DRAWING_COLLABORATION_SCHEMA_VERSION,
-    type: outcome.operationType,
-    baseVersions: outcome.baseVersions,
-    forward: outcome.forward,
-    inverse: outcome.inverse,
-    ...(outcome.originalOperationId && outcome.historyAction
+    type: operation.type,
+    baseVersions: operation.baseVersions,
+    forward: operation.forward,
+    inverse: operation.inverse,
+    createdAt: operation.createdAt,
+    ...(operation.originalOperationId && operation.historyAction
       ? {
-          originalOperationId: outcome.originalOperationId,
-          historyAction: outcome.historyAction,
+          originalOperationId: operation.originalOperationId,
+          historyAction: operation.historyAction,
         }
       : {}),
-    // Postgres intentionally does not compare client creation time. A repaired
-    // accepted envelope uses the stable operation ID as its deterministic time.
-    createdAt: "1970-01-01T00:00:00.000Z",
-  });
+  };
+  const parsed = DrawingCollaborationOperationSchema.safeParse(candidate);
+  if (parsed.success) return parsed.data;
+  if (
+    parsed.error.issues.every(
+      (issue) =>
+        issue.message ===
+        "Drawing collaboration operation exceeds its byte limit.",
+    )
+  )
+    return null;
+  throw parsed.error;
 }
 
 export function drawingCollaborationLifecycleKey(
@@ -378,6 +616,9 @@ export function createDrawingCollaborationCommandBridge({
     return prepared;
   };
   return {
+    hydrateCanonicalHistory(state: DrawingDocumentState) {
+      return adapter.hydrateCanonicalHistory(state);
+    },
     async applyCommand(command: DrawingCommand) {
       return persist(adapter.prepareLocal(command));
     },
@@ -390,42 +631,167 @@ export function createDrawingCollaborationCommandBridge({
 /** Repairs the three durable ledgers before a network provider is connected. */
 export async function reconcileDrawingCollaborationDraft({
   actorId,
+  revisionId,
+  baseOperationSequence = 0,
   adapter,
   outbox,
   recentOutcomes,
+  commitRecoveredOperation,
 }: {
   actorId: string;
+  revisionId: string;
+  baseOperationSequence?: number;
   adapter: RepairDraftAdapter;
   outbox: RepairOutbox;
-  recentOutcomes: DrawingCollaborationRecentOutcome[];
+  recentOutcomes: DrawingCollaborationRecentOutcomeReceipt[];
+  commitRecoveredOperation?: () => Promise<void>;
 }) {
+  assertDrawingCollaborationRecentOutcomeReceipts({
+    revisionId,
+    baseOperationSequence,
+    recentOutcomes,
+  });
   const entries = await outbox.entries();
+  const durableAcknowledgements = (await outbox.acknowledgements?.()) ?? [];
+  if (
+    new Set(durableAcknowledgements.map((item) => item.clientOperationId))
+      .size !== durableAcknowledgements.length ||
+    new Set(durableAcknowledgements.map((item) => item.authoritativeSequence))
+      .size !== durableAcknowledgements.length ||
+    durableAcknowledgements.some(
+      (item) =>
+        item.operation.clientOperationId !== item.clientOperationId ||
+        item.operation.revisionId !== revisionId,
+    )
+  )
+    throw new Error("Drawing durable acknowledgements are invalid.");
+  const durableAcknowledgementIds = new Set(
+    durableAcknowledgements.map((item) => item.clientOperationId),
+  );
+  const durableAcknowledgementsById = new Map(
+    durableAcknowledgements.map((item) => [item.clientOperationId, item]),
+  );
   const outboxById = new Map(
     entries.map((entry) => [entry.operation.clientOperationId, entry]),
   );
+  const localOperations = adapter.operations();
   const operations = new Map(
-    adapter
-      .operations()
-      .map((operation) => [operation.clientOperationId, operation]),
+    localOperations.map((operation) => [
+      operation.clientOperationId,
+      operation,
+    ]),
+  );
+  await Promise.all(
+    durableAcknowledgements.flatMap((acknowledgement) => {
+      const local = operations.get(acknowledgement.clientOperationId);
+      if (!local) return [];
+      return [
+        Promise.all([
+          drawingCollaborationOperationSha256(
+            acknowledgement.operation,
+            actorId,
+          ),
+          drawingCollaborationOperationSha256(
+            operationInput(local),
+            local.actorId,
+          ),
+        ]).then(([persistedDigest, localDigest]) => {
+          if (persistedDigest !== localDigest)
+            throw new Error(
+              "Drawing durable acknowledgement operation does not match its local ledger.",
+            );
+        }),
+      ];
+    }),
   );
   const accepted = new Map(
     recentOutcomes.map((outcome) => [outcome.clientOperationId, outcome]),
   );
-
+  await Promise.all(
+    recentOutcomes.flatMap((outcome) => {
+      const candidates: Array<Promise<string>> = [];
+      const queued = outboxById.get(outcome.clientOperationId)?.operation;
+      const local = operations.get(outcome.clientOperationId);
+      const durable = durableAcknowledgementsById.get(
+        outcome.clientOperationId,
+      );
+      if ((queued || durable) && outcome.actorId !== actorId)
+        throw new Error(
+          "Drawing authoritative receipt actor does not match its local operation.",
+        );
+      if (durable) {
+        if (
+          durable.authoritativeSequence !== outcome.sequence ||
+          !sameDrawingResultVersions(
+            durable.resultVersions,
+            outcome.resultVersions,
+          )
+        )
+          throw new Error(
+            "Drawing authoritative receipt conflicts with its durable acknowledgement.",
+          );
+        candidates.push(
+          drawingCollaborationOperationSha256(
+            durable.operation,
+            outcome.actorId,
+          ),
+        );
+      }
+      if (queued)
+        candidates.push(
+          drawingCollaborationOperationSha256(queued, outcome.actorId),
+        );
+      if (local) {
+        if (local.actorId !== outcome.actorId)
+          throw new Error(
+            "Drawing authoritative receipt actor does not match its local ledger.",
+          );
+        candidates.push(
+          drawingCollaborationOperationSha256(
+            operationInput(local),
+            local.actorId,
+          ),
+        );
+      }
+      return candidates.map(async (digest) => {
+        if ((await digest) !== outcome.operationSha256)
+          throw new Error(
+            "Drawing local operation digest does not match its authoritative receipt.",
+          );
+      });
+    }),
+  );
+  for (const acknowledgement of durableAcknowledgements)
+    if (operations.has(acknowledgement.clientOperationId))
+      adapter.recordLocalAcknowledgement?.(acknowledgement, "canonical");
   for (const entry of entries) {
     const id = entry.operation.clientOperationId;
-    if (accepted.has(id) || operations.has(id)) continue;
-    const prepared = adapter.preparePersistedLocal(
-      collaborationOperation(entry.operation, actorId),
-    );
-    adapter.appendDurableLocal(prepared);
-    operations.set(id, prepared.operation);
+    if (accepted.has(id)) continue;
+    const append = async () => {
+      const prepared = adapter.preparePersistedLocal(
+        collaborationOperation(entry.operation, actorId),
+      );
+      adapter.appendDurableLocal(prepared);
+      await commitRecoveredOperation?.();
+      operations.set(id, prepared.operation);
+    };
+    if (outbox.recoverOperation) await outbox.recoverOperation(id, append);
+    else if (!operations.has(id)) await append();
   }
 
   for (const operation of adapter.operations()) {
+    const status = adapter.operationStatus?.(operation.clientOperationId);
     if (
+      status?.status === "conflicted" ||
+      status?.status === "rejected" ||
       operation.actorId !== actorId ||
-      outboxById.has(operation.clientOperationId)
+      outboxById.has(operation.clientOperationId) ||
+      accepted.has(operation.clientOperationId) ||
+      durableAcknowledgementIds.has(operation.clientOperationId) ||
+      adapter.isOperationCheckpointAcknowledged?.(
+        operation.clientOperationId,
+        baseOperationSequence,
+      )
     )
       continue;
     await outbox.enqueue(operationInput(operation));
@@ -433,15 +799,36 @@ export async function reconcileDrawingCollaborationDraft({
 
   for (const outcome of recentOutcomes) {
     if (outcome.actorId !== actorId) continue;
-    if (!operations.has(outcome.clientOperationId)) {
-      const queued = outboxById.get(outcome.clientOperationId)?.operation;
-      const prepared = adapter.preparePersistedLocal(
-        queued
-          ? collaborationOperation(queued, actorId)
-          : outcomeOperation(outcome),
-      );
-      adapter.appendDurableLocal(prepared);
+    if (durableAcknowledgementIds.has(outcome.clientOperationId)) continue;
+    const queued = outboxById.get(outcome.clientOperationId)?.operation;
+    let local = operations.get(outcome.clientOperationId);
+    if (!local) {
+      if (queued) {
+        const operation = acceptedRecoveryOperation(queued, actorId);
+        if (operation) {
+          const prepared = adapter.preparePersistedLocal(operation);
+          adapter.appendDurableLocal(prepared);
+          local = prepared.operation;
+          operations.set(outcome.clientOperationId, local);
+        }
+      }
     }
-    await outbox.markAcked(outcome.clientOperationId);
+    if (queued && local) await commitRecoveredOperation?.();
+    const acknowledgement = {
+      clientOperationId: outcome.clientOperationId,
+      authoritativeSequence: outcome.sequence,
+      resultVersions: outcome.resultVersions,
+    };
+    if (local)
+      adapter.recordLocalAcknowledgement?.(acknowledgement, "canonical");
+    await outbox.markAcked(
+      outcome.clientOperationId,
+      queued
+        ? {
+            ...acknowledgement,
+            operation: queued,
+          }
+        : undefined,
+    );
   }
 }

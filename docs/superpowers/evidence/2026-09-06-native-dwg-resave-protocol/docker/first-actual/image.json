@@ -1,0 +1,59 @@
+{
+  "Architecture": "arm64",
+  "Config": {
+    "Entrypoint": [
+      "/usr/bin/timeout",
+      "--signal=KILL",
+      "120s",
+      "/usr/share/dotnet/dotnet",
+      "/app/DwgEngineQualification.dll",
+      "read-native-stdio"
+    ],
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "APP_UID=1654",
+      "ASPNETCORE_HTTP_PORTS=8080",
+      "DOTNET_RUNNING_IN_CONTAINER=true",
+      "DOTNET_VERSION=8.0.30",
+      "DOTNET_EnableDiagnostics=0"
+    ],
+    "Labels": {
+      "org.1hk.native-dwg-reader.protocol": "1hk-dwg-import/1",
+      "org.1hk.native-dwg-resaver.protocol": "1hk-dwg-resave/1"
+    },
+    "User": "65532:65532",
+    "WorkingDir": "/app"
+  },
+  "Created": "2026-09-06T15:05:32.801373869+09:00",
+  "Descriptor": {
+    "digest": "sha256:c921c67ddb37d2a57969d04c7a4983f6d847e0b89901403e3b015ac25bf566ae",
+    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+    "size": 2086
+  },
+  "Id": "sha256:c921c67ddb37d2a57969d04c7a4983f6d847e0b89901403e3b015ac25bf566ae",
+  "Metadata": {
+    "LastTagTime": "2026-09-06T06:05:32.831924802Z"
+  },
+  "Os": "linux",
+  "Parent": "sha256:a6b26f915ebaf5056ecd622c84e40b628d82858157bb1163396c9c4cd8c94655",
+  "RepoDigests": [
+    "1hk-task2-resave-20260906-7ac831@sha256:c921c67ddb37d2a57969d04c7a4983f6d847e0b89901403e3b015ac25bf566ae"
+  ],
+  "RepoTags": [
+    "1hk-task2-resave-20260906-7ac831:latest"
+  ],
+  "RootFS": {
+    "Layers": [
+      "sha256:13a56b6535801be2adde694dabaf1c2df1d862a390661907dac821c42cd565cc",
+      "sha256:bc2564d9dcea814b22e51829f9804262ae7f684fca7071be915d4803d3740ecc",
+      "sha256:8fd1cea1cc4cdc539b71fe7049d0dc09b108672c8e48232f890fbe98e81ae980",
+      "sha256:af89d9189dd37772e889a2e9a3805291e7fded95f888f5ecd706240e62b1ee28",
+      "sha256:e246ce815596766efc1a77d5c5a4f774048df53020f28de300b0070a2a74999e",
+      "sha256:c4ee5ee02a48c49f6d872113eb8aa64d6d4e657e56e2d475b8c0a94513e81318",
+      "sha256:ae571226a08424291e5218ab9e4483eed48ebc2cef29beaf8943e592e399bb67",
+      "sha256:1c52c2d0c45f95063da88761fe6e4ef1ef5c87ab331b7369f76b0ad23d0528a5"
+    ],
+    "Type": "layers"
+  },
+  "Size": 78208769
+}

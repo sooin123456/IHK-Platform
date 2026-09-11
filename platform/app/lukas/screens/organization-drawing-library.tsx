@@ -5,10 +5,13 @@ import { Form, Link, data, redirect } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 import {
   ORGANIZATION_LIBRARY_LIST_LIMIT,
   assertOrganizationDrawingLibraryMutationAllowed,
+  loadOrganizationPriceBookReuseEvidence,
   listOrganizationDrawingLibrary,
   parseOrganizationDrawingLibraryForm,
   parseOrganizationDrawingLibrarySearch,
@@ -46,6 +49,12 @@ type ImportTarget = {
   revisionId: string | null;
   label: string;
 };
+type PriceBookReuseCandidate = {
+  source_sha256: string;
+  project_count: number;
+  price_book_count: number;
+  projects: { id: string; name: string }[];
+};
 
 export const meta: Route.MetaFunction = ({ data: page }) => [
   {
@@ -60,7 +69,8 @@ async function context(request: Request, organizationId: string) {
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   const [{ data: organization }, { data: membership }] = await Promise.all([
     client
       .from("lukas_qto_organizations")
@@ -80,7 +90,10 @@ async function context(request: Request, organizationId: string) {
       organization.owner_id !== user.id &&
       user.app_metadata.role !== "hangil_staff")
   )
-    throw new Response("회사를 찾을 수 없습니다.", { status: 404 });
+    throw mergeResponseHeaders(
+      new Response("회사를 찾을 수 없습니다.", { status: 404 }),
+      headers,
+    );
   return {
     client: client as any,
     headers,
@@ -95,15 +108,20 @@ async function context(request: Request, organizationId: string) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const filters = parseOrganizationDrawingLibrarySearch(
-    new URL(request.url).searchParams,
-  );
   const { client, headers, organization, user, mayManage } = await context(
     request,
     params.organizationId!,
   );
-  const [{ data: projects, error: projectError }, versions, allVersions] =
-    await Promise.all([
+  try {
+    const filters = parseOrganizationDrawingLibrarySearch(
+      new URL(request.url).searchParams,
+    );
+    const [
+      { data: projects, error: projectError },
+      versions,
+      allVersions,
+      priceBookReuseEvidence,
+    ] = await Promise.all([
       client
         .from("lukas_qto_projects")
         .select("id,name,organization_id,owner_id")
@@ -113,116 +131,131 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .limit(ORGANIZATION_LIBRARY_LIST_LIMIT),
       listOrganizationDrawingLibrary(client, organization.id, filters),
       listOrganizationDrawingLibrary(client, organization.id, {}),
+      mayManage
+        ? loadOrganizationPriceBookReuseEvidence(client, organization.id)
+        : Promise.resolve({ candidates: [], status: "unavailable" as const }),
     ]);
-  if (projectError)
-    throw new Response("회사 프로젝트를 불러오지 못했습니다.", { status: 500 });
-  const projectIds = (projects ?? []).map(
-    (project: { id: string }) => project.id,
-  );
-  const [revisionResult, membershipResult] =
-    projectIds.length === 0
-      ? [
-          { data: [], error: null },
-          { data: [], error: null },
-        ]
-      : await Promise.all([
-          client
-            .from("lukas_drawing_revisions")
-            .select("id,project_id,status,version")
-            .in("project_id", projectIds)
-            .in("status", ["draft", "approved"])
-            .order("updated_at", { ascending: false })
-            .order("id")
-            .limit(ORGANIZATION_LIBRARY_LIST_LIMIT),
-          client
-            .from("lukas_qto_project_members")
-            .select("project_id,role")
-            .in("project_id", projectIds)
-            .eq("user_id", user.id),
-        ]);
-  if (revisionResult.error || membershipResult.error)
-    throw new Response("도면 리비전을 불러오지 못했습니다.", { status: 500 });
-  const revisions = revisionResult.data ?? [];
-  const memberRoleByProject = new Map<string, string>(
-    (membershipResult.data ?? []).map(
-      (membership: { project_id: string; role: string }) => [
-        membership.project_id,
-        membership.role,
-      ],
-    ),
-  );
-  const workspaceProjects = (projects ?? []).map(
-    (project: {
-      id: string;
-      name: string;
-      organization_id: string;
-      owner_id: string;
-    }) => {
-      const capability = drawingWorkspaceCapabilityForRole(
-        user.app_metadata.role === "hangil_staff"
-          ? "staff"
-          : project.owner_id === user.id
-            ? "owner"
-            : memberRoleByProject.get(project.id),
-      );
-      return {
-        id: project.id,
-        name: project.name,
-        organization_id: project.organization_id,
-        can_create_workspace: capability === "admin" || capability === "editor",
-      };
-    },
-  );
-  const approvedRevisionIds = (revisions ?? [])
-    .filter((revision: { status: string }) => revision.status === "approved")
-    .map((revision: { id: string }) => revision.id);
-  const sourceTables = [
-    ["style", "lukas_drawing_styles", "id,revision_id,name"],
-    ["block", "lukas_drawing_blocks", "id,revision_id,name"],
-    [
-      "property_schema",
-      "lukas_drawing_property_schemas",
-      "id,revision_id,name",
-    ],
-  ] as const;
-  const sourceResults =
-    approvedRevisionIds.length === 0
-      ? sourceTables.map(([kind]) => ({ kind, data: [], error: null }))
-      : await Promise.all(
-          sourceTables.map(async ([kind, table, select]) => {
-            const result = await client
-              .from(table)
-              .select(select)
-              .in("revision_id", approvedRevisionIds)
-              .order("name")
+    if (projectError)
+      throw new Response("회사 프로젝트를 불러오지 못했습니다.", {
+        status: 500,
+      });
+    const projectIds = (projects ?? []).map(
+      (project: { id: string }) => project.id,
+    );
+    const [revisionResult, membershipResult] =
+      projectIds.length === 0
+        ? [
+            { data: [], error: null },
+            { data: [], error: null },
+          ]
+        : await Promise.all([
+            client
+              .from("lukas_drawing_revisions")
+              .select("id,project_id,status,version")
+              .in("project_id", projectIds)
+              .in("status", ["draft", "approved"])
+              .order("updated_at", { ascending: false })
               .order("id")
-              .limit(ORGANIZATION_LIBRARY_LIST_LIMIT);
-            return { kind, ...result };
-          }),
-        );
-  if (sourceResults.some((result) => result.error))
-    throw new Response("도면 표준 원본을 불러오지 못했습니다.", {
-      status: 500,
-    });
-  return data(
-    {
-      organization,
-      importRequestId: crypto.randomUUID(),
-      mayManage,
-      filters,
-      projects: workspaceProjects,
-      revisions: revisions ?? [],
-      sources: Object.fromEntries(
-        sourceResults.map((result) => [result.kind, result.data ?? []]),
+              .limit(ORGANIZATION_LIBRARY_LIST_LIMIT),
+            client
+              .from("lukas_qto_project_members")
+              .select("project_id,role")
+              .in("project_id", projectIds)
+              .eq("user_id", user.id),
+          ]);
+    if (revisionResult.error || membershipResult.error)
+      throw new Response("도면 리비전을 불러오지 못했습니다.", { status: 500 });
+    const revisions = revisionResult.data ?? [];
+    const memberRoleByProject = new Map<string, string>(
+      (membershipResult.data ?? []).map(
+        (membership: { project_id: string; role: string }) => [
+          membership.project_id,
+          membership.role,
+        ],
       ),
-      versions,
-      allVersions,
-    },
-    { headers },
-  );
+    );
+    const workspaceProjects = (projects ?? []).map(
+      (project: {
+        id: string;
+        name: string;
+        organization_id: string;
+        owner_id: string;
+      }) => {
+        const capability = drawingWorkspaceCapabilityForRole(
+          user.app_metadata.role === "hangil_staff"
+            ? "staff"
+            : project.owner_id === user.id
+              ? "owner"
+              : memberRoleByProject.get(project.id),
+        );
+        return {
+          id: project.id,
+          name: project.name,
+          organization_id: project.organization_id,
+          can_create_workspace:
+            capability === "admin" || capability === "editor",
+        };
+      },
+    );
+    const approvedRevisionIds = (revisions ?? [])
+      .filter((revision: { status: string }) => revision.status === "approved")
+      .map((revision: { id: string }) => revision.id);
+    const sourceTables = [
+      ["style", "lukas_drawing_styles", "id,revision_id,name"],
+      ["block", "lukas_drawing_blocks", "id,revision_id,name"],
+      [
+        "property_schema",
+        "lukas_drawing_property_schemas",
+        "id,revision_id,name",
+      ],
+    ] as const;
+    const sourceResults =
+      approvedRevisionIds.length === 0
+        ? sourceTables.map(([kind]) => ({ kind, data: [], error: null }))
+        : await Promise.all(
+            sourceTables.map(async ([kind, table, select]) => {
+              const result = await client
+                .from(table)
+                .select(select)
+                .in("revision_id", approvedRevisionIds)
+                .order("name")
+                .order("id")
+                .limit(ORGANIZATION_LIBRARY_LIST_LIMIT);
+              return { kind, ...result };
+            }),
+          );
+    if (sourceResults.some((result) => result.error))
+      throw new Response("도면 표준 원본을 불러오지 못했습니다.", {
+        status: 500,
+      });
+    return data(
+      {
+        organization,
+        importRequestId: crypto.randomUUID(),
+        mayManage,
+        filters,
+        projects: workspaceProjects,
+        revisions: revisions ?? [],
+        sources: Object.fromEntries(
+          sourceResults.map((result) => [result.kind, result.data ?? []]),
+        ),
+        versions,
+        allVersions,
+        priceBookReuseEvidence,
+      },
+      { headers },
+    );
+  } catch (error) {
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
+  }
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
+  const { client, headers, organization } = await context(
+    request,
+    params.organizationId!,
+  );
   let mutation: ReturnType<typeof parseOrganizationDrawingLibraryForm>;
   try {
     mutation = parseOrganizationDrawingLibraryForm(await request.formData());
@@ -231,13 +264,9 @@ export async function action({ request, params }: Route.ActionArgs) {
       {
         error: error instanceof Error ? error.message : "입력값을 확인하세요.",
       },
-      { status: 400 },
+      { status: 400, headers },
     );
   }
-  const { client, headers, organization } = await context(
-    request,
-    params.organizationId!,
-  );
   try {
     if (mutation.intent !== "create_draft") {
       const { data: version, error: versionError } = await client
@@ -278,6 +307,10 @@ export default function OrganizationDrawingLibrary({
   const editableProjects = loaderData.projects.filter(
     (project: ProjectOption) => project.can_create_workspace,
   );
+  const priceBookReuseEvidence = loaderData.priceBookReuseEvidence ?? {
+    candidates: [],
+    status: "available" as const,
+  };
   const editableProjectIds = new Set(
     editableProjects.map((project: ProjectOption) => project.id),
   );
@@ -489,6 +522,67 @@ export default function OrganizationDrawingLibrary({
         </section>
       ) : null}
 
+      {loaderData.mayManage ? (
+        <section
+          aria-labelledby="price-book-reuse-evidence-title"
+          className="mt-7 rounded-2xl border bg-card p-5"
+        >
+          <h2 className="font-bold" id="price-book-reuse-evidence-title">
+            단가표 반복 사용 증거
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            같은 원본 SHA-256을 서로 다른 프로젝트에서 사용한 경우만 표시합니다.
+            이 목록은 읽기 전용이며 단가표를 복사하거나 공유하지 않습니다.
+          </p>
+          {priceBookReuseEvidence.status === "unavailable" ? (
+            <p
+              className="mt-4 rounded-xl border border-dashed p-4 text-sm text-muted-foreground"
+              role="status"
+            >
+              단가표 반복 사용 증거를 현재 불러올 수 없습니다. 기존 회사 도면
+              라이브러리는 계속 사용할 수 있습니다.
+            </p>
+          ) : priceBookReuseEvidence.candidates.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+              동일 원본을 2개 이상의 프로젝트에서 반복 사용한 근거가 없어 조직
+              단가표 레지스트리를 만들지 않았습니다.
+            </p>
+          ) : (
+            <div className="mt-4 grid gap-3">
+              {priceBookReuseEvidence.candidates.map(
+                (candidate: PriceBookReuseCandidate) => (
+                  <article
+                    className="rounded-xl border p-4"
+                    key={candidate.source_sha256}
+                  >
+                    <p className="text-sm font-semibold">
+                      {candidate.project_count}개 프로젝트 ·{" "}
+                      {candidate.price_book_count}개 단가표
+                    </p>
+                    <code className="mt-2 block break-all text-xs text-muted-foreground">
+                      SHA-256 {candidate.source_sha256}
+                    </code>
+                    <ul
+                      className="mt-3 flex flex-wrap gap-2"
+                      aria-label="사용 프로젝트"
+                    >
+                      {candidate.projects.map((project) => (
+                        <li
+                          className="rounded-full border px-3 py-1 text-xs"
+                          key={project.id}
+                        >
+                          {project.name}
+                        </li>
+                      ))}
+                    </ul>
+                  </article>
+                ),
+              )}
+            </div>
+          )}
+        </section>
+      ) : null}
+
       <section className="mt-7 grid gap-4">
         {loaderData.versions.length === 0 ? (
           <p className="rounded-2xl border border-dashed p-10 text-center text-muted-foreground">
@@ -496,7 +590,7 @@ export default function OrganizationDrawingLibrary({
           </p>
         ) : (
           loaderData.versions.map((version) => {
-            const platformStarter = version.source_kind === "platform_starter";
+            const platformStarter = version.source_kind !== "project_revision";
             return (
               <article
                 className="rounded-2xl border bg-card p-5"
@@ -506,7 +600,7 @@ export default function OrganizationDrawingLibrary({
                   <div>
                     <p className="text-xs font-semibold text-primary">
                       {platformStarter
-                        ? "1HK 기본 · 읽기 전용"
+                        ? `1HK 기본 · ${version.source_kind === "platform_native" ? `예제 · v${version.native_asset_version} · ` : ""}읽기 전용`
                         : `${kindLabels[version.entry.kind]} · v${version.version_no}`}
                     </p>
                     <h2 className="mt-1 text-lg font-bold">
@@ -551,7 +645,8 @@ export default function OrganizationDrawingLibrary({
                       </Button>
                     </Form>
                   ) : null}
-                  {platformStarter && version.status === "published" ? (
+                  {platformStarter && version.entry.kind === "block" ? <p className="text-sm text-muted-foreground">기본 심볼은 도면 편집기의 블록 라이브러리에서 추가하세요.</p> : null}
+                  {platformStarter && version.entry.kind === "workspace_template" && version.status === "published" ? (
                     <div className="grid w-full gap-2 border-t pt-3">
                       <p className="text-xs font-semibold text-muted-foreground">
                         사용할 프로젝트
@@ -565,7 +660,7 @@ export default function OrganizationDrawingLibrary({
                           <Link
                             className="inline-flex min-h-11 items-center justify-between rounded-lg border px-3 text-sm font-semibold"
                             key={project.id}
-                            to={`/projects/${project.id}/workspaces/new?starterKey=${encodeURIComponent(version.platform_starter_key!)}`}
+                            to={version.source_kind === "platform_native" ? `/projects/${project.id}/workspaces/new` : `/projects/${project.id}/workspaces/new?starterKey=${encodeURIComponent(version.platform_starter_key!)}`}
                           >
                             {project.name} · 사용
                           </Link>

@@ -1,0 +1,655 @@
+{
+  "qualification": "experimental-unqualified",
+  "status": "passed-internal-semantic-comparison",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "canonicalSourceValidation": "producer-required",
+  "engine": {
+    "package": "ACadSharp",
+    "pinnedVersion": "3.7.1",
+    "assemblyVersion": "3.7.1.0",
+    "framework": ".NET 8.0"
+  },
+  "tolerances": {
+    "geometryAbsoluteMillimeters": 1E-07,
+    "angularRadians": 1E-10
+  },
+  "input": {
+    "fileName": "native.cad.json",
+    "sha256": "0b76be51d1911325301545169a2ece14e7a775304cc7144ea7e95cdb75155a44",
+    "bytes": 45498,
+    "scope": {
+      "projectId": "0dd5372f-696d-4dd7-98d4-9af65453485d",
+      "documentId": "90afa0bf-6bb7-42e2-8cf1-15224f879cf5",
+      "revisionId": "68805c9f-2fcb-4db0-a1e5-1e727bba64ec",
+      "operationSequence": 3,
+      "structureSha256": "a6bdd76c2c10ed94aefb0dd39c595647dc30155287afef7e01edfca098b2c8c2"
+    },
+    "originalBytesPreserved": true
+  },
+  "outputs": {
+    "dwg": {
+      "fileName": "native.dwg",
+      "sha256": "bf007d35cd07fc351c8cd8f6c1160fda63c83777d1dd4f45a395137d6d38728c"
+    },
+    "sourceManifest": {
+      "fileName": "source-manifest.json",
+      "sha256": "0b76be51d1911325301545169a2ece14e7a775304cc7144ea7e95cdb75155a44"
+    },
+    "report": "native-report.json"
+  },
+  "outputProfile": {
+    "paper": "A3",
+    "orientation": "landscape",
+    "width": 420,
+    "height": 297,
+    "scaleDenominator": 50
+  },
+  "verification": {
+    "failures": [],
+    "entities": [
+      {
+        "id": "block/9368afdc-dc0f-4ef6-9a93-993a5be931f3/jamb-left/0",
+        "handle": "51",
+        "owner": "B_9368afdcdc0f4ef69a93993a5be931f3",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-100,0"
+      },
+      {
+        "id": "block/9368afdc-dc0f-4ef6-9a93-993a5be931f3/jamb-right/1",
+        "handle": "52",
+        "owner": "B_9368afdcdc0f4ef69a93993a5be931f3",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=900,0,0;end=900,-100,0"
+      },
+      {
+        "id": "block/9368afdc-dc0f-4ef6-9a93-993a5be931f3/leaf/2",
+        "handle": "53",
+        "owner": "B_9368afdcdc0f4ef69a93993a5be931f3",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-900,0"
+      },
+      {
+        "id": "block/9368afdc-dc0f-4ef6-9a93-993a5be931f3/swing/3",
+        "handle": "54",
+        "owner": "B_9368afdcdc0f4ef69a93993a5be931f3",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=False;points=900,0/869.3334,-232.9371/779.4225,-450/636.3963,-636.3963/450,-779.4225/232.9371,-869.3334/0,-900"
+      },
+      {
+        "id": "block/d7027f2d-3d79-4072-8d13-6b2823bd4b26/jamb-left/0",
+        "handle": "55",
+        "owner": "B_d7027f2d3d7940728d136b2823bd4b26",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-100,0"
+      },
+      {
+        "id": "block/d7027f2d-3d79-4072-8d13-6b2823bd4b26/jamb-right/1",
+        "handle": "56",
+        "owner": "B_d7027f2d3d7940728d136b2823bd4b26",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=800,0,0;end=800,-100,0"
+      },
+      {
+        "id": "block/d7027f2d-3d79-4072-8d13-6b2823bd4b26/leaf/2",
+        "handle": "57",
+        "owner": "B_d7027f2d3d7940728d136b2823bd4b26",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-800,0"
+      },
+      {
+        "id": "block/d7027f2d-3d79-4072-8d13-6b2823bd4b26/swing/3",
+        "handle": "58",
+        "owner": "B_d7027f2d3d7940728d136b2823bd4b26",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=False;points=800,0/772.7408,-207.0552/692.82,-400/565.6856,-565.6856/400,-692.82/207.0552,-772.7408/0,-800"
+      },
+      {
+        "id": "object/21a2b5fe-50b2-40d2-8495-e9375435606d/0",
+        "handle": "59",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "origin=1500,-900,0;height=140;width=12000;rotation=0;text=\uCE58\uC218 \uD3C9\uBA74 \uC608\uC81C\n\uC608\uC81C\u00B7\uAC00\uC815\uAC12 \u2014 \uD604\uC7A5 \uD655\uC778 \uD544\uC694"
+      },
+      {
+        "id": "object/2334fb60-25cf-4183-9389-43b8a457b4c5/1",
+        "handle": "5A",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/2334fb60-25cf-4183-9389-43b8a457b4c5/2",
+        "handle": "5B",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "closed=True;points=2575,-7075/2575,-2925/2425,-2925/2425,-7075"
+      },
+      {
+        "id": "object/28459fc6-31f1-4125-a5f9-79810260e70e/3",
+        "handle": "5C",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/28459fc6-31f1-4125-a5f9-79810260e70e/4",
+        "handle": "5D",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "closed=True;points=2500,-3000/8500,-3000/8500,-7000/2500,-7000"
+      },
+      {
+        "id": "object/28459fc6-31f1-4125-a5f9-79810260e70e/5",
+        "handle": "5E",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "origin=4600,-4930,0;height=140;width=1800;rotation=0;text=E-01 \u00B7 \uC608\uC81C\uC2E4 24\u33A1"
+      },
+      {
+        "id": "object/288167d6-9c25-497a-857c-315a73f3db3e/6",
+        "handle": "5F",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/288167d6-9c25-497a-857c-315a73f3db3e/7",
+        "handle": "60",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "closed=True;points=2425,-3075/4350,-3075/4350,-2925/2425,-2925"
+      },
+      {
+        "id": "object/288167d6-9c25-497a-857c-315a73f3db3e/8",
+        "handle": "61",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/288167d6-9c25-497a-857c-315a73f3db3e/9",
+        "handle": "62",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "closed=True;points=5250,-3075/8575,-3075/8575,-2925/5250,-2925"
+      },
+      {
+        "id": "object/30b6997d-9270-4794-aea5-a54bfcf4f117/10",
+        "handle": "63",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/30b6997d-9270-4794-aea5-a54bfcf4f117/11",
+        "handle": "64",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "closed=True;points=8425,-2925/8425,-7075/8575,-7075/8575,-2925"
+      },
+      {
+        "id": "object/4afd25c7-91ff-4af1-9815-aabd067e33b4/12",
+        "handle": "65",
+        "owner": "*Model_Space",
+        "type": "LINE",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "start=4350,-3000,0;end=5250,-3000,0"
+      },
+      {
+        "id": "object/4afd25c7-91ff-4af1-9815-aabd067e33b4/13",
+        "handle": "66",
+        "owner": "*Model_Space",
+        "type": "LINE",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "start=4350,-3000,0;end=4350,-3087.5,0"
+      },
+      {
+        "id": "object/7f8e2f3e-c0df-451c-addc-8c4043dbae4b/14",
+        "handle": "67",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/7f8e2f3e-c0df-451c-addc-8c4043dbae4b/15",
+        "handle": "68",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "closed=True;points=8575,-6925/2425,-6925/2425,-7075/8575,-7075"
+      },
+      {
+        "id": "instance/ce6291df-90a4-451b-9608-9bb7d739c07c",
+        "handle": "69",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "block=B_9368afdcdc0f4ef69a93993a5be931f3;origin=4350,-3000,0;scale=1,1,1;rotation=0"
+      },
+      {
+        "id": "instance/f5327e3a-812b-43f7-b5d2-b9374f2ffb3f",
+        "handle": "6A",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_889d7f941e3349de81f570ce95027bb0",
+        "geometry": "block=B_d7027f2d3d7940728d136b2823bd4b26;origin=3000,-9000,0;scale=1,1,1;rotation=0"
+      },
+      {
+        "id": "object/14303b0b-6649-4dee-a7f3-06a617fb723b/18",
+        "handle": "6C",
+        "owner": "*Model_Space",
+        "type": "DIMENSION",
+        "layer": "L_3200a3d9e6034fd496a9dbf1e5d6bb68",
+        "geometry": "first=2500,-3000,0;second=2500,-7000,0;definition=3100,-7000,0;measurement=4000;text=4000.0 mm"
+      },
+      {
+        "id": "object/74f8b0a9-dbee-4ffe-9232-7d7cbae51832/19",
+        "handle": "7C",
+        "owner": "*Model_Space",
+        "type": "DIMENSION",
+        "layer": "L_3200a3d9e6034fd496a9dbf1e5d6bb68",
+        "geometry": "first=2500,-3000,0;second=8500,-3000,0;definition=8500,-2400,0;measurement=6000;text=6000.0 mm"
+      }
+    ],
+    "layers": [
+      {
+        "id": "3200a3d9-e603-4fd4-96a9-dbf1e5d6bb68",
+        "cadName": "L_3200a3d9e6034fd496a9dbf1e5d6bb68",
+        "sourceName": "\uCE58\uC218",
+        "handle": "48",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "889d7f94-1e33-49de-81f5-70ce95027bb0",
+        "cadName": "L_889d7f941e3349de81f570ce95027bb0",
+        "sourceName": "\uC791\uC5C5",
+        "handle": "49",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "blocks": [
+      {
+        "id": "9368afdc-dc0f-4ef6-9a93-993a5be931f3",
+        "cadName": "B_9368afdcdc0f4ef69a93993a5be931f3",
+        "sourceName": "Single door 900 mm",
+        "handle": "4B",
+        "entityHandles": [
+          "51",
+          "52",
+          "53",
+          "54"
+        ]
+      },
+      {
+        "id": "d7027f2d-3d79-4072-8d13-6b2823bd4b26",
+        "cadName": "B_d7027f2d3d7940728d136b2823bd4b26",
+        "sourceName": "Single door 800 mm",
+        "handle": "4E",
+        "entityHandles": [
+          "55",
+          "56",
+          "57",
+          "58"
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "name": "NATIVE_A3",
+        "paperWidth": 420,
+        "paperHeight": 297,
+        "paperUnits": "Millimeters",
+        "viewports": [
+          {
+            "handle": "47",
+            "id": 1,
+            "representsPaper": true,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 0,
+              "y": 0
+            },
+            "viewHeight": 0,
+            "scaleFactor": null
+          },
+          {
+            "handle": "8A",
+            "id": 2,
+            "representsPaper": false,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 10500,
+              "y": -7425
+            },
+            "viewHeight": 14850,
+            "scaleFactor": 0.02
+          }
+        ]
+      }
+    ],
+    "quantizations": [
+      {
+        "entityId": "block/9368afdc-dc0f-4ef6-9a93-993a5be931f3/jamb-left/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/9368afdc-dc0f-4ef6-9a93-993a5be931f3/jamb-right/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/9368afdc-dc0f-4ef6-9a93-993a5be931f3/leaf/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/9368afdc-dc0f-4ef6-9a93-993a5be931f3/swing/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/d7027f2d-3d79-4072-8d13-6b2823bd4b26/jamb-left/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/d7027f2d-3d79-4072-8d13-6b2823bd4b26/jamb-right/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/d7027f2d-3d79-4072-8d13-6b2823bd4b26/leaf/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/d7027f2d-3d79-4072-8d13-6b2823bd4b26/swing/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "object/21a2b5fe-50b2-40d2-8495-e9375435606d/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/2334fb60-25cf-4183-9389-43b8a457b4c5/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/2334fb60-25cf-4183-9389-43b8a457b4c5/1",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/2334fb60-25cf-4183-9389-43b8a457b4c5/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/28459fc6-31f1-4125-a5f9-79810260e70e/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/28459fc6-31f1-4125-a5f9-79810260e70e/3",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/28459fc6-31f1-4125-a5f9-79810260e70e/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/28459fc6-31f1-4125-a5f9-79810260e70e/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/288167d6-9c25-497a-857c-315a73f3db3e/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/288167d6-9c25-497a-857c-315a73f3db3e/6",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/288167d6-9c25-497a-857c-315a73f3db3e/7",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/288167d6-9c25-497a-857c-315a73f3db3e/8",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/288167d6-9c25-497a-857c-315a73f3db3e/8",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/288167d6-9c25-497a-857c-315a73f3db3e/9",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30b6997d-9270-4794-aea5-a54bfcf4f117/10",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30b6997d-9270-4794-aea5-a54bfcf4f117/10",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/30b6997d-9270-4794-aea5-a54bfcf4f117/11",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/4afd25c7-91ff-4af1-9815-aabd067e33b4/12",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "object/4afd25c7-91ff-4af1-9815-aabd067e33b4/13",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.12,
+        "stored": 0.13,
+        "nativeValue": "W13"
+      },
+      {
+        "entityId": "object/7f8e2f3e-c0df-451c-addc-8c4043dbae4b/14",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/7f8e2f3e-c0df-451c-addc-8c4043dbae4b/14",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/7f8e2f3e-c0df-451c-addc-8c4043dbae4b/15",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/14303b0b-6649-4dee-a7f3-06a617fb723b/18",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/74f8b0a9-dbee-4ffe-9232-7d7cbae51832/19",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      }
+    ],
+    "dimensionChildHandles": {
+      "object/14303b0b-6649-4dee-a7f3-06a617fb723b/18": [
+        "70",
+        "72",
+        "73",
+        "74",
+        "75",
+        "76",
+        "77",
+        "78",
+        "79",
+        "7A"
+      ],
+      "object/74f8b0a9-dbee-4ffe-9232-7d7cbae51832/19": [
+        "80",
+        "81",
+        "82",
+        "83",
+        "84",
+        "85",
+        "86",
+        "87",
+        "88",
+        "89"
+      ]
+    },
+    "actualInventory": {
+      "version": "AC1024",
+      "units": "Millimeters",
+      "modelEntityCount": 20,
+      "allBlockEntityCount": 50,
+      "layerCount": 4,
+      "blockRecordCount": 6,
+      "layoutCount": 2,
+      "textStyles": [
+        {
+          "handle": "2D",
+          "name": "Standard",
+          "fontFile": ""
+        },
+        {
+          "handle": "4A",
+          "name": "NATIVE_NOTO_SANS_KR",
+          "fontFile": "NotoSansKR-Regular.ttf"
+        }
+      ]
+    }
+  },
+  "diagnostics": {
+    "writer": [],
+    "reader": [
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle"
+    ]
+  },
+  "failures": [],
+  "warnings": [
+    "Canonical source validation and authority remain producer-required.",
+    "NotoSansKR-Regular.ttf is named but is not read, embedded, redistributed, or visually qualified.",
+    "MTEXT automatic font-dependent wrapping and recipient rendering are not qualified.",
+    "Independent CAD open/save/print verification was not performed.",
+    "This output does not qualify production DWG delivery or existing-DWG preservation."
+  ]
+}

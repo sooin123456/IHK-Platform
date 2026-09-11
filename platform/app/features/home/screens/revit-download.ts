@@ -30,6 +30,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
     url: import.meta.env.VITE_REVIT_2025_BETA_URL as string | undefined,
     sha256: import.meta.env.VITE_REVIT_2025_BETA_SHA256 as string | undefined,
     version: import.meta.env.VITE_REVIT_2025_BETA_VERSION as string | undefined,
+    allowLoopback:
+      import.meta.env.VITE_M1_E2E_ALLOW_LOOPBACK_RELEASE === "1",
   });
   if (!release.ready || !release.url || !release.sha256)
     throw new Response("현재 내려받을 수 있는 검증 릴리스가 없습니다.", { status: 503 });

@@ -1,0 +1,47 @@
+--- /tmp/1hk-r2-restore-x55wft/drawing-workspace-shell.spec.ts	2026-09-06 17:48:55
++++ platform/e2e/drawing-workspace-shell.spec.ts	2026-09-06 18:07:01
+@@ -684,6 +684,44 @@
+   await expect(
+     page.getByRole("textbox", { name: "새 레이어 이름" }),
+   ).toBeHidden();
++});
++
++test("user replacement never borrows the previous room's connected status while admission is pending", async ({
++  page,
++}) => {
++  const errors: string[] = [];
++  page.on("pageerror", (error) => errors.push(error.message));
++  await openPreview(page, `${previewPath}?connectionLifecycleTest=1`);
++  await waitForPreviewRealtimeEffect(page);
++  await expect(page.getByLabel("실제 미리보기 연결 횟수")).toHaveText("1");
++  const connected = page.getByRole("status", {
++    name: "공동 편집 상태: connected", exact: true,
++  });
++  const connecting = page.getByRole("status", {
++    name: "공동 편집 상태: connecting", exact: true,
++  });
++  await expect(connected).toBeVisible();
++  await page.getByRole("button", { name: "테스트 사용자 전환" }).click();
++  const release = page.getByRole("button", { name: "연결 시도 2 허용" });
++  await expect(release).toBeVisible();
++  await expect(connecting).toBeVisible();
++  await expect(connected).toHaveCount(0);
++  // Return to A before B reports any phase: identity A must not revive the
++  // initial A provider's connected status, nor accept the late B provider.
++  await page.getByRole("button", { name: "테스트 사용자 전환" }).click();
++  const releaseReturningUser = page.getByRole("button", {
++    name: "연결 시도 3 허용",
++  });
++  await expect(releaseReturningUser).toBeVisible();
++  await expect(connecting).toBeVisible();
++  await release.click();
++  await expect(page.getByLabel("실제 미리보기 연결 횟수")).toHaveText("2");
++  await expect(connecting).toBeVisible();
++  await expect(connected).toHaveCount(0);
++  await releaseReturningUser.click();
++  await expect(page.getByLabel("실제 미리보기 연결 횟수")).toHaveText("3");
++  await expect(connected).toBeVisible();
++  expect(errors).toEqual([]);
+ });
+ 
+ test("local preview click selects the Style tab and reveals its panel", async ({

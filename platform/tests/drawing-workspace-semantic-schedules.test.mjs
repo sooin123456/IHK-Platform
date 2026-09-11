@@ -466,6 +466,67 @@ test("server evidence binds authorized revision checkpoint object IDs and rule v
     );
 });
 
+test("server evidence applies the selected object's PDF canvas calibration", () => {
+  const line = object(ids.wall, "Measured line", {
+    type: "line",
+    start: { x: 10, y: 20 },
+    end: { x: 60, y: 20 },
+  });
+  const state = {
+    revisionId: ids.revision,
+    objects: { [line.id]: line },
+    layers: {
+      [ids.layer]: {
+        id: ids.layer,
+        name: "Work",
+        visible: true,
+        locked: false,
+        systemKind: "work",
+        canvasId: ids.canvas,
+        sortOrder: 0,
+        version: 1,
+      },
+    },
+    structure: {
+      canvases: {
+        [ids.canvas]: {
+          id: ids.canvas,
+          pageId: ids.page,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 100,
+          heightMillimeters: 100,
+          background: {
+            sourceFileId: "50000000-0000-4000-8000-000000000090",
+            sourceSha256: "a".repeat(64),
+            pdfPageNumber: 1,
+            calibration: {
+              normalizedStart: { x: 0.1, y: 0.2 },
+              normalizedEnd: { x: 0.6, y: 0.2 },
+              realLengthMillimeters: 5_000,
+              millimetersPerNormalizedUnit: 10_000,
+            },
+          },
+          sortOrder: 0,
+          version: 1,
+        },
+      },
+    },
+  };
+  const evidence = schedules.deriveDrawingServerMeasurementEvidence({
+    documentId: "50000000-0000-4000-8000-000000000091",
+    revisionId: ids.revision,
+    revisionVersion: 1,
+    snapshotSha256: "d".repeat(64),
+    operationCheckpoint: 3,
+    state,
+  });
+  assert.equal(
+    evidence.measurements[line.id].measurement.lengthMillimeters,
+    "5000",
+  );
+});
+
 test("server evidence includes supported measurable primitives without treating them as schedules", () => {
   const primitives = [
     object("50000000-0000-4000-8000-000000000051", "Five metre line", {

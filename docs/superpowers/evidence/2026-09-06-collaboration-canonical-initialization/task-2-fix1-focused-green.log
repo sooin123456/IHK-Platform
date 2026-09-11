@@ -1,0 +1,21 @@
+[onLoadDocument] Drawing collaboration reconciliation is not durable; retry admission.
+[onLoadDocument] Drawing collaboration canonical initialization is unavailable.
+✖ real WebSocket reports drawing-reconciling and explicit token retry adopts the same durable winner (3009.399541ms)
+✔ failed Hocuspocus initial admission destroys its unregistered payload (3.763125ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3162.209708
+
+✖ failing tests:
+
+test at tests/drawing-collaboration-initialization.test.mjs:722:1
+✖ real WebSocket reports drawing-reconciling and explicit token retry adopts the same durable winner (3009.399541ms)
+  Error: explicit token retry timed out
+      at Timeout.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:754:39)
+      at listOnTimeout (node:internal/timers:635:17)
+      at process.processTimers (node:internal/timers:571:7)

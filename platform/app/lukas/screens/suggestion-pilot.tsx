@@ -11,6 +11,8 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 import { verifyAiSuggestionImport } from "~/lukas/lib/ai-suggestion-import.server";
 import { storageObjectPath } from "~/lukas/lib/storage-object-key.server";
 import { buildSuggestionEvaluation } from "~/lukas/lib/suggestion-feedback.server";
@@ -37,18 +39,25 @@ async function context(request: Request, projectId: string) {
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   if (user.app_metadata.role !== "hangil_staff")
-    throw new Response("한길 담당자만 제안 파일럿을 운영할 수 있습니다.", {
-      status: 403,
-    });
+    throw mergeResponseHeaders(
+      new Response("한길 담당자만 제안 파일럿을 운영할 수 있습니다.", {
+        status: 403,
+      }),
+      headers,
+    );
   const { data: project } = await client
     .from("lukas_qto_projects")
     .select("id, name, owner_id")
     .eq("id", projectId)
     .single();
   if (!project)
-    throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+    throw mergeResponseHeaders(
+      new Response("프로젝트를 찾을 수 없습니다.", { status: 404 }),
+      headers,
+    );
   return { client, headers, user, project };
 }
 
@@ -61,51 +70,67 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
 ];
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const { client, project } = await context(request, params.projectId!);
-  const [
-    { data: files, error: filesError },
-    { data: suggestions, error: suggestionsError },
-  ] = await Promise.all([
-    client
-      .from("lukas_qto_files")
-      .select(
-        "id, kind, original_filename, sha256, byte_size, storage_path, created_at",
-      )
-      .eq("project_id", project.id)
-      .in("kind", [...allowedSourceKinds])
-      .order("created_at", { ascending: false }),
-    client
-      .from("lukas_qto_suggestions")
-      .select(
-        "id, producer_kind, producer_version, suggestion_kind, created_at",
-      )
-      .eq("project_id", project.id)
-      .eq("producer_kind", "ai")
-      .order("created_at", { ascending: false }),
-  ]);
-  if (filesError || suggestionsError)
-    throw new Response("제안 파일럿 자료를 불러오지 못했습니다.", {
-      status: 500,
-    });
-  const ids = (suggestions ?? []).map((item) => item.id);
-  const { data: decisions, error: decisionError } =
-    ids.length === 0
-      ? { data: [], error: null }
-      : await client
-          .from("lukas_qto_suggestion_decisions")
-          .select("id, suggestion_id, decision, decision_sequence, created_at")
-          .in("suggestion_id", ids)
-          .order("decision_sequence", { ascending: false });
-  if (decisionError)
-    throw new Response("제안 검토 이력을 불러오지 못했습니다.", {
-      status: 500,
-    });
-  return {
-    project,
-    files: files ?? [],
-    importedCount: suggestions?.length ?? 0,
-    evaluation: buildSuggestionEvaluation(suggestions ?? [], decisions ?? []),
-  };
+  const { client, headers, project } = await context(
+    request,
+    params.projectId!,
+  );
+  try {
+    const [
+      { data: files, error: filesError },
+      { data: suggestions, error: suggestionsError },
+    ] = await Promise.all([
+      client
+        .from("lukas_qto_files")
+        .select(
+          "id, kind, original_filename, sha256, byte_size, storage_path, created_at",
+        )
+        .eq("project_id", project.id)
+        .in("kind", [...allowedSourceKinds])
+        .order("created_at", { ascending: false }),
+      client
+        .from("lukas_qto_suggestions")
+        .select(
+          "id, producer_kind, producer_version, suggestion_kind, created_at",
+        )
+        .eq("project_id", project.id)
+        .eq("producer_kind", "ai")
+        .order("created_at", { ascending: false }),
+    ]);
+    if (filesError || suggestionsError)
+      throw new Response("제안 파일럿 자료를 불러오지 못했습니다.", {
+        status: 500,
+      });
+    const ids = (suggestions ?? []).map((item) => item.id);
+    const { data: decisions, error: decisionError } =
+      ids.length === 0
+        ? { data: [], error: null }
+        : await client
+            .from("lukas_qto_suggestion_decisions")
+            .select(
+              "id, suggestion_id, decision, decision_sequence, created_at",
+            )
+            .in("suggestion_id", ids)
+            .order("decision_sequence", { ascending: false });
+    if (decisionError)
+      throw new Response("제안 검토 이력을 불러오지 못했습니다.", {
+        status: 500,
+      });
+    return data(
+      {
+        project,
+        files: files ?? [],
+        importedCount: suggestions?.length ?? 0,
+        evaluation: buildSuggestionEvaluation(
+          suggestions ?? [],
+          decisions ?? [],
+        ),
+      },
+      { headers },
+    );
+  } catch (error) {
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
+  }
 }
 
 export async function action({ request, params }: Route.ActionArgs) {

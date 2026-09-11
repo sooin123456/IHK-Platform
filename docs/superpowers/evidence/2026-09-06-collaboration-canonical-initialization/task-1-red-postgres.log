@@ -1,0 +1,23 @@
+2026-09-06 16:23:04.634 KST [19848] LOG:  starting PostgreSQL 17.11 (Homebrew) on aarch64-apple-darwin25.6.0, compiled by Apple clang version 21.0.0 (clang-2100.1.1.101), 64-bit
+2026-09-06 16:23:04.635 KST [19848] LOG:  listening on IPv4 address "127.0.0.1", port 56291
+2026-09-06 16:23:04.635 KST [19848] LOG:  listening on Unix socket "/tmp/canonical-pg-SqdCd5/.s.PGSQL.56291"
+2026-09-06 16:23:04.637 KST [19851] LOG:  database system was shut down at 2026-09-06 16:23:04 KST
+2026-09-06 16:23:04.639 KST [19848] LOG:  database system is ready to accept connections
+2026-09-06 16:23:05.577 KST [19860] ERROR:  function private.lukas_drawing_collaboration_initialize_state(uuid, uuid, uuid, bytea, bigint, text) does not exist at character 26
+2026-09-06 16:23:05.577 KST [19860] HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+2026-09-06 16:23:05.577 KST [19860] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:23:05.610 KST [19849] LOG:  checkpoint starting: immediate force wait
+2026-09-06 16:23:05.611 KST [19849] LOG:  checkpoint complete: wrote 35 buffers (0.2%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=20, longest=0.001 s, average=0.001 s; distance=17216 kB, estimate=17216 kB; lsn=0/25EABA8, redo lsn=0/25EAB50
+2026-09-06 16:23:05.664 KST [19848] LOG:  received fast shutdown request
+2026-09-06 16:23:05.665 KST [19848] LOG:  aborting any active transactions
+2026-09-06 16:23:05.665 KST [19848] LOG:  background worker "logical replication launcher" (PID 19854) exited with exit code 1
+2026-09-06 16:23:05.665 KST [19849] LOG:  shutting down
+2026-09-06 16:23:05.666 KST [19849] LOG:  checkpoint starting: shutdown immediate
+2026-09-06 16:23:05.666 KST [19849] LOG:  checkpoint complete: wrote 11 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=4, longest=0.001 s, average=0.001 s; distance=3 kB, estimate=15495 kB; lsn=0/25EB970, redo lsn=0/25EB970
+2026-09-06 16:23:05.668 KST [19848] LOG:  database system is shut down

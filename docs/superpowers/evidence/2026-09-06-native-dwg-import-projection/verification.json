@@ -1,0 +1,84 @@
+{
+  "generatedAt": "2026-09-05T22:40:58.564Z",
+  "scope": "native DWG import projection internal validation",
+  "results": [
+    {
+      "command": [
+        "/opt/homebrew/Cellar/node/26.5.0/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "tests/drawing-native-dwg-import.test.mjs",
+        "tests/drawing-native-dwg-reader.test.mjs",
+        "tests/drawing-native-dwg-selected-edits.test.mjs",
+        "tests/drawing-native-dwg-source.test.mjs",
+        "tests/drawing-native-dwg-jobs.test.mjs",
+        "tests/drawing-native-dwg-worker.test.mjs",
+        "tests/drawing-native-dwg-export-ui.test.mjs"
+      ],
+      "exitCode": 0,
+      "summary": {
+        "tests": 138,
+        "pass": 138,
+        "fail": 0,
+        "skipped": 0
+      },
+      "logSha256": "3c46723d1c10e91d168495d3add8f9ea377957b4338487a649255668814c96a3"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 0,
+      "summary": null,
+      "logSha256": "30d632d155b5c6ee81c5f42da6918bff2b555f9a92a22715a6f795cdf95d1ec1"
+    }
+  ],
+  "files": [
+    {
+      "path": "tools/dwg-engine-qualification/Program.cs",
+      "sha256": "0422909794ebd80e3ae42e6673fae5a105af93d37afb88a0a63a303df7c1fad4"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/SelfTests.cs",
+      "sha256": "a35d3fe4e7f04a00da0ac2b4a587cc6e89c5589ae99b0e3fe363864f10141014"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgReader.cs",
+      "sha256": "12031c1d9742dff3c5793358696448fd4fc16b9cd494c2af36ac459e73b6ae1c"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgReaderSelfTests.cs",
+      "sha256": "73f42c722ec3df57cb8850582bd32735fe3ab71ff335156ca385a2404fd68fd0"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/README.md",
+      "sha256": "25a997b9b4b9207250194937eac5a7421b0aff13c800bac6be4b7748dc7065b8"
+    },
+    {
+      "path": "platform/app/lukas/lib/drawing-native-dwg-import.server.ts",
+      "sha256": "e9c887157fd123523dfb7cb0a7f04f7fbc0e81808638e04edd8a5c79f8bad595"
+    },
+    {
+      "path": "platform/app/lukas/lib/drawing-native-dwg-reader.server.ts",
+      "sha256": "634a8d3a3ef98e6bafa43b9399499023e89b567669f2e826756a2202a4a10ff6"
+    },
+    {
+      "path": "platform/app/lukas/lib/drawing-native-dwg-selected-edits.server.ts",
+      "sha256": "d641cc8802de1eaa7969f866cab289757f785d78d6094865c1cc9e29e98d5f01"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-import.test.mjs",
+      "sha256": "77715f3d396fe3f185d7461fead519c1b3657045028b8535558cd18f13dfce9b"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-reader.test.mjs",
+      "sha256": "1c1f8c70631cdba5068c52c143362ce376bfc8b1f16c1e2869dd047ec238cfe7"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-selected-edits.test.mjs",
+      "sha256": "d7c0e71d9b523e4d6cc422e6db74be760459b2bb5f5a1d8e6aad275325420b83"
+    }
+  ]
+}

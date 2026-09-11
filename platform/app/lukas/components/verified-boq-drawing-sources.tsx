@@ -94,7 +94,11 @@ function SourceCard({
                         >
                           {evidence.sourceKind === "ifc_element"
                             ? "IFC 근거 열기"
-                            : "PDF 근거 열기"}
+                            : evidence.sourceKind === "dxf_entity"
+                              ? "DXF 근거 열기"
+                              : evidence.sourceKind === "dwg_entity"
+                                ? "DWG 근거 열기"
+                                : "PDF 근거 열기"}
                         </Link>
                       ))}
                     </span>

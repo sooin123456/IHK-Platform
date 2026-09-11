@@ -890,6 +890,7 @@ function validateObjectCompound(
     (action) => action.kind === "put_object" || action.kind === "delete_object",
   );
   if (objectActions.length === 0) return;
+  if (validateCadObjectSourceCompound(state, actions)) return;
   const kinds = new Set(actions.map((action) => action.kind));
   const isForwardConversion =
     objectActions.every((action) => action.kind === "delete_object") &&
@@ -1096,6 +1097,138 @@ function validateObjectCompound(
   }
 }
 
+function cadGeometryMatchesEntity(
+  object: DrawingObject,
+  source: Extract<
+    DrawingObjectSource,
+    { sourceKind: "dxf_entity" | "dwg_entity" }
+  >,
+) {
+  return (
+    (source.entityType === "LINE" && object.geometry.type === "line") ||
+    ((source.entityType === "LWPOLYLINE" || source.entityType === "POLYLINE") &&
+      object.geometry.type === "polyline") ||
+    (source.entityType === "CIRCLE" && object.geometry.type === "circle") ||
+    (source.entityType === "ARC" && object.geometry.type === "arc") ||
+    (source.entityType === "TEXT" && object.geometry.type === "text")
+  );
+}
+
+/** Allows only exact homogeneous CAD object/source pairs and their inverse. */
+function validateCadObjectSourceCompound(
+  state: DrawingStructureState,
+  actions: DrawingStructureAction[],
+): boolean {
+  const create = actions.every(
+    (action) => action.kind === "put_object" || action.kind === "put_source",
+  );
+  const remove = actions.every(
+    (action) =>
+      action.kind === "delete_object" || action.kind === "delete_source",
+  );
+  if (!create && !remove) return false;
+
+  const objectActions = actions.filter(
+    (action) => action.kind === "put_object" || action.kind === "delete_object",
+  );
+  const sourceActions = actions.filter(
+    (action) => action.kind === "put_source" || action.kind === "delete_source",
+  );
+  if (
+    objectActions.length === 0 ||
+    objectActions.length !== sourceActions.length
+  )
+    throw new DrawingStructureError(
+      "DXF import must pair every object with exactly one source; native DWG import uses the same invariant.",
+    );
+
+  const objectIds = new Set(objectActions.map(idFor));
+  if (objectIds.size !== objectActions.length)
+    throw new DrawingStructureError(
+      "DXF import object IDs must be unique; native DWG import uses the same invariant.",
+    );
+
+  if (create) {
+    const objects = new Map(
+      objectActions.map((action) => {
+        const object = entityFor(action) as DrawingObject;
+        return [object.id, object] as const;
+      }),
+    );
+    const pairedObjectIds = new Set<string>();
+    const sourceKinds = new Set<string>();
+    for (const action of sourceActions) {
+      const source = entityFor(action) as DrawingObjectSource;
+      const object = objects.get(source.objectId);
+      const layer = object ? state.layers[object.layerId] : undefined;
+      sourceKinds.add(source.sourceKind);
+      if (
+        action.baseVersion !== null ||
+        (source.sourceKind !== "dxf_entity" &&
+          source.sourceKind !== "dwg_entity") ||
+        source.version !== 1 ||
+        source.revisionId !== state.revisionId ||
+        !object ||
+        pairedObjectIds.has(object.id) ||
+        !layer ||
+        !layer.visible ||
+        layer.locked ||
+        layer.systemKind === "source" ||
+        !cadGeometryMatchesEntity(object, source)
+      )
+        throw new DrawingStructureError(
+          "DXF import object/source lineage pair is invalid; native DWG import uses the same invariant.",
+        );
+      pairedObjectIds.add(object.id);
+    }
+    if (
+      sourceKinds.size !== 1 ||
+      pairedObjectIds.size !== objects.size ||
+      objectActions.some(
+        (action) =>
+          action.baseVersion !== null ||
+          (entityFor(action) as DrawingObject).version !== 1,
+      )
+    )
+      throw new DrawingStructureError(
+        "DXF import may create only new version-one object/source pairs; native DWG import also requires a homogeneous source kind.",
+      );
+    return true;
+  }
+
+  const removedObjectIds = new Set(objectActions.map(idFor));
+  const removedSourceIds = new Set(sourceActions.map(idFor));
+  const pairedObjectIds = new Set<string>();
+  const sourceKinds = new Set<string>();
+  for (const action of sourceActions) {
+    const source = state.sources?.[idFor(action)];
+    if (source) sourceKinds.add(source.sourceKind);
+    if (
+      !source ||
+      (source.sourceKind !== "dxf_entity" &&
+        source.sourceKind !== "dwg_entity") ||
+      !removedObjectIds.has(source.objectId) ||
+      pairedObjectIds.has(source.objectId)
+    )
+      throw new DrawingStructureError(
+        "DXF import inverse must remove the exact object/source pairs; native DWG import uses the same invariant.",
+      );
+    pairedObjectIds.add(source.objectId);
+  }
+  const allObjectSources = Object.values(state.sources ?? {}).filter((source) =>
+    removedObjectIds.has(source.objectId),
+  );
+  if (
+    sourceKinds.size !== 1 ||
+    pairedObjectIds.size !== removedObjectIds.size ||
+    allObjectSources.some((source) => !removedSourceIds.has(source.id))
+  )
+    throw new DrawingStructureError(
+      "DXF import inverse must remove every active source for its objects; native DWG import uses the same invariant.",
+    );
+  return true;
+}
+
 /** Validates the one mixed semantic update/delete shape shared by command replay. */
 export function validateDrawingReferenceAwareObjectMutation(
   deletedOrRestoredObjects: readonly DrawingObject[],
@@ -1143,7 +1276,8 @@ export function resolveDrawingStyle(
         style: DrawingStyleOverride;
       },
   styles:
-    readonly DrawingStyleDefinition[] | Record<string, DrawingStyleDefinition>,
+    | readonly DrawingStyleDefinition[]
+    | Record<string, DrawingStyleDefinition>,
 ): DrawingStyle {
   const definitions = Array.isArray(styles) ? styles : Object.values(styles);
   const styleId = styled.styleId ?? null;

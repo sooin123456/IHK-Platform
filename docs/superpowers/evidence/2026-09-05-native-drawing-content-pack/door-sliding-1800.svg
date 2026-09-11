@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2088mm" height="488mm" viewBox="0 0 2088 488">
+<rect x="0" y="0" width="2088" height="488" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/frame" transform="matrix(1 0 0 1 144 144)">
+<rect x="0" y="0" width="1800" height="200" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/panel-left" transform="matrix(1 0 0 1 144 144)">
+<rect x="0" y="25" width="1000" height="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/panel-right" transform="matrix(1 0 0 1 144 144)">
+<rect x="800" y="50" width="1000" height="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/travel" transform="matrix(1 0 0 1 144 144)">
+<line x1="800" y1="190" x2="1000" y2="190" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+</svg>

@@ -1,0 +1,619 @@
+--- a/platform/app/lukas/lib/drawing-collaboration-client.ts
++++ b/platform/app/lukas/lib/drawing-collaboration-client.ts
+@@ -94,7 +94,7 @@
+ }
+ 
+ export type DrawingCollaborationConnection = {
+-  phase: "connected" | "connecting" | "degraded";
++  phase: "connected" | "connecting" | "degraded" | "retrying" | "denied";
+   flush(): void;
+   refreshToken(): Promise<void>;
+   dispose(): void;
+@@ -102,8 +102,8 @@
+ };
+ 
+ export function drawingCollaborationPhaseForProviderStatus(status: string) {
+-  if (status === "connected") return "connected" as const;
+   if (status === "disconnected") return "degraded" as const;
++  // An open socket is not proof that the room was admitted and synchronized.
+   return "connecting" as const;
+ }
+ 
+@@ -276,20 +276,140 @@
+   if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:")
+     throw new Error("Drawing collaboration URL must use WebSocket.");
+   const { HocuspocusProvider } = await import("@hocuspocus/provider");
++  let phase: DrawingCollaborationConnection["phase"] = "connecting";
++  let disposed = false;
++  let socketConnected = false;
++  let awaitingSync = true;
++  let generation = 0;
++  let retryDelay = 1000;
++  let retryTimer: ReturnType<typeof setTimeout> | null = null;
++  const clearRetry = () => {
++    if (retryTimer !== null) clearTimeout(retryTimer);
++    retryTimer = null;
++  };
++  const publishPhase = (next: DrawingCollaborationConnection["phase"]) => {
++    if (disposed || phase === next) return;
++    phase = next;
++    onPhase?.(next);
++  };
++  const refreshToken = async () => {
++    if (
++      disposed ||
++      phase === "denied" ||
++      !socketConnected ||
++      awaitingSync ||
++      retryTimer !== null
++    )
++      return;
++    awaitingSync = true;
++    const attemptGeneration = generation;
++    provider.synced = false;
++    if (phase !== "retrying") publishPhase("connecting");
++    await provider.sendToken();
++    if (
++      disposed ||
++      generation !== attemptGeneration ||
++      !socketConnected ||
++      !awaitingSync
++    )
++      return;
++    // Hocuspocus discards the sync frames of a refused admission. Token refresh
++    // alone reauthenticates, but never requests the retained document again.
++    provider.startSync();
++  };
+   onPhase?.("connecting");
+   const provider = new HocuspocusProvider({
+     url: parsed.toString(),
+     name: drawingRoomName(projectId, revisionId),
+     document,
+     token: resolveToken,
+-    onStatus: ({ status }) =>
+-      onPhase?.(drawingCollaborationPhaseForProviderStatus(status)),
++    onOpen: () => {
++      if (disposed) return;
++      generation++;
++      clearRetry();
++      awaitingSync = true;
++    },
++    onStatus: ({ status }) => {
++      if (disposed) return;
++      socketConnected = status === "connected";
++      if (!socketConnected) {
++        generation++;
++        clearRetry();
++        awaitingSync = false;
++      }
++      if (phase === "denied") return;
++      if (socketConnected && (phase === "connected" || phase === "retrying"))
++        return;
++      publishPhase(drawingCollaborationPhaseForProviderStatus(status));
++    },
++    onClose: ({ event }) => {
++      if (disposed || phase === "denied") return;
++      // Document-only CLOSE frames do not close the shared WebSocket or emit
++      // a transport status. Never retain an admitted badge after room removal.
++      generation++;
++      awaitingSync = false;
++      clearRetry();
++      const denied =
++        event.code === 4401 ||
++        event.code === 4403 ||
++        [
++          "permission-revoked",
++          "review-freeze",
++          "Unauthorized",
++          "Forbidden",
++        ].includes(event.reason);
++      publishPhase(denied ? "denied" : "degraded");
++      if (denied) provider.disconnect();
++    },
++    onSynced: ({ state }) => {
++      if (
++        disposed ||
++        phase === "denied" ||
++        !state ||
++        !socketConnected ||
++        !provider.isAuthenticated
++      )
++        return;
++      awaitingSync = false;
++      clearRetry();
++      retryDelay = 1000;
++      publishPhase("connected");
++    },
++    onAuthenticationFailed: ({ reason }) => {
++      if (disposed || phase === "denied") return;
++      generation++;
++      awaitingSync = false;
++      provider.synced = false;
++      clearRetry();
++      if (reason !== "drawing-reconciling") {
++        publishPhase("denied");
++        provider.disconnect();
++        return;
++      }
++      publishPhase("retrying");
++      // Only the server's explicit transient admission reason is retryable.
++      // A lease may outlive a minute; cap the rate, not the recovery window.
++      retryTimer = setTimeout(() => {
++        retryTimer = null;
++        void refreshToken().catch(() => {
++          if (!disposed) {
++            awaitingSync = false;
++            publishPhase("degraded");
++          }
++        });
++      }, retryDelay);
++      retryDelay = Math.min(retryDelay * 2, 10_000);
++    },
+   });
+   const awareness = provider.awareness;
+   return {
+-    phase: "connecting",
+-    flush: () => provider.flushPendingUpdates(),
+-    refreshToken: () => provider.sendToken(),
++    get phase() {
++      return phase;
++    },
++    flush: () => {
++      if (!disposed) provider.flushPendingUpdates();
++    },
++    refreshToken,
+     ...(awareness
+       ? {
+           awareness: {
+@@ -304,7 +424,13 @@
+           },
+         }
+       : {}),
+-    dispose: () => provider.destroy(),
++    dispose: () => {
++      if (disposed) return;
++      disposed = true;
++      generation++;
++      clearRetry();
++      provider.destroy();
++    },
+   };
+ }
+ 
+--- a/platform/app/lukas/components/drawing-collaboration-presence.tsx
++++ b/platform/app/lukas/components/drawing-collaboration-presence.tsx
+@@ -1,6 +1,7 @@
+ import { useSyncExternalStore } from "react";
+ 
+ import type { DrawingAwarenessPeerStore } from "~/lukas/lib/drawing-awareness";
++import type { DrawingCollaborationConnection } from "~/lukas/lib/drawing-collaboration-client";
+ 
+ const EMPTY_PEERS: ReturnType<DrawingAwarenessPeerStore["getSnapshot"]> = [];
+ const EMPTY_STORE: DrawingAwarenessPeerStore = {
+@@ -75,23 +76,26 @@
+   store,
+ }: {
+   enabled?: boolean;
+-  phase: "connected" | "connecting" | "degraded";
++  phase: DrawingCollaborationConnection["phase"];
+   readOnly: boolean;
+   store: DrawingAwarenessPeerStore;
+ }) {
+   const peers = useDrawingAwarenessPeers(store);
+-  const message =
+-    !enabled
+-      ? "회사 플랜에서 공동 편집 꺼짐 · 로컬 자동 저장 사용"
+-      : phase === "connected"
++  const message = !enabled
++    ? "회사 플랜에서 공동 편집 꺼짐 · 로컬 자동 저장 사용"
++    : phase === "connected"
+       ? `공동 편집 연결됨${readOnly ? " · 읽기 전용" : ""} · ${peers.length + 1}명`
+-      : phase === "degraded"
+-        ? `공동 편집 오프라인 · ${peers.length + 1}명`
+-        : `공동 편집 연결 중 · ${peers.length + 1}명`;
++      : phase === "retrying"
++        ? "공동 편집 재연결 중 · 로컬 작업 유지"
++        : phase === "denied"
++          ? "공동 편집 연결 중지 · 권한·로그인·도면 상태 확인 후 새로고침"
++          : phase === "degraded"
++            ? `공동 편집 오프라인 · ${peers.length + 1}명`
++            : `공동 편집 연결 중 · ${peers.length + 1}명`;
+   return (
+     <span
+       aria-label={`공동 편집 상태: ${enabled ? phase : "disabled"}`}
+-      className={`drawing-workspace-presence-status inline-flex min-h-9 items-center px-2 text-xs ${enabled && phase === "connected" ? "text-emerald-300" : enabled && phase === "degraded" ? "text-amber-300" : "text-slate-300"}`}
++      className={`drawing-workspace-presence-status inline-flex min-h-9 items-center px-2 text-xs ${enabled && phase === "connected" ? "text-emerald-300" : enabled && (phase === "degraded" || phase === "retrying" || phase === "denied") ? "text-amber-300" : "text-slate-300"}`}
+       role="status"
+     >
+       <span
+--- a/platform/tests/drawing-workspace-collaboration.test.mjs
++++ b/platform/tests/drawing-workspace-collaboration.test.mjs
+@@ -388,14 +388,14 @@
+   );
+ });
+ 
+-test("provider disconnect is visibly degraded and reconnect becomes connected", () => {
++test("provider transport status stays connecting until room synchronization", () => {
+   assert.equal(
+     drawingCollaborationPhaseForProviderStatus("disconnected"),
+     "degraded",
+   );
+   assert.equal(
+     drawingCollaborationPhaseForProviderStatus("connected"),
+-    "connected",
++    "connecting",
+   );
+   assert.equal(
+     drawingCollaborationPhaseForProviderStatus("connecting"),
+--- a/platform/tests/drawing-collaboration-initialization.test.mjs
++++ b/platform/tests/drawing-collaboration-initialization.test.mjs
+@@ -4,6 +4,7 @@
+ import * as Y from "yjs";
+ import { HocuspocusProvider } from "@hocuspocus/provider";
+ import CrossWebSocket from "crossws/websocket";
++import { openDrawingCollaborationConnection } from "../app/lukas/lib/drawing-collaboration-client.ts";
+ import { createDrawingCollaborationStorage } from "../collaboration/src/storage.ts";
+ import {
+   createDrawingCollaborationServer,
+@@ -810,7 +811,78 @@
+     provider?.destroy();
+     client.destroy();
+     refusedDocument?.destroy();
++    await runtime.stop();
++  }
++});
++
++test("application connection automatically recovers production lease refusal without replacing the canonical winner", async () => {
++  const previousWebSocket = globalThis.WebSocket;
++  globalThis.WebSocket = class extends CrossWebSocket {
++    constructor(url) {
++      super(url, [], { origin: "https://app.example.com" });
++    }
++  };
++  let foreignLease = true;
++  const ownerToken = randomUUID();
++  const ownerRequestId = randomUUID();
++  const f = fixture({
++    freeze: {
++      readFreeze: async () => ({
++        state: "active",
++        requestId: null,
++        revisionStatus: "draft",
++        ownerToken: foreignLease ? ownerToken : null,
++        ownerRequestId: foreignLease ? ownerRequestId : null,
++        leaseExpiresAtMs: foreignLease ? Date.now() + 60_000 : null,
++      }),
++    },
++  });
++  const runtime = runtimeFor(f.storage);
++  const client = new Y.Doc();
++  const retrying = deferred();
++  const connected = deferred();
++  const phases = [];
++  let connection;
++  let timeout;
++  const deadline = new Promise((_, reject) => {
++    timeout = setTimeout(
++      () => reject(new Error("automatic application retry timed out")),
++      4000,
++    );
++  });
++  try {
++    const server = await runtime.start();
++    connection = await openDrawingCollaborationConnection({
++      document: client,
++      projectId: scope.projectId,
++      revisionId: scope.revisionId,
++      resolveToken: async () => "test-token",
++      url: server.webSocketURL,
++      onPhase(phase) {
++        phases.push(phase);
++        if (phase === "retrying") retrying.resolve();
++        if (phase === "connected") connected.resolve();
++      },
++    });
++    await Promise.race([retrying.promise, deadline]);
++    assert.equal(phases.includes("connected"), false);
++    assert.equal(client.share.size, 0);
++    assert.equal(runtime.hocuspocus.documents.has(roomName), false);
++    const winner = f.persisted;
++    assert.ok(winner);
++    foreignLease = false;
++    // No provider.sendToken()/startSync() call from the test: application owns recovery.
++    await Promise.race([connected.promise, deadline]);
++    assert.deepEqual(bytes(client), winner.yjsState);
++    assert.deepEqual(f.persisted, winner);
++    assert.equal(f.calls.userInitializations, 1);
++    assert.equal(f.calls.stores, 0);
++  } finally {
++    clearTimeout(timeout);
++    connection?.dispose();
++    client.destroy();
+     await runtime.stop();
++    globalThis.WebSocket = previousWebSocket;
+   }
+ });
+ 
+--- /dev/null
++++ b/platform/tests/drawing-collaboration-connection.test.mjs
+@@ -0,0 +1,237 @@
++import assert from "node:assert/strict";
++import { randomUUID } from "node:crypto";
++import test from "node:test";
++import { setTimeout as delay } from "node:timers/promises";
++import { Server } from "@hocuspocus/server";
++import * as Y from "yjs";
++import { openDrawingCollaborationConnection } from "../app/lukas/lib/drawing-collaboration-client.ts";
++
++function deferred() {
++  let resolve;
++  const promise = new Promise((done) => {
++    resolve = done;
++  });
++  return { promise, resolve };
++}
++
++async function until(predicate, description, timeout = 4500) {
++  const deadline = Date.now() + timeout;
++  while (!predicate() && Date.now() < deadline) await delay(10);
++  assert.ok(predicate(), description);
++}
++
++// Real provider + real socket. Hooks only control the server admission boundary;
++// no provider methods, callbacks, or timers are mocked.
++async function fixture(t, hooks = {}, resolveToken = async () => "test-token") {
++  const server = new Server({
++    port: 0,
++    address: "127.0.0.1",
++    quiet: true,
++    ...hooks,
++  });
++  await server.listen();
++  const document = new Y.Doc();
++  const phases = [];
++  let connection;
++  t.after(async () => {
++    connection?.dispose();
++    document.destroy();
++    await server.destroy();
++  });
++  connection = await openDrawingCollaborationConnection({
++    document,
++    projectId: randomUUID(),
++    revisionId: randomUUID(),
++    url: server.webSocketURL,
++    resolveToken,
++    onPhase: (phase) => phases.push(phase),
++  });
++  return { server, document, phases, connection };
++}
++
++test("a connected transport is not shown as admitted before initial sync", async (t) => {
++  const gate = deferred();
++  let loading = false;
++  t.after(() => gate.resolve());
++  const f = await fixture(t, {
++    onAuthenticate() {},
++    async onLoadDocument({ document }) {
++      loading = true;
++      await gate.promise;
++      document.getMap("drawing").set("server", "canonical");
++    },
++  });
++  try {
++    await until(() => loading, "server should reach the gated initial load");
++    await delay(30);
++    assert.equal(f.phases.includes("connected"), false);
++    gate.resolve();
++    await until(
++      () => f.phases.at(-1) === "connected",
++      "initial sync should connect",
++    );
++    assert.equal(f.document.getMap("drawing").get("server"), "canonical");
++    assert.equal(f.connection.phase, "connected");
++  } finally {
++    gate.resolve();
++  }
++});
++
++test("transient admission retries automatically and preserves pending local changes", async (t) => {
++  let attempts = 0;
++  const f = await fixture(t, {
++    onAuthenticate() {
++      if (++attempts <= 2) throw { reason: "drawing-reconciling" };
++    },
++    onLoadDocument({ document }) {
++      document.getMap("drawing").set("server", "canonical");
++    },
++  });
++  f.document.getMap("drawing").set("local", "pending-line");
++  await until(
++    () => f.phases.includes("retrying"),
++    "transient refusal should be visible",
++  );
++  assert.equal(f.phases.includes("connected"), false);
++  await until(
++    () => f.phases.at(-1) === "connected",
++    "wrapper must reauthenticate AND resync",
++  );
++  assert.equal(attempts, 3);
++  assert.equal(f.document.getMap("drawing").get("local"), "pending-line");
++  assert.equal(f.document.getMap("drawing").get("server"), "canonical");
++  const remote = [...f.server.hocuspocus.documents.values()][0];
++  await until(
++    () => remote.getMap("drawing").get("local") === "pending-line",
++    "server should receive retained edits",
++  );
++  assert.equal(f.document.isDestroyed, false);
++});
++
++test("permanent permission denial stops automatic retries and is not labeled offline", async (t) => {
++  let attempts = 0;
++  const f = await fixture(t, {
++    onAuthenticate() {
++      attempts++;
++      throw { reason: "permission-denied" };
++    },
++  });
++  await until(
++    () => f.phases.at(-1) === "denied",
++    "permission denial should have a distinct status",
++  );
++  await f.connection.refreshToken(); // visibility/online events must not hammer rejected access
++  await delay(1200);
++  assert.equal(attempts, 1);
++  assert.equal(f.phases.includes("retrying"), false);
++  assert.equal(f.phases.at(-1), "denied");
++  assert.equal(f.document.isDestroyed, false);
++});
++
++test("disposing a pending retry cancels work and late status callbacks, not the document", async (t) => {
++  let attempts = 0;
++  const f = await fixture(t, {
++    onAuthenticate() {
++      attempts++;
++      throw { reason: "drawing-reconciling" };
++    },
++  });
++  await until(
++    () => f.phases.at(-1) === "retrying",
++    "retry should be scheduled",
++  );
++  f.connection.dispose();
++  const phases = [...f.phases];
++  await f.connection.refreshToken();
++  await delay(1200);
++  assert.equal(attempts, 1);
++  assert.deepEqual(f.phases, phases);
++  assert.equal(f.document.isDestroyed, false);
++});
++
++test("simultaneous refresh events share one handshake and cannot restart after disposal", async (t) => {
++  const token = deferred();
++  let tokenCalls = 0;
++  let authentications = 0;
++  const f = await fixture(
++    t,
++    {
++      onAuthenticate() {
++        authentications++;
++      },
++    },
++    async () => {
++      if (++tokenCalls > 1) return token.promise;
++      return "test-token";
++    },
++  );
++  await until(() => f.phases.at(-1) === "connected", "initial connection");
++  const refresh = f.connection.refreshToken();
++  const duplicate = f.connection.refreshToken();
++  await until(() => tokenCalls === 2, "one pending token request");
++  f.connection.dispose();
++  const phases = [...f.phases];
++  token.resolve("refreshed-token");
++  await Promise.all([refresh, duplicate]);
++  await delay(50);
++  assert.equal(tokenCalls, 2);
++  assert.equal(authentications, 1);
++  assert.deepEqual(f.phases, phases);
++  assert.equal(f.document.isDestroyed, false);
++});
++
++test("a transport reconnect resynchronizes the retained document before reporting connected", async (t) => {
++  let admissions = 0;
++  const gate = deferred();
++  t.after(() => gate.resolve());
++  const f = await fixture(t, {
++    async onAuthenticate() {
++      if (++admissions === 2) await gate.promise;
++    },
++  });
++  try {
++    await until(() => f.phases.at(-1) === "connected", "initial connection");
++    const remote = [...f.server.hocuspocus.documents.values()][0];
++    remote.getConnections()[0].webSocket.close(1001, "test-network-drop");
++    await until(() => admissions === 2, "provider should reconnect transport");
++    const sinceDisconnect = f.phases.slice(f.phases.indexOf("degraded"));
++    assert.equal(sinceDisconnect.includes("connected"), false);
++    f.document.getMap("drawing").set("offline", "retained-circle");
++    gate.resolve();
++    await until(
++      () => f.phases.at(-1) === "connected",
++      "reconnection sync should finish",
++    );
++    await until(
++      () =>
++        [...f.server.hocuspocus.documents.values()].some(
++          (doc) => doc.getMap("drawing").get("offline") === "retained-circle",
++        ),
++      "server should receive the disconnected edit",
++    );
++  } finally {
++    gate.resolve();
++  }
++});
++
++test("a server document-only permission revocation cannot leave a connected badge or auto retry", async (t) => {
++  let admissions = 0;
++  const f = await fixture(t, {
++    onAuthenticate() {
++      admissions++;
++    },
++  });
++  await until(() => f.phases.at(-1) === "connected", "initial connection");
++  const remote = [...f.server.hocuspocus.documents.values()][0];
++  remote
++    .getConnections()[0]
++    .close({ code: 4403, reason: "permission-revoked" });
++  await until(
++    () => f.phases.at(-1) === "denied",
++    "document-only close must invalidate admission",
++  );
++  await f.connection.refreshToken();
++  await delay(1200);
++  assert.equal(admissions, 1);
++  assert.equal(f.document.isDestroyed, false);
++});
+--- /dev/null
++++ b/platform/tests/drawing-collaboration-status.test.mjs
+@@ -0,0 +1,40 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import { createElement } from "react";
++import { renderToStaticMarkup } from "react-dom/server";
++import { createServer } from "vite";
++
++test("retry and rejected access have distinct accessible guidance without claiming synchronization", async () => {
++  const vite = await createServer({
++    configFile: false,
++    optimizeDeps: { noDiscovery: true, include: [] },
++    server: { middlewareMode: true },
++    appType: "custom",
++  });
++  try {
++    const { DrawingCollaborationConnectionStatus } = await vite.ssrLoadModule(
++      "/app/lukas/components/drawing-collaboration-presence.tsx",
++    );
++    const store = { getSnapshot: () => [], subscribe: () => () => {} };
++    const render = (phase, enabled = true) =>
++      renderToStaticMarkup(
++        createElement(DrawingCollaborationConnectionStatus, {
++          phase,
++          enabled,
++          store,
++          readOnly: false,
++        }),
++      );
++    const retrying = render("retrying");
++    assert.match(retrying, /role="status"/);
++    assert.match(retrying, /재연결/);
++    assert.match(retrying, /로컬 작업/);
++    assert.doesNotMatch(retrying, /연결됨|오프라인/);
++    const denied = render("denied");
++    assert.match(denied, /권한.*로그인/);
++    assert.doesNotMatch(denied, /재연결 중|연결됨|오프라인/);
++    assert.match(render("denied", false), /공동 편집 꺼짐/);
++  } finally {
++    await vite.close();
++  }
++});

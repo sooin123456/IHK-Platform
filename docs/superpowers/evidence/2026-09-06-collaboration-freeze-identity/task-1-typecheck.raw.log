@@ -1,0 +1,4 @@
+^D
+> supaplate@1.0 typecheck:collaboration
+> tsc -p collaboration/tsconfig.json --noEmit
+

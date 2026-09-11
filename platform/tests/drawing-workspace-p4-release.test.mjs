@@ -10,8 +10,9 @@ const root = process.cwd();
 const read = (file) => readFile(path.join(root, file), "utf8");
 
 test("P4 release fixture is an exact deterministic 10,000-object semantic mix", async () => {
-  const { buildDrawingP4PerformanceFixture } =
-    await import("../e2e/utils/drawing-p4-release-fixture.ts");
+  const { buildDrawingP4PerformanceFixture } = await import(
+    "../e2e/utils/drawing-p4-release-fixture.ts"
+  );
   const layerId = "10000000-0000-4000-8000-000000000001";
   const first = buildDrawingP4PerformanceFixture(10_000, layerId);
   const second = buildDrawingP4PerformanceFixture(10_000, layerId);
@@ -37,8 +38,9 @@ test("P4 release fixture is an exact deterministic 10,000-object semantic mix", 
 });
 
 test("P4 hosted fixture carries the exact semantic graph without client measurements", async () => {
-  const { buildDrawingP4ProductionObjects } =
-    await import("../e2e/utils/drawing-p4-release-fixture.ts");
+  const { buildDrawingP4ProductionObjects } = await import(
+    "../e2e/utils/drawing-p4-release-fixture.ts"
+  );
   const layerId = "10000000-0000-4000-8000-000000000001";
   let next = 0;
   const objects = buildDrawingP4ProductionObjects(
@@ -240,8 +242,11 @@ test("P4 functional browser authority ignores inherited targets and rejects muta
     PORT: "4999",
     SUPABASE_URL: "https://external.supabase.co",
     SUPABASE_ANON_KEY: "external-key",
+    SUPABASE_SERVICE_ROLE_KEY: "inherited-external-service-role",
     VITE_SUPABASE_URL: "https://external.supabase.co",
     VITE_SUPABASE_ANON_KEY: "external-vite-key",
+    VITE_SUPABASE_SERVICE_ROLE_KEY: "inherited-client-service-role",
+    P4_FUNCTIONAL_VITE_CACHE_DIR: "../external-vite-cache",
     PATH: process.env.PATH,
   };
   const authority = p4FunctionalBrowserAuthority(inherited);
@@ -254,6 +259,8 @@ test("P4 functional browser authority ignores inherited targets and rejects muta
       PORT: authority.environment.PORT,
       SUPABASE_URL: authority.environment.SUPABASE_URL,
       SUPABASE_ANON_KEY: authority.environment.SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY:
+        authority.environment.SUPABASE_SERVICE_ROLE_KEY,
       VITE_SUPABASE_URL: authority.environment.VITE_SUPABASE_URL,
       VITE_SUPABASE_ANON_KEY: authority.environment.VITE_SUPABASE_ANON_KEY,
     },
@@ -261,9 +268,26 @@ test("P4 functional browser authority ignores inherited targets and rejects muta
       PORT: "4173",
       SUPABASE_URL: "http://127.0.0.1:54321",
       SUPABASE_ANON_KEY: "p4-local-browser-gate",
+      SUPABASE_SERVICE_ROLE_KEY: "p4-local-browser-gate-service-role",
       VITE_SUPABASE_URL: "http://127.0.0.1:54321",
       VITE_SUPABASE_ANON_KEY: "p4-local-browser-gate",
     },
+  );
+  assert.notEqual(
+    authority.environment.SUPABASE_SERVICE_ROLE_KEY,
+    inherited.SUPABASE_SERVICE_ROLE_KEY,
+  );
+  assert.equal(
+    "VITE_SUPABASE_SERVICE_ROLE_KEY" in authority.environment,
+    false,
+  );
+  assert.equal(
+    authority.environment.P4_FUNCTIONAL_VITE_CACHE_DIR,
+    "node_modules/.vite-p4-functional",
+  );
+  assert.notEqual(
+    authority.environment.P4_FUNCTIONAL_VITE_CACHE_DIR,
+    inherited.P4_FUNCTIONAL_VITE_CACHE_DIR,
   );
   assert.doesNotThrow(() => assertP4FunctionalBrowserAuthority(authority));
   for (const mutation of [
@@ -281,11 +305,68 @@ test("P4 functional browser authority ignores inherited targets and rejects muta
       ...authority,
       environment: { ...authority.environment, PORT: inherited.PORT },
     },
+    {
+      ...authority,
+      environment: {
+        ...authority.environment,
+        SUPABASE_SERVICE_ROLE_KEY: "mutated-service-role",
+      },
+    },
+    {
+      ...authority,
+      environment: {
+        ...authority.environment,
+        P4_FUNCTIONAL_VITE_CACHE_DIR: inherited.P4_FUNCTIONAL_VITE_CACHE_DIR,
+      },
+    },
   ])
     assert.throws(() => assertP4FunctionalBrowserAuthority(mutation));
 
-  const { assertP4FunctionalPortAvailable } =
-    await import("../scripts/run-drawing-p4-functional.mjs");
+  const resolvedConfigProbe = `
+    import { resolveConfig } from "vite";
+    const config = await resolveConfig(
+      { configFile: "vite.config.ts" },
+      "serve",
+      "test",
+    );
+    await new Promise((resolve) =>
+      process.stdout.write(
+        JSON.stringify({
+          cacheDir: config.cacheDir,
+          optimizeDepsInclude: config.optimizeDeps.include,
+        }),
+        resolve,
+      ),
+    );
+    process.exit(0);
+  `;
+  const resolvedConfig = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", resolvedConfigProbe],
+    { cwd: root, encoding: "utf8", env: authority.environment },
+  );
+  assert.equal(
+    resolvedConfig.status,
+    0,
+    `${resolvedConfig.stdout}\n${resolvedConfig.stderr}`,
+  );
+  const resolvedViteConfig = JSON.parse(
+    resolvedConfig.stdout.trim().split("\n").at(-1),
+  );
+  assert.equal(
+    resolvedViteConfig.cacheDir,
+    path.join(root, "node_modules/.vite-p4-functional"),
+  );
+  assert.ok(
+    resolvedViteConfig.optimizeDepsInclude.includes(
+      "@radix-ui/react-dropdown-menu",
+    ),
+  );
+  assert.ok(resolvedViteConfig.optimizeDepsInclude.includes("gltf-validator"));
+
+  const { assertP4FunctionalPortAvailable } = await import(
+    "../scripts/run-drawing-p4-functional.mjs"
+  );
   const occupied = net.createServer();
   await new Promise((resolve, reject) => {
     occupied.once("error", reject);
@@ -303,8 +384,9 @@ test("P4 functional browser authority ignores inherited targets and rejects muta
 });
 
 test("P4 production preflight requires every exact P3 authority and distinct secrets", async () => {
-  const { requireP4ProductionAuthorities } =
-    await import("../scripts/run-drawing-workspace-p4-release.mjs");
+  const { requireP4ProductionAuthorities } = await import(
+    "../scripts/run-drawing-workspace-p4-release.mjs"
+  );
   const ready = {
     E2E_BASE_URL: "https://drawing-preview.acme.kr",
     SUPABASE_URL: "https://abcdefghijklmnop.supabase.co",

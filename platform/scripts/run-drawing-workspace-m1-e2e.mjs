@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -12,17 +12,76 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { strToU8, zipSync } from "fflate";
+
 const platformRoot = fileURLToPath(new URL("../", import.meta.url));
 const repositorySupabase = path.join(platformRoot, "supabase");
 const disposableTempRoot = realpathSync(tmpdir());
+const dockerSharedDisposableRoot = path.join(
+  platformRoot,
+  "node_modules",
+  ".cache",
+  "1hk-m1-e2e",
+);
 const markerName = ".m1-disposable-supabase.json";
 const projectPattern = /^1hk-m1-[0-9a-f]{8}$/;
 const placeholder = /placeholder|example|dummy|masked|sensitive/i;
+const m1ReleaseManifest = readFileSync(
+  new URL("../../addin/Lukas.Qto.addin", import.meta.url),
+  "utf8",
+);
+const m1ReleaseArtifact = zipSync(
+  {
+    "Lukas.Qto.addin": [
+      strToU8(m1ReleaseManifest),
+      { mtime: new Date(1980, 0, 1) },
+    ],
+  },
+  { level: 6 },
+);
+const m1ReleaseSha256 = createHash("sha256")
+  .update(m1ReleaseArtifact)
+  .digest("hex")
+  .toUpperCase();
+
+export function parseRunnerProfile(args) {
+  if (args.length === 0) return "m1";
+  if (args.length === 1 && args[0] === "--profile=p3") return "p3";
+  if (args.length === 1 && args[0] === "--profile=dwg-source")
+    return "dwg-source";
+  if (args.length === 1 && args[0] === "--profile=dwg-resave")
+    return "dwg-resave";
+  throw new Error("M1 E2E refuses an unknown or extra profile argument");
+}
+
+export function drawingWorkspacePlaywrightArgs(profile) {
+  if (
+    profile !== "m1" &&
+    profile !== "p3" &&
+    profile !== "dwg-source" &&
+    profile !== "dwg-resave"
+  )
+    throw new Error("M1 E2E refuses an unknown runner profile");
+  return [
+    "test",
+    profile === "p3"
+      ? "e2e/drawing-workspace-p3.spec.ts"
+      : profile === "dwg-source"
+        ? "e2e/drawing-dwg-source-ingestion.spec.ts"
+        : profile === "dwg-resave"
+          ? "e2e/drawing-native-dwg-resave.spec.ts"
+          : "e2e/drawing-workspace-m1-estimator.spec.ts",
+    "--config=playwright.m1.config.ts",
+    "--project=chromium",
+    "--workers=1",
+  ];
+}
 
 function required(environment, name) {
   const value = environment[name]?.trim();
@@ -128,10 +187,10 @@ enabled = true
 site_url = "http://127.0.0.1:4000"
 additional_redirect_urls = ["http://127.0.0.1:4000/**"]
 enable_signup = true
-enable_anonymous_sign_ins = false
+enable_anonymous_sign_ins = true
 
 [edge_runtime]
-enabled = false
+enabled = true
 inspector_port = ${portBase + 8}
 
 [analytics]
@@ -151,13 +210,37 @@ function assertNoSymlinksBelow(root, label) {
   }
 }
 
+function isInside(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return (
+    relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)
+  );
+}
+
+function allowedDisposableRoot(resolved) {
+  if (isInside(disposableTempRoot, resolved)) return true;
+  if (!existsSync(dockerSharedDisposableRoot)) return false;
+  const sharedRoot = realpathSync(dockerSharedDisposableRoot);
+  return isInside(sharedRoot, resolved);
+}
+
+export function createDisposableRoot() {
+  mkdirSync(dockerSharedDisposableRoot, { recursive: true });
+  const sharedRoot = realpathSync(dockerSharedDisposableRoot);
+  const resolvedPlatformRoot = realpathSync(platformRoot);
+  if (
+    !isInside(resolvedPlatformRoot, sharedRoot) ||
+    lstatSync(dockerSharedDisposableRoot).isSymbolicLink()
+  )
+    throw new Error("M1 disposable cache must stay inside the workspace");
+  return realpathSync(mkdtempSync(path.join(sharedRoot, "1hk-m1-supabase-")));
+}
+
 export function assertDisposableCleanupTarget({ projectId, root }) {
   const resolved = path.resolve(root);
   const repository = path.resolve(repositorySupabase);
-  const relativeToTemp = path.relative(disposableTempRoot, resolved);
   if (
-    relativeToTemp.startsWith("..") ||
-    path.isAbsolute(relativeToTemp) ||
+    !allowedDisposableRoot(resolved) ||
     !path.basename(resolved).startsWith("1hk-m1-supabase-") ||
     resolved === repository ||
     resolved.startsWith(`${repository}${path.sep}`)
@@ -467,10 +550,8 @@ function assertPartialDisposableCleanupTarget({ projectId, root }) {
   if (!projectPattern.test(projectId))
     throw new Error("M1 cleanup refuses an invalid disposable project ID");
   const resolved = path.resolve(root);
-  const relativeToTemp = path.relative(disposableTempRoot, resolved);
   if (
-    relativeToTemp.startsWith("..") ||
-    path.isAbsolute(relativeToTemp) ||
+    !allowedDisposableRoot(resolved) ||
     !path.basename(resolved).startsWith("1hk-m1-supabase-") ||
     !existsSync(resolved) ||
     lstatSync(resolved).isSymbolicLink() ||
@@ -529,8 +610,62 @@ function portAvailable(port) {
   });
 }
 
+export async function startM1ReleaseFixture({ port = 12350 } = {}) {
+  if (!Number.isInteger(port) || port < 0 || port > 65_535)
+    throw new Error("M1 release fixture port is invalid");
+  const server = createHttpServer((request, response) => {
+    if (request.method !== "GET" || request.url !== "/revit-2025.zip") {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, {
+      Connection: "close",
+      "Content-Disposition": 'attachment; filename="1HK-Revit-2025-M1.zip"',
+      "Content-Length": String(m1ReleaseArtifact.length),
+      "Content-Type": "application/zip",
+    });
+    response.end(m1ReleaseArtifact);
+  });
+  await new Promise((resolve, reject) => {
+    const onError = (error) =>
+      reject(new Error("M1 release fixture could not start", { cause: error }));
+    server.once("error", onError);
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
+  server.unref();
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("M1 release fixture address is unavailable");
+  }
+  let closePromise;
+  return {
+    url: `http://127.0.0.1:${address.port}/revit-2025.zip`,
+    sha256: m1ReleaseSha256,
+    version: "M1-E2E",
+    close() {
+      closePromise ??= new Promise((resolve, reject) => {
+        server.close((error) =>
+          error
+            ? reject(
+                new Error("M1 release fixture could not stop", {
+                  cause: error,
+                }),
+              )
+            : resolve(),
+        );
+        server.closeAllConnections?.();
+      });
+      return closePromise;
+    },
+  };
+}
+
 async function assertReleasePortsAvailable() {
-  for (const port of [4000, 12349])
+  for (const port of [4000, 12349, 12350])
     if (!(await portAvailable(port)))
       throw new Error(`M1 E2E refuses occupied loopback port ${port}`);
 }
@@ -624,7 +759,21 @@ export function verifyDisposableSupabaseAuthority(
   return authority;
 }
 
-function exactRuntimeEnvironment(base, disposable, root, projectId) {
+export function exactRuntimeEnvironment(
+  base,
+  disposable,
+  root,
+  projectId,
+  release,
+  profile = "m1",
+) {
+  if (
+    profile !== "m1" &&
+    profile !== "p3" &&
+    profile !== "dwg-source" &&
+    profile !== "dwg-resave"
+  )
+    throw new Error("M1 E2E refuses an unknown runner profile");
   const internalSecret = randomBytes(32).toString("hex");
   const freezeSecret = randomBytes(32).toString("hex");
   const environment = {
@@ -643,12 +792,30 @@ function exactRuntimeEnvironment(base, disposable, root, projectId) {
     COLLABORATION_INTERNAL_URL: "http://127.0.0.1:12349",
     COLLABORATION_INTERNAL_SECRET: internalSecret,
     COLLABORATION_FREEZE_SECRET: freezeSecret,
+    VITE_REVIT_2025_BETA_URL: release.url,
+    VITE_REVIT_2025_BETA_SHA256: release.sha256,
+    VITE_REVIT_2025_BETA_VERSION: release.version,
+    VITE_M1_E2E_ALLOW_LOOPBACK_RELEASE: "1",
   };
+  for (const name of [
+    "M1_E2E_P3_DISPOSABLE",
+    "E2E_BASE_URL",
+    "P3_E2E_DATABASE_ADMIN_URL",
+    "P3_E2E_RUN_ID",
+  ])
+    delete environment[name];
+  if (profile === "p3")
+    Object.assign(environment, {
+      M1_E2E_P3_DISPOSABLE: "1",
+      E2E_BASE_URL: "http://127.0.0.1:4000",
+      P3_E2E_DATABASE_ADMIN_URL: disposable.databaseUrl,
+      P3_E2E_RUN_ID: `${projectId}-p3-${randomBytes(4).toString("hex")}`,
+    });
   assertM1LoopbackEnvironment(environment);
   return environment;
 }
 
-function createDisposableProject(root, projectId, portBase) {
+export function createDisposableProject(root, projectId, portBase) {
   const destination = path.join(root, "supabase");
   if (path.resolve(destination) === path.resolve(repositorySupabase))
     throw new Error("M1 E2E refuses the repository Supabase workdir");
@@ -656,6 +823,12 @@ function createDisposableProject(root, projectId, portBase) {
   cpSync(
     path.join(repositorySupabase, "migrations"),
     path.join(destination, "migrations"),
+    { recursive: true, errorOnExist: true },
+  );
+  mkdirSync(path.join(destination, "functions"), { recursive: false });
+  cpSync(
+    path.join(repositorySupabase, "functions", "lukas-qto-upload-verify"),
+    path.join(destination, "functions", "lukas-qto-upload-verify"),
     { recursive: true, errorOnExist: true },
   );
   const repositoryConfig = readFileSync(
@@ -677,7 +850,18 @@ function createDisposableProject(root, projectId, portBase) {
   assertDisposableCleanupTarget({ projectId, root });
 }
 
+export function disposableSupabaseStartArgs(root) {
+  return [
+    "start",
+    "--workdir",
+    root,
+    "--exclude",
+    "studio,mailpit,imgproxy,logflare,vector,supavisor",
+  ];
+}
+
 async function main() {
+  const profile = parseRunnerProfile(process.argv.slice(2));
   const lifecycle = createProcessLifecycle();
   const signalHandlers = new Map(
     ["SIGINT", "SIGTERM"].map((signal) => [
@@ -690,26 +874,22 @@ async function main() {
   let projectId;
   let projectReady = false;
   let startAttempted = false;
+  let releaseFixture;
   let primaryError;
   try {
     await assertReleasePortsAvailable();
+    releaseFixture = await startM1ReleaseFixture();
     lifecycle.assertCanStart(false);
     projectId = `1hk-m1-${randomBytes(4).toString("hex")}`;
     const portBase = await findFreePortBlock();
     lifecycle.assertCanStart(false);
-    root = mkdtempSync(path.join(disposableTempRoot, "1hk-m1-supabase-"));
+    root = createDisposableRoot();
     createDisposableProject(root, projectId, portBase);
     projectReady = true;
     startAttempted = true;
     await runChildProcess(
       "supabase",
-      [
-        "start",
-        "--workdir",
-        root,
-        "--exclude",
-        "studio,mailpit,imgproxy,edge-runtime,logflare,vector,supavisor",
-      ],
+      disposableSupabaseStartArgs(root),
       process.env,
       { lifecycle, sensitive: true },
     );
@@ -729,6 +909,8 @@ async function main() {
       disposable,
       root,
       projectId,
+      releaseFixture,
+      profile,
     );
     await runChildProcess("npm", ["run", "build"], environment, {
       lifecycle,
@@ -743,14 +925,27 @@ async function main() {
       { lifecycle },
     );
     await runChildProcess(
-      path.join("node_modules", ".bin", "playwright"),
+      process.execPath,
       [
-        "test",
-        "e2e/drawing-workspace-m1-estimator.spec.ts",
-        "--config=playwright.m1.config.ts",
-        "--project=chromium",
-        "--workers=1",
+        "--test",
+        "tests/drawing-workspace-m2-pdf-attach-real-database.test.mjs",
       ],
+      { ...environment, M2_PDF_ATTACH_REAL_POSTGRES_REQUIRED: "1" },
+      { lifecycle },
+    );
+    await runChildProcess(
+      process.execPath,
+      ["--test", "tests/drawing-workspace-m5-storage-real-database.test.mjs"],
+      {
+        ...environment,
+        M5_STORAGE_REAL_POSTGRES_DATABASE_URL: disposable.databaseUrl,
+        M5_STORAGE_REAL_POSTGRES_REQUIRED: "1",
+      },
+      { lifecycle },
+    );
+    await runChildProcess(
+      path.join("node_modules", ".bin", "playwright"),
+      drawingWorkspacePlaywrightArgs(profile),
       environment,
       { lifecycle },
     );
@@ -762,6 +957,13 @@ async function main() {
       await lifecycle.terminateTracked();
     } catch (error) {
       cleanupErrors.push(error);
+    }
+    if (releaseFixture) {
+      try {
+        await releaseFixture.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
     }
     if (root && projectId) {
       try {

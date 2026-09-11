@@ -1,0 +1,1440 @@
+TAP version 13
+# Subtest: applies a three-phase DXF plan with exact recorded envelopes
+ok 1 - applies a three-phase DXF plan with exact recorded envelopes
+  ---
+  duration_ms: 7.832375
+  type: 'test'
+  ...
+# Subtest: preserves and validates exact DXF history-group metadata
+ok 2 - preserves and validates exact DXF history-group metadata
+  ---
+  duration_ms: 2.29775
+  type: 'test'
+  ...
+# Subtest: undoes and redoes a multi-phase DXF import as one user history unit
+ok 3 - undoes and redoes a multi-phase DXF import as one user history unit
+  ---
+  duration_ms: 13.753458
+  type: 'test'
+  ...
+# Subtest: preflights a whole DXF history group atomically before returning operations
+ok 4 - preflights a whole DXF history group atomically before returning operations
+  ---
+  duration_ms: 0.756209
+  type: 'test'
+  ...
+# Subtest: re-attests a complete queued DXF group before releasing it
+ok 5 - re-attests a complete queued DXF group before releasing it
+  ---
+  duration_ms: 4.438541
+  type: 'test'
+  ...
+# Subtest: re-attests user-selected queued DXF units without sending declared units
+ok 6 - re-attests user-selected queued DXF units without sending declared units
+  ---
+  duration_ms: 1.6235
+  type: 'test'
+  ...
+# Subtest: does not re-attest non-DXF queued operations
+ok 7 - does not re-attest non-DXF queued operations
+  ---
+  duration_ms: 0.071625
+  type: 'test'
+  ...
+# Subtest: does not re-attest derived DXF undo or redo operations
+ok 8 - does not re-attest derived DXF undo or redo operations
+  ---
+  duration_ms: 9.063917
+  type: 'test'
+  ...
+# Subtest: DXF send gate awaits one recovered attestation and invalidates a changed sibling
+ok 9 - DXF send gate awaits one recovered attestation and invalidates a changed sibling
+  ---
+  duration_ms: 6.689542
+  type: 'test'
+  ...
+# Subtest: fresh DXF send gates are exact and isolated by workspace lifecycle
+ok 10 - fresh DXF send gates are exact and isolated by workspace lifecycle
+  ---
+  duration_ms: 1.573875
+  type: 'test'
+  ...
+# Subtest: a failed DXF send-gate preparation never sends or poisons its retry cache
+ok 11 - a failed DXF send-gate preparation never sends or poisons its retry cache
+  ---
+  duration_ms: 0.99875
+  type: 'test'
+  ...
+# Subtest: fails closed for incomplete, reordered, duplicate, or inconsistent queued DXF groups
+ok 12 - fails closed for incomplete, reordered, duplicate, or inconsistent queued DXF groups
+  ---
+  duration_ms: 2.423958
+  type: 'test'
+  ...
+# Subtest: fails closed when the re-prepared DXF plan changes its identity or operations
+ok 13 - fails closed when the re-prepared DXF plan changes its identity or operations
+  ---
+  duration_ms: 1.557542
+  type: 'test'
+  ...
+# Subtest: fails closed when the queued operation is not exact group evidence
+ok 14 - fails closed when the queued operation is not exact group evidence
+  ---
+  duration_ms: 0.843583
+  type: 'test'
+  ...
+# Subtest: posts queued DXF preparation through the existing form action and rejects unsafe responses
+ok 15 - posts queued DXF preparation through the existing form action and rejects unsafe responses
+  ---
+  duration_ms: 14.067458
+  type: 'test'
+  ...
+# Subtest: fails closed on malformed or incomplete DXF history-group metadata
+ok 16 - fails closed on malformed or incomplete DXF history-group metadata
+  ---
+  duration_ms: 1.03175
+  type: 'test'
+  ...
+# Subtest: resumes partial DXF group undo and redo transitions
+ok 17 - resumes partial DXF group undo and redo transitions
+  ---
+  duration_ms: 1.175417
+  type: 'test'
+  ...
+# Subtest: keeps an ungrouped command as one undo and redo unit
+ok 18 - keeps an ungrouped command as one undo and redo unit
+  ---
+  duration_ms: 0.320375
+  type: 'test'
+  ...
+# Subtest: rejects DXF history groups with mixed actor or revision authority
+ok 19 - rejects DXF history groups with mixed actor or revision authority
+  ---
+  duration_ms: 0.568875
+  type: 'test'
+  ...
+# Subtest: rejects a planned envelope whose inverse cannot be regenerated exactly
+ok 20 - rejects a planned envelope whose inverse cannot be regenerated exactly
+  ---
+  duration_ms: 0.557417
+  type: 'test'
+  ...
+# Subtest: resumes exact materialized prefixes after a canonical reload without receipts
+ok 21 - resumes exact materialized prefixes after a canonical reload without receipts
+  ---
+  duration_ms: 10.419292
+  type: 'test'
+  ...
+# Subtest: installs receipt-recovered DXF history in the live draft without re-enqueueing committed originals
+ok 22 - installs receipt-recovered DXF history in the live draft without re-enqueueing committed originals
+  ---
+  duration_ms: 22.08625
+  type: 'test'
+  ...
+# Subtest: rejects graph-equal recovered DXF history with a forged inverse
+ok 23 - rejects graph-equal recovered DXF history with a forged inverse
+  ---
+  duration_ms: 2.292042
+  type: 'test'
+  ...
+# Subtest: keeps a fresh DXF import undoable after its first authoritative checkpoint
+ok 24 - keeps a fresh DXF import undoable after its first authoritative checkpoint
+  ---
+  duration_ms: 13.351917
+  type: 'test'
+  ...
+# Subtest: reconstructs fresh DXF history from a persisted Yjs ledger before its first checkpoint
+ok 25 - reconstructs fresh DXF history from a persisted Yjs ledger before its first checkpoint
+  ---
+  duration_ms: 18.217834
+  type: 'test'
+  ...
+# Subtest: installs a newer checkpoint when an unseen same-user remote receipt explains its graph
+ok 26 - installs a newer checkpoint when an unseen same-user remote receipt explains its graph
+  ---
+  duration_ms: 7.33625
+  type: 'test'
+  ...
+# Subtest: retains a same-user receipt that arrives while checkpoint digests are pending
+ok 27 - retains a same-user receipt that arrives while checkpoint digests are pending
+  ---
+  duration_ms: 11.553083
+  type: 'test'
+  ...
+# Subtest: rejects a mismatched checkpoint after its late same-user receipt becomes visible
+ok 28 - rejects a mismatched checkpoint after its late same-user receipt becomes visible
+  ---
+  duration_ms: 10.156583
+  type: 'test'
+  ...
+# Subtest: rejects a checkpoint verification changed by an unrelated late operation
+ok 29 - rejects a checkpoint verification changed by an unrelated late operation
+  ---
+  duration_ms: 10.67125
+  type: 'test'
+  ...
+# Subtest: retains unseen checkpoint receipts across operation and status arrival order
+ok 30 - retains unseen checkpoint receipts across operation and status arrival order
+  ---
+  duration_ms: 45.506208
+  type: 'test'
+  ...
+# Subtest: blocks a newer checkpoint until its unseen receipt is verified
+ok 31 - blocks a newer checkpoint until its unseen receipt is verified
+  ---
+  duration_ms: 21.147917
+  type: 'test'
+  ...
+# Subtest: quarantines an unseen checkpoint whose later receipt proves a graph mismatch
+ok 32 - quarantines an unseen checkpoint whose later receipt proves a graph mismatch
+  ---
+  duration_ms: 17.368166
+  type: 'test'
+  ...
+# Subtest: validates visible checkpoint receipts independently of an unrelated pending edit
+ok 33 - validates visible checkpoint receipts independently of an unrelated pending edit
+  ---
+  duration_ms: 12.503708
+  type: 'test'
+  ...
+# Subtest: rolls back a verified checkpoint when projection replacement throws
+ok 34 - rolls back a verified checkpoint when projection replacement throws
+  ---
+  duration_ms: 10.195709
+  type: 'test'
+  ...
+# Subtest: rolls back an ordinary checkpoint when projection replacement throws
+ok 35 - rolls back an ordinary checkpoint when projection replacement throws
+  ---
+  duration_ms: 0.492291
+  type: 'test'
+  ...
+# Subtest: subscriber exceptions do not roll back a committed checkpoint
+ok 36 - subscriber exceptions do not roll back a committed checkpoint
+  ---
+  duration_ms: 0.255084
+  type: 'test'
+  ...
+# Subtest: rejects a mismatched checkpoint when every boundary receipt is locally visible
+ok 37 - rejects a mismatched checkpoint when every boundary receipt is locally visible
+  ---
+  duration_ms: 3.930875
+  type: 'test'
+  ...
+# Subtest: keeps recovered DXF history through suffix, grouped undo, and grouped redo checkpoints
+ok 38 - keeps recovered DXF history through suffix, grouped undo, and grouped redo checkpoints
+  ---
+  duration_ms: 25.899166
+  type: 'test'
+  ...
+# Subtest: absorbs receipt-proven DXF suffix checkpoints that arrive before local ACK state
+ok 39 - absorbs receipt-proven DXF suffix checkpoints that arrive before local ACK state
+  ---
+  duration_ms: 13.115667
+  type: 'test'
+  ...
+# Subtest: absorbs every partial grouped Undo checkpoint before local ACK state
+ok 40 - absorbs every partial grouped Undo checkpoint before local ACK state
+  ---
+  duration_ms: 33.974959
+  type: 'test'
+  ...
+# Subtest: absorbs every partial grouped Redo checkpoint before local ACK state
+ok 41 - absorbs every partial grouped Redo checkpoint before local ACK state
+  ---
+  duration_ms: 58.470625
+  type: 'test'
+  ...
+# Subtest: rejects inexact canonical checkpoint outcomes before changing recovered history
+ok 42 - rejects inexact canonical checkpoint outcomes before changing recovered history
+  ---
+  duration_ms: 49.172958
+  type: 'test'
+  ...
+# Subtest: rejects local ACK conflicts but accepts canonical receipts over stale server pending
+ok 43 - rejects local ACK conflicts but accepts canonical receipts over stale server pending
+  ---
+  duration_ms: 19.886417
+  type: 'test'
+  ...
+# Subtest: a later conflicting grouped receipt cannot leak an earlier checkpoint ACK
+ok 44 - a later conflicting grouped receipt cannot leak an earlier checkpoint ACK
+  ---
+  duration_ms: 9.863083
+  type: 'test'
+  ...
+# Subtest: ignores exact compacted receipts outside the new checkpoint boundary
+ok 45 - ignores exact compacted receipts outside the new checkpoint boundary
+  ---
+  duration_ms: 12.185167
+  type: 'test'
+  ...
+# Subtest: discards recovered DXF history when the authoritative graph changes
+ok 46 - discards recovered DXF history when the authoritative graph changes
+  ---
+  duration_ms: 4.428417
+  type: 'test'
+  ...
+# Subtest: does not preserve recovered DXF history around an unrelated pending edit
+ok 47 - does not preserve recovered DXF history around an unrelated pending edit
+  ---
+  duration_ms: 8.030625
+  type: 'test'
+  ...
+# Subtest: classifies exact committed DXF plans after undo or redo without replaying original mutations
+ok 48 - classifies exact committed DXF plans after undo or redo without replaying original mutations
+  ---
+  duration_ms: 2.803125
+  type: 'test'
+  ...
+# Subtest: rejects canonical DXF receipt authority mismatches before history hydration
+ok 49 - rejects canonical DXF receipt authority mismatches before history hydration
+  ---
+  duration_ms: 1.857042
+  type: 'test'
+  ...
+# Subtest: rejects a DXF history member attached to another actor stack
+ok 50 - rejects a DXF history member attached to another actor stack
+  ---
+  duration_ms: 0.843666
+  type: 'test'
+  ...
+# Subtest: fails closed on a partial or different materialized DXF phase
+ok 51 - fails closed on a partial or different materialized DXF phase
+  ---
+  duration_ms: 0.997292
+  type: 'test'
+  ...
+# Subtest: rejects adversarial DXF object/source compounds before recording
+ok 52 - rejects adversarial DXF object/source compounds before recording
+  ---
+  duration_ms: 1.07525
+  type: 'test'
+  ...
+# Subtest: supports exact prefix resume and an exact whole-plan retry
+ok 53 - supports exact prefix resume and an exact whole-plan retry
+  ---
+  duration_ms: 1.196125
+  type: 'test'
+  ...
+# Subtest: rejects a reused operation ID with a different envelope or actor
+ok 54 - rejects a reused operation ID with a different envelope or actor
+  ---
+  duration_ms: 0.441042
+  type: 'test'
+  ...
+# Subtest: rejects non-exact, duplicate, and cross-revision plan input
+ok 55 - rejects non-exact, duplicate, and cross-revision plan input
+  ---
+  duration_ms: 0.472166
+  type: 'test'
+  ...
+# Subtest: DXF import plan preserves exact local source lineage and only actual raw handles
+ok 56 - DXF import plan preserves exact local source lineage and only actual raw handles
+  ---
+  duration_ms: 54.45475
+  type: 'test'
+  ...
+# Subtest: DXF import plan keeps each object and source atomic in forward and inverse operations
+ok 57 - DXF import plan keeps each object and source atomic in forward and inverse operations
+  ---
+  duration_ms: 29.995833
+  type: 'test'
+  ...
+# Subtest: DXF import plan stages editable layers before objects and restores source state last
+ok 58 - DXF import plan stages editable layers before objects and restores source state last
+  ---
+  duration_ms: 22.839375
+  type: 'test'
+  ...
+# Subtest: DXF import plan chunks atomic records within the live collaboration contract
+ok 59 - DXF import plan chunks atomic records within the live collaboration contract
+  ---
+  duration_ms: 750.736833
+  type: 'test'
+  ...
+# Subtest: DXF import plan IDs support exact retry, prefix resume, and explicit-unit retry
+ok 60 - DXF import plan IDs support exact retry, prefix resume, and explicit-unit retry
+  ---
+  duration_ms: 46.904417
+  type: 'test'
+  ...
+# Subtest: DXF import plan fails closed before execution when total operation count is too large
+ok 61 - DXF import plan fails closed before execution when total operation count is too large
+  ---
+  duration_ms: 14.550625
+  type: 'test'
+  ...
+# Subtest: DXF import plan fails closed before execution when the response plan is too large
+ok 62 - DXF import plan fails closed before execution when the response plan is too large
+  ---
+  duration_ms: 16.498792
+  type: 'test'
+  ...
+# Subtest: strict public scope, status and receipt codecs reject extra and cross-identity data
+ok 63 - strict public scope, status and receipt codecs reject extra and cross-identity data
+  ---
+  duration_ms: 3.152417
+  type: 'test'
+  ...
+# Subtest: strict service claim codec binds scope, source and immutable image
+ok 64 - strict service claim codec binds scope, source and immutable image
+  ---
+  duration_ms: 15.253542
+  type: 'test'
+  ...
+# Subtest: authenticated helpers send exact frozen RPC arguments and validate result evidence
+ok 65 - authenticated helpers send exact frozen RPC arguments and validate result evidence
+  ---
+  duration_ms: 9.289667
+  type: 'test'
+  ...
+# Subtest: result and status helpers fail closed on null, changed, malformed or oversized evidence
+ok 66 - result and status helpers fail closed on null, changed, malformed or oversized evidence
+  ---
+  duration_ms: 4.847625
+  type: 'test'
+  ...
+# Subtest: helpers require abortable RPC transport and map bounded database codes
+ok 67 - helpers require abortable RPC transport and map bounded database codes
+  ---
+  duration_ms: 0.338667
+  type: 'test'
+  ...
+# Subtest: Docker forwarding shim preserves executable and tracker paths containing shell metacharacters
+ok 68 - Docker forwarding shim preserves executable and tracker paths containing shell metacharacters
+  ---
+  duration_ms: 1594.431791
+  type: 'test'
+  ...
+# Subtest: worker cleanup allows the production SIGTERM lifecycle to finish
+ok 69 - worker cleanup allows the production SIGTERM lifecycle to finish
+  ---
+  duration_ms: 34.365708
+  type: 'test'
+  ...
+# Subtest: worker cleanup force-stops a resistant child before narrowly cleaning its owned residue
+ok 70 - worker cleanup force-stops a resistant child before narrowly cleaning its owned residue
+  ---
+  duration_ms: 84.573542
+  type: 'test'
+  ...
+# Subtest: worker is idle without a claim and publishes one strict immutable report
+ok 71 - worker is idle without a claim and publishes one strict immutable report
+  ---
+  duration_ms: 5.129416
+  type: 'test'
+  ...
+# Subtest: source length, hash and header corruption fail before native parsing
+ok 72 - source length, hash and header corruption fail before native parsing
+  ---
+  duration_ms: 0.827667
+  type: 'test'
+  ...
+# Subtest: invalid or source-changed reports fail without publication
+ok 73 - invalid or source-changed reports fail without publication
+  ---
+  duration_ms: 0.422708
+  type: 'test'
+  ...
+# Subtest: reader failures are retried and bounded failure acknowledgement errors are safe
+ok 74 - reader failures are retried and bounded failure acknowledgement errors are safe
+  ---
+  duration_ms: 0.492166
+  type: 'test'
+  ...
+# Subtest: cancellation before and after native read never publishes
+ok 75 - cancellation before and after native read never publishes
+  ---
+  duration_ms: 0.370375
+  type: 'test'
+  ...
+# Subtest: deadline before publication fails the attempt instead of publishing late
+ok 76 - deadline before publication fails the attempt instead of publishing late
+  ---
+  duration_ms: 0.133042
+  type: 'test'
+  ...
+# Subtest: stale and ambiguous completion are never retried or failed under another identity
+ok 77 - stale and ambiguous completion are never retried or failed under another identity
+  ---
+  duration_ms: 0.5465
+  type: 'test'
+  ...
+# Subtest: configured-origin transport authorizes an exact encoded path and exact body
+ok 78 - configured-origin transport authorizes an exact encoded path and exact body
+  ---
+  duration_ms: 22.396209
+  type: 'test'
+  ...
+# Subtest: source transport accepts an exact chunked body but rejects redirects, lying lengths, short/oversized streams and stalls
+ok 79 - source transport accepts an exact chunked body but rejects redirects, lying lengths, short/oversized streams and stalls
+  ---
+  duration_ms: 52.604834
+  type: 'test'
+  ...
+# Subtest: adapter rejects malicious origin, path and configuration before RPC or network
+ok 80 - adapter rejects malicious origin, path and configuration before RPC or network
+  ---
+  duration_ms: 0.719833
+  type: 'test'
+  ...
+# Subtest: publication adapter rejects a mismatched digest before sending the exact identity
+ok 81 - publication adapter rejects a mismatched digest before sending the exact identity
+  ---
+  duration_ms: 0.417334
+  type: 'test'
+  ...
+# Subtest: real Supabase RPC HTTP stays on the configured origin with service authorization
+ok 82 - real Supabase RPC HTTP stays on the configured origin with service authorization
+  ---
+  duration_ms: 5.794125
+  type: 'test'
+  ...
+# Subtest: real Supabase RPC redirect never forwards service authorization
+ok 83 - real Supabase RPC redirect never forwards service authorization
+  ---
+  duration_ms: 2.045583
+  type: 'test'
+  ...
+# Subtest: import CLI configuration requires an immutable image and explicit Docker socket
+ok 84 - import CLI configuration requires an immutable image and explicit Docker socket
+  ---
+  duration_ms: 0.366375
+  type: 'test'
+  ...
+# Subtest: real import CLI composes strict adapter config, claims idle and stops on SIGTERM
+ok 85 - real import CLI composes strict adapter config, claims idle and stops on SIGTERM
+  ---
+  duration_ms: 257.738209
+  type: 'test'
+  ...
+# Subtest: projects native WCS primitives into millimeters while preserving exact native bindings
+ok 86 - projects native WCS primitives into millimeters while preserving exact native bindings
+  ---
+  duration_ms: 36.595459
+  type: 'test'
+  ...
+# Subtest: same source and target retries preserve request, layer, object and binding identities
+ok 87 - same source and target retries preserve request, layer, object and binding identities
+  ---
+  duration_ms: 6.424375
+  type: 'test'
+  ...
+# Subtest: unknown units require an explicit supported override and declared units cannot be changed
+ok 88 - unknown units require an explicit supported override and declared units cannot be changed
+  ---
+  duration_ms: 10.104833
+  type: 'test'
+  ...
+# Subtest: source drift, duplicate native handles and inconsistent coverage fail closed
+ok 89 - source drift, duplicate native handles and inconsistent coverage fail closed
+  ---
+  duration_ms: 0.642917
+  type: 'test'
+  ...
+# Subtest: strict report validation rejects unknown fields and projected extents outside the 9e9mm domain
+ok 90 - strict report validation rejects unknown fields and projected extents outside the 9e9mm domain
+  ---
+  duration_ms: 3.737
+  type: 'test'
+  ...
+# Subtest: strict report validation rejects a trailing high surrogate in native TEXT
+ok 91 - strict report validation rejects a trailing high surrogate in native TEXT
+  ---
+  duration_ms: 0.605917
+  type: 'test'
+  ...
+# Subtest: strict report validation and projection reject native TEXT outside the plain-text contract
+    # Subtest: U+0085 control
+    ok 1 - U+0085 control
+      ---
+      duration_ms: 0.964417
+      type: 'test'
+      ...
+    # Subtest: U+2028 line separator
+    ok 2 - U+2028 line separator
+      ---
+      duration_ms: 0.5155
+      type: 'test'
+      ...
+    # Subtest: U+2029 paragraph separator
+    ok 3 - U+2029 paragraph separator
+      ---
+      duration_ms: 0.268292
+      type: 'test'
+      ...
+    # Subtest: percent-percent expression
+    ok 4 - percent-percent expression
+      ---
+      duration_ms: 0.27525
+      type: 'test'
+      ...
+    # Subtest: field expression
+    ok 5 - field expression
+      ---
+      duration_ms: 0.221875
+      type: 'test'
+      ...
+    # Subtest: oversized UTF-16 length
+    ok 6 - oversized UTF-16 length
+      ---
+      duration_ms: 0.192541
+      type: 'test'
+      ...
+    1..6
+ok 92 - strict report validation and projection reject native TEXT outside the plain-text contract
+  ---
+  duration_ms: 3.191833
+  type: 'test'
+  ...
+# Subtest: a nonzero full-turn native ARC projects as a 360 degree sweep
+ok 93 - a nonzero full-turn native ARC projects as a 360 degree sweep
+  ---
+  duration_ms: 3.375
+  type: 'test'
+  ...
+# Subtest: native ARC rejects explicit sweeps larger than one full turn
+ok 94 - native ARC rejects explicit sweeps larger than one full turn
+  ---
+  duration_ms: 0.465583
+  type: 'test'
+  ...
+# Subtest: unsupported native handle samples cannot outnumber their exact group count
+ok 95 - unsupported native handle samples cannot outnumber their exact group count
+  ---
+  duration_ms: 0.192667
+  type: 'test'
+  ...
+# Subtest: native DWG resource routes expose only framework server entrypoints
+ok 96 - native DWG resource routes expose only framework server entrypoints
+  ---
+  duration_ms: 0.7255
+  type: 'test'
+  ...
+# Subtest: user helpers validate exact DTOs and send only the approved RPC arguments
+ok 97 - user helpers validate exact DTOs and send only the approved RPC arguments
+  ---
+  duration_ms: 1.814583
+  type: 'test'
+  ...
+# Subtest: strict scope and artifact validation rejects unknown input before transport
+ok 98 - strict scope and artifact validation rejects unknown input before transport
+  ---
+  duration_ms: 0.55825
+  type: 'test'
+  ...
+# Subtest: request route enforces method, exact origin, body bound, and route scope
+ok 99 - request route enforces method, exact origin, body bound, and route scope
+  ---
+  duration_ms: 4.663791
+  type: 'test'
+  ...
+# Subtest: status route accepts only exact query scope and returns durable no-store state
+ok 100 - status route accepts only exact query scope and returns durable no-store state
+  ---
+  duration_ms: 0.856333
+  type: 'test'
+  ...
+# Subtest: download verifies the exact managed object then reauthorizes before attachment
+ok 101 - download verifies the exact managed object then reauthorizes before attachment
+  ---
+  duration_ms: 25.70625
+  type: 'test'
+  ...
+# Subtest: download route accepts GET with only the four query scope fields
+ok 102 - download route accepts GET with only the four query scope fields
+  ---
+  duration_ms: 0.549167
+  type: 'test'
+  ...
+# Subtest: missing receipt, unknown kind, malformed path and hash mismatch never leak Storage bytes
+ok 103 - missing receipt, unknown kind, malformed path and hash mismatch never leak Storage bytes
+  ---
+  duration_ms: 1.04425
+  type: 'test'
+  ...
+# Subtest: download rejects a revoked second authorization after verification without exposing bytes
+ok 104 - download rejects a revoked second authorization after verification without exposing bytes
+  ---
+  duration_ms: 6.5755
+  type: 'test'
+  ...
+# Subtest: status helper rejects a receipt attached to another exact source
+ok 105 - status helper rejects a receipt attached to another exact source
+  ---
+  duration_ms: 0.312917
+  type: 'test'
+  ...
+# Subtest: route auth denial occurs before any service client creation and preserves bounded headers
+ok 106 - route auth denial occurs before any service client creation and preserves bounded headers
+  ---
+  duration_ms: 0.399416
+  type: 'test'
+  ...
+# Subtest: download cancels real Storage HTTP before headers and during body on deadline or request abort
+ok 107 - download cancels real Storage HTTP before headers and during body on deadline or request abort
+  ---
+  duration_ms: 429.813333
+  type: 'test'
+  ...
+# Subtest: reader rejects mismatched original-byte identity through a bounded public failure
+ok 108 - reader rejects mismatched original-byte identity through a bounded public failure
+  ---
+  duration_ms: 1.100084
+  type: 'test'
+  ...
+# Subtest: reader rejects high-bit aliases of the six ASCII header bytes before native execution
+ok 109 - reader rejects high-bit aliases of the six ASCII header bytes before native execution
+  ---
+  duration_ms: 12.502209
+  type: 'test'
+  ...
+# Subtest: actual native process errors stay bounded and clean the owned temporary directory
+ok 110 - actual native process errors stay bounded and clean the owned temporary directory
+  ---
+  duration_ms: 320.9015
+  type: 'test'
+  ...
+# Subtest: reader refuses to delete a replacement directory at its former owned path
+ok 111 - reader refuses to delete a replacement directory at its former owned path
+  ---
+  duration_ms: 855.255042
+  type: 'test'
+  ...
+# Subtest: actual .NET reader returns an original-byte report consumable by the real projector
+ok 112 - actual .NET reader returns an original-byte report consumable by the real projector
+  ---
+  duration_ms: 931.777458
+  type: 'test'
+  ...
+# Subtest: container absence requires a successful exact-name Docker query
+ok 113 - container absence requires a successful exact-name Docker query
+  ---
+  duration_ms: 1647.875917
+  type: 'test'
+  ...
+# Subtest: two parallel actual native reads use unique attempts and preserve literal source geometry
+ok 114 - two parallel actual native reads use unique attempts and preserve literal source geometry
+  ---
+  duration_ms: 1172.224917
+  type: 'test'
+  ...
+# {"imageId":"sha256:c67ff75cdacccad6cd77b275ad2557f889943bd29c98767c8f0e399d5e9b394f","source":{"sha256":"78b79b2015b2b207d8ef4e27ec08f58426b06b08309e5f25038a6ada7711415c","byteSize":10987,"headerVersion":"AC1024"},"parsedReportSha256":"3db8adb91ec7f8057a592ece4cc9ecee56bd8248fe7839e30a72683ab84e3da4","attempts":2}
+# Subtest: actual process and cgroup state enforce the production sandbox profile
+ok 115 - actual process and cgroup state enforce the production sandbox profile
+  ---
+  duration_ms: 146.242292
+  type: 'test'
+  ...
+# {"uid":65532,"gid":65532,"noNewPrivileges":1,"seccompMode":2,"capabilitiesHex":"0000000000000000","rootWrite":"failed","tmpWrite":"succeeded","hostUsersVisible":false,"interfaces":["lo"],"ipv4RouteRows":0,"memoryMax":1073741824,"cpuMax":{"quota":100000,"period":100000,"ratio":1},"pidsMax":64,"inheritedSyntheticSecret":false}
+# Subtest: the image entrypoint kills a finite sleeper at the inner deadline
+ok 116 - the image entrypoint kills a finite sleeper at the inner deadline
+  ---
+  duration_ms: 1195.142583
+  type: 'test'
+  ...
+# Subtest: invalid native input and caller abort remove only their exact owned attempts
+ok 117 - invalid native input and caller abort remove only their exact owned attempts
+  ---
+  duration_ms: 1775.345916
+  type: 'test'
+  ...
+# Subtest: production create argv fixes confinement and the native command
+ok 118 - production create argv fixes confinement and the native command
+  ---
+  duration_ms: 115.659833
+  type: 'test'
+  ...
+# Subtest: configuration, abort and exact raw source validation happen before Docker spawn
+ok 119 - configuration, abort and exact raw source validation happen before Docker spawn
+  ---
+  duration_ms: 46.5065
+  type: 'test'
+  ...
+# Subtest: successful transport requires owned stopped receipt, exact bytes and clean CLI environment
+ok 120 - successful transport requires owned stopped receipt, exact bytes and clean CLI environment
+  ---
+  duration_ms: 1090.901334
+  type: 'test'
+  ...
+# Subtest: daemon profile deviations fail before start and remove only the owned container
+ok 121 - daemon profile deviations fail before start and remove only the owned container
+  ---
+  duration_ms: 8739.574875
+  type: 'test'
+  ...
+# Subtest: live, nonzero, OOM, malformed, overflowing and source-mismatched reports never succeed
+ok 122 - live, nonzero, OOM, malformed, overflowing and source-mismatched reports never succeed
+  ---
+  duration_ms: 6949.826958
+  type: 'test'
+  ...
+# Subtest: lost or malformed create receipts reconcile exact name once and clean owned identity
+ok 123 - lost or malformed create receipts reconcile exact name once and clean owned identity
+  ---
+  duration_ms: 2803.254125
+  type: 'test'
+  ...
+# Subtest: outer deadline and cancellation use separate cleanup authority
+ok 124 - outer deadline and cancellation use separate cleanup authority
+  ---
+  duration_ms: 3238.476042
+  type: 'test'
+  ...
+# Subtest: caller bytes are snapshotted before awaits and mutation prevents publication
+ok 125 - caller bytes are snapshotted before awaits and mutation prevents publication
+  ---
+  duration_ms: 697.087125
+  type: 'test'
+  ...
+# Subtest: foreign ownership is never permission to start or delete
+ok 126 - foreign ownership is never permission to start or delete
+  ---
+  duration_ms: 1191.218708
+  type: 'test'
+  ...
+# Subtest: unenforced daemon limits and image-provided volumes are refused before create
+ok 127 - unenforced daemon limits and image-provided volumes are refused before create
+  ---
+  duration_ms: 3359.949209
+  type: 'test'
+  ...
+# Subtest: validated Docker configuration is captured before caller mutation
+ok 128 - validated Docker configuration is captured before caller mutation
+  ---
+  duration_ms: 698.87775
+  type: 'test'
+  ...
+# Subtest: unexpected stderr, BOM and overflowing metadata fail closed
+ok 129 - unexpected stderr, BOM and overflowing metadata fail closed
+  ---
+  duration_ms: 1840.652084
+  type: 'test'
+  ...
+# Subtest: caller mutation while cleanup runs still prevents report publication
+ok 130 - caller mutation while cleanup runs still prevents report publication
+  ---
+  duration_ms: 1083.553083
+  type: 'test'
+  ...
+# Subtest: an extra network attachment or changed shared-memory limit prevents start
+ok 131 - an extra network attachment or changed shared-memory limit prevents start
+  ---
+  duration_ms: 1298.08325
+  type: 'test'
+  ...
+# Subtest: every CLI command uses a private empty config, avoiding hostile home fallback and cleaning on failure
+ok 132 - every CLI command uses a private empty config, avoiding hostile home fallback and cleaning on failure
+  ---
+  duration_ms: 1278.7975
+  type: 'test'
+  ...
+# Subtest: replacement of the owned CLI config directory is preserved and fails the read
+ok 133 - replacement of the owned CLI config directory is preserved and fails the read
+  ---
+  duration_ms: 669.379708
+  type: 'test'
+  ...
+# Subtest: caller mutation during private config cleanup prevents publication
+ok 134 - caller mutation during private config cleanup prevents publication
+  ---
+  duration_ms: 661.359417
+  type: 'test'
+  ...
+# Subtest: caller cancellation during private config cleanup prevents publication
+ok 135 - caller cancellation during private config cleanup prevents publication
+  ---
+  duration_ms: 664.419458
+  type: 'test'
+  ...
+# Subtest: converts only a changed centimeter LINE endpoint back to the original handle and native units
+ok 136 - converts only a changed centimeter LINE endpoint back to the original handle and native units
+  ---
+  duration_ms: 8.316292
+  type: 'test'
+  ...
+# Subtest: retains an unchanged raw native endpoint instead of reconstructing it from six-decimal display geometry
+ok 137 - retains an unchanged raw native endpoint instead of reconstructing it from six-decimal display geometry
+  ---
+  duration_ms: 1.9575
+  type: 'test'
+  ...
+# Subtest: emits null for an unchanged projection even when object order changes or versions increase
+ok 138 - emits null for an unchanged projection even when object order changes or versions increase
+  ---
+  duration_ms: 0.822041
+  type: 'test'
+  ...
+# Subtest: a valid TEXT value change emits only text and edits are sorted by numeric native handle
+ok 139 - a valid TEXT value change emits only text and edits are sorted by numeric native handle
+  ---
+  duration_ms: 0.871833
+  type: 'test'
+  ...
+# Subtest: rejects new, missing, and duplicate object identities
+    # Subtest: new object
+    ok 1 - new object
+      ---
+      duration_ms: 4.371333
+      type: 'test'
+      ...
+    # Subtest: missing object
+    ok 2 - missing object
+      ---
+      duration_ms: 0.428
+      type: 'test'
+      ...
+    # Subtest: duplicate object
+    ok 3 - duplicate object
+      ---
+      duration_ms: 0.316042
+      type: 'test'
+      ...
+    1..3
+ok 140 - rejects new, missing, and duplicate object identities
+  ---
+  duration_ms: 6.431208
+  type: 'test'
+  ...
+# Subtest: rejects immutable object metadata and geometry-kind changes
+    # Subtest: name
+    ok 1 - name
+      ---
+      duration_ms: 0.414666
+      type: 'test'
+      ...
+    # Subtest: layer
+    ok 2 - layer
+      ---
+      duration_ms: 0.391667
+      type: 'test'
+      ...
+    # Subtest: style
+    ok 3 - style
+      ---
+      duration_ms: 0.33925
+      type: 'test'
+      ...
+    # Subtest: style binding
+    ok 4 - style binding
+      ---
+      duration_ms: 0.314667
+      type: 'test'
+      ...
+    # Subtest: geometry kind
+    ok 5 - geometry kind
+      ---
+      duration_ms: 3.322291
+      type: 'test'
+      ...
+    1..5
+ok 141 - rejects immutable object metadata and geometry-kind changes
+  ---
+  duration_ms: 5.303167
+  type: 'test'
+  ...
+# Subtest: rejects unsupported shape changes and TEXT placement changes atomically
+    # Subtest: unsupported shape
+    ok 1 - unsupported shape
+      ---
+      duration_ms: 0.3415
+      type: 'test'
+      ...
+    # Subtest: TEXT origin
+    ok 2 - TEXT origin
+      ---
+      duration_ms: 3.012334
+      type: 'test'
+      ...
+    # Subtest: TEXT width
+    ok 3 - TEXT width
+      ---
+      duration_ms: 0.841083
+      type: 'test'
+      ...
+    1..3
+ok 142 - rejects unsupported shape changes and TEXT placement changes atomically
+  ---
+  duration_ms: 4.641333
+  type: 'test'
+  ...
+# Subtest: rejects decreasing versions and invalid edited-object schema before compiling any request
+    # Subtest: decreased version
+    ok 1 - decreased version
+      ---
+      duration_ms: 0.665125
+      type: 'test'
+      ...
+    # Subtest: unknown object field
+    ok 2 - unknown object field
+      ---
+      duration_ms: 0.660708
+      type: 'test'
+      ...
+    # Subtest: zero-length LINE
+    ok 3 - zero-length LINE
+      ---
+      duration_ms: 10.288833
+      type: 'test'
+      ...
+    1..3
+ok 143 - rejects decreasing versions and invalid edited-object schema before compiling any request
+  ---
+  duration_ms: 23.556208
+  type: 'test'
+  ...
+# Subtest: rejects invalid selected-DWG plain TEXT values
+    # Subtest: too long
+    ok 1 - too long
+      ---
+      duration_ms: 0.56625
+      type: 'test'
+      ...
+    # Subtest: unpaired surrogate
+    ok 2 - unpaired surrogate
+      ---
+      duration_ms: 0.386084
+      type: 'test'
+      ...
+    # Subtest: terminal high surrogate
+    ok 3 - terminal high surrogate
+      ---
+      duration_ms: 0.331917
+      type: 'test'
+      ...
+    # Subtest: control
+    ok 4 - control
+      ---
+      duration_ms: 0.331
+      type: 'test'
+      ...
+    # Subtest: line separator
+    ok 5 - line separator
+      ---
+      duration_ms: 0.325166
+      type: 'test'
+      ...
+    # Subtest: CAD percent escape
+    ok 6 - CAD percent escape
+      ---
+      duration_ms: 0.375792
+      type: 'test'
+      ...
+    # Subtest: CAD field
+    ok 7 - CAD field
+      ---
+      duration_ms: 0.353417
+      type: 'test'
+      ...
+    1..7
+ok 144 - rejects invalid selected-DWG plain TEXT values
+  ---
+  duration_ms: 5.138
+  type: 'test'
+  ...
+# Subtest: rejects a compact UTF-8 request above the native consumer's 2 MiB limit
+ok 145 - rejects a compact UTF-8 request above the native consumer's 2 MiB limit
+  ---
+  duration_ms: 27.999084
+  type: 'test'
+  ...
+# Subtest: approved native template returns an unchanged CAD manifest and separate deterministic authority lineage
+ok 146 - approved native template returns an unchanged CAD manifest and separate deterministic authority lineage
+  ---
+  duration_ms: 24.309625
+  type: 'test'
+  ...
+# Subtest: approved native lineage orders same-id issue links by object id independently of input order
+ok 147 - approved native lineage orders same-id issue links by object id independently of input order
+  ---
+  duration_ms: 16.299416
+  type: 'test'
+  ...
+# Subtest: approved literal canonical line projects exact independent CAD geometry
+ok 148 - approved literal canonical line projects exact independent CAD geometry
+  ---
+  duration_ms: 1.187167
+  type: 'test'
+  ...
+# Subtest: loader calls the authenticated read-only RPC once with only exact named scope
+ok 149 - loader calls the authenticated read-only RPC once with only exact named scope
+  ---
+  duration_ms: 4.92
+  type: 'test'
+  ...
+# Subtest: request and returned authority scope must match exactly
+    # Subtest: project
+    ok 1 - project
+      ---
+      duration_ms: 1.197292
+      type: 'test'
+      ...
+    # Subtest: document
+    ok 2 - document
+      ---
+      duration_ms: 0.892417
+      type: 'test'
+      ...
+    # Subtest: revision
+    ok 3 - revision
+      ---
+      duration_ms: 0.820625
+      type: 'test'
+      ...
+    # Subtest: version
+    ok 4 - version
+      ---
+      duration_ms: 0.712666
+      type: 'test'
+      ...
+    # Subtest: canvas
+    ok 5 - canvas
+      ---
+      duration_ms: 0.627708
+      type: 'test'
+      ...
+    # Subtest: digest
+    ok 6 - digest
+      ---
+      duration_ms: 0.617834
+      type: 'test'
+      ...
+    1..6
+ok 150 - request and returned authority scope must match exactly
+  ---
+  duration_ms: 5.408208
+  type: 'test'
+  ...
+# Subtest: tampered or malformed PostgreSQL text never becomes an approved source
+    # Subtest: tampered text
+    ok 1 - tampered text
+      ---
+      duration_ms: 0.617375
+      type: 'test'
+      ...
+    # Subtest: wrong hash
+    ok 2 - wrong hash
+      ---
+      duration_ms: 0.517375
+      type: 'test'
+      ...
+    # Subtest: malformed hashed JSON
+    ok 3 - malformed hashed JSON
+      ---
+      duration_ms: 0.454042
+      type: 'test'
+      ...
+    1..3
+ok 151 - tampered or malformed PostgreSQL text never becomes an approved source
+  ---
+  duration_ms: 1.760375
+  type: 'test'
+  ...
+# Subtest: revision, approval and canonical identity must remain approved and exact
+    # Subtest: reviewed status
+    ok 1 - reviewed status
+      ---
+      duration_ms: 0.553375
+      type: 'test'
+      ...
+    # Subtest: draft status
+    ok 2 - draft status
+      ---
+      duration_ms: 0.466167
+      type: 'test'
+      ...
+    # Subtest: wrong decision
+    ok 3 - wrong decision
+      ---
+      duration_ms: 0.438917
+      type: 'test'
+      ...
+    # Subtest: revision sequence
+    ok 4 - revision sequence
+      ---
+      duration_ms: 0.647209
+      type: 'test'
+      ...
+    # Subtest: operation sequence
+    ok 5 - operation sequence
+      ---
+      duration_ms: 0.637292
+      type: 'test'
+      ...
+    # Subtest: canonical project
+    ok 6 - canonical project
+      ---
+      duration_ms: 0.611375
+      type: 'test'
+      ...
+    # Subtest: canonical document
+    ok 7 - canonical document
+      ---
+      duration_ms: 0.930125
+      type: 'test'
+      ...
+    1..7
+ok 152 - revision, approval and canonical identity must remain approved and exact
+  ---
+  duration_ms: 4.513458
+  type: 'test'
+  ...
+# Subtest: native projection rejects missing profiles, sources, backgrounds, extra canvases and unsupported geometry
+    # Subtest: missing persisted profile
+    ok 1 - missing persisted profile
+      ---
+      duration_ms: 1.135666
+      type: 'test'
+      ...
+    # Subtest: object source
+    ok 2 - object source
+      ---
+      duration_ms: 4.393667
+      type: 'test'
+      ...
+    # Subtest: canvas background
+    ok 3 - canvas background
+      ---
+      duration_ms: 2.470083
+      type: 'test'
+      ...
+    # Subtest: additional canvas
+    ok 4 - additional canvas
+      ---
+      duration_ms: 1.2095
+      type: 'test'
+      ...
+    # Subtest: unsupported entity
+    ok 5 - unsupported entity
+      ---
+      duration_ms: 1.022708
+      type: 'test'
+      ...
+    1..5
+ok 153 - native projection rejects missing profiles, sources, backgrounds, extra canvases and unsupported geometry
+  ---
+  duration_ms: 10.551292
+  type: 'test'
+  ...
+# Subtest: canonical preimage is bounded before parsing
+ok 154 - canonical preimage is bounded before parsing
+  ---
+  duration_ms: 34.06025
+  type: 'test'
+  ...
+# Subtest: strict malformed requests and payloads fail without calling RPC
+    # Subtest: request 1
+    ok 1 - request 1
+      ---
+      duration_ms: 0.126792
+      type: 'test'
+      ...
+    # Subtest: request 2
+    ok 2 - request 2
+      ---
+      duration_ms: 0.053625
+      type: 'test'
+      ...
+    # Subtest: request 3
+    ok 3 - request 3
+      ---
+      duration_ms: 0.105208
+      type: 'test'
+      ...
+    # Subtest: request 4
+    ok 4 - request 4
+      ---
+      duration_ms: 0.056042
+      type: 'test'
+      ...
+    # Subtest: request 5
+    ok 5 - request 5
+      ---
+      duration_ms: 0.044166
+      type: 'test'
+      ...
+    1..5
+ok 155 - strict malformed requests and payloads fail without calling RPC
+  ---
+  duration_ms: 2.380458
+  type: 'test'
+  ...
+# Subtest: RPC exceptions, returned errors, nulls and malformed payloads use one bounded error with no fallback
+    # Subtest: exception
+    ok 1 - exception
+      ---
+      duration_ms: 0.133083
+      type: 'test'
+      ...
+    # Subtest: returned error
+    ok 2 - returned error
+      ---
+      duration_ms: 0.081833
+      type: 'test'
+      ...
+    # Subtest: null
+    ok 3 - null
+      ---
+      duration_ms: 0.105542
+      type: 'test'
+      ...
+    # Subtest: malformed
+    ok 4 - malformed
+      ---
+      duration_ms: 0.108208
+      type: 'test'
+      ...
+    1..4
+ok 156 - RPC exceptions, returned errors, nulls and malformed payloads use one bounded error with no fallback
+  ---
+  duration_ms: 0.956417
+  type: 'test'
+  ...
+# Subtest: approved source stages all four verified identities before immutable upload and publication
+ok 157 - approved source stages all four verified identities before immutable upload and publication
+  ---
+  duration_ms: 22.758166
+  type: 'test'
+  ...
+# Subtest: worker stays idle when no durable job is claimable
+ok 158 - worker stays idle when no durable job is claimable
+  ---
+  duration_ms: 0.206833
+  type: 'test'
+  ...
+# Subtest: tampered approved source is terminal before conversion or staging
+ok 159 - tampered approved source is terminal before conversion or staging
+  ---
+  duration_ms: 0.273417
+  type: 'test'
+  ...
+# Subtest: writer artifact and report tampering is terminal before staging
+ok 160 - writer artifact and report tampering is terminal before staging
+  ---
+  duration_ms: 44.607875
+  type: 'test'
+  ...
+# Subtest: forged database path stops all storage writes
+ok 161 - forged database path stops all storage writes
+  ---
+  duration_ms: 12.44
+  type: 'test'
+  ...
+# Subtest: uncertain upload remains open even if the object becomes readable
+ok 162 - uncertain upload remains open even if the object becomes readable
+  ---
+  duration_ms: 6.652
+  type: 'test'
+  ...
+# Subtest: confirmed duplicate upload reconciles through exact readback
+ok 163 - confirmed duplicate upload reconciles through exact readback
+  ---
+  duration_ms: 13.062208
+  type: 'test'
+  ...
+# Subtest: uncertain or mismatching storage leaves the upload session open
+ok 164 - uncertain or mismatching storage leaves the upload session open
+  ---
+  duration_ms: 15.739084
+  type: 'test'
+  ...
+# Subtest: post-read deadline exhaustion cannot settle or publish
+ok 165 - post-read deadline exhaustion cannot settle or publish
+  ---
+  duration_ms: 4.008792
+  type: 'test'
+  ...
+# Subtest: expired claims fail with the fixed lease classification
+ok 166 - expired claims fail with the fixed lease classification
+  ---
+  duration_ms: 0.205416
+  type: 'test'
+  ...
+# Subtest: writer hashes ordered published bytes, uses a killed bounded process, and confines cleanup
+ok 167 - writer hashes ordered published bytes, uses a killed bounded process, and confines cleanup
+  ---
+  duration_ms: 0.947208
+  type: 'test'
+  ...
+# Subtest: writer refuses symlinked builds and never cleans an unconfined path
+ok 168 - writer refuses symlinked builds and never cleans an unconfined path
+  ---
+  duration_ms: 4.628292
+  type: 'test'
+  ...
+# Subtest: Supabase adapter maps exact RPC arguments and rejects malformed DTOs
+ok 169 - Supabase adapter maps exact RPC arguments and rejects malformed DTOs
+  ---
+  duration_ms: 3.650292
+  type: 'test'
+  ...
+# Subtest: Supabase lifecycle RPC builders receive the operation AbortSignal
+ok 170 - Supabase lifecycle RPC builders receive the operation AbortSignal
+  ---
+  duration_ms: 0.783834
+  type: 'test'
+  ...
+# Subtest: Supabase adapter sends exact lifecycle RPCs and bounded immutable Storage options
+ok 171 - Supabase adapter sends exact lifecycle RPCs and bounded immutable Storage options
+  ---
+  duration_ms: 17.918541
+  type: 'test'
+  ...
+# Subtest: worker rejects malformed claim and publication DTOs without exposing data
+ok 172 - worker rejects malformed claim and publication DTOs without exposing data
+  ---
+  duration_ms: 8.741125
+  type: 'test'
+  ...
+# Subtest: writer rejects wrong or changing builds and cleans only its own directory
+ok 173 - writer rejects wrong or changing builds and cleans only its own directory
+  ---
+  duration_ms: 0.688375
+  type: 'test'
+  ...
+# Subtest: writer failure waits for the bounded killed process and still cleans
+ok 174 - writer failure waits for the bounded killed process and still cleans
+  ---
+  duration_ms: 0.233291
+  type: 'test'
+  ...
+# Subtest: real writer process timeout hard-kills a SIGTERM-resistant child before rejecting
+ok 175 - real writer process timeout hard-kills a SIGTERM-resistant child before rejecting
+  ---
+  duration_ms: 105.635208
+  type: 'test'
+  ...
+# Subtest: writer canonicalizes the trusted macOS temporary parent before creating and cleaning
+ok 176 - writer canonicalizes the trusted macOS temporary parent before creating and cleaning
+  ---
+  duration_ms: 1.147125
+  type: 'test'
+  ...
+# Subtest: explicit Storage transport bounds full response bodies and preserves upload uncertainty
+ok 177 - explicit Storage transport bounds full response bodies and preserves upload uncertainty
+  ---
+  duration_ms: 288.161083
+  type: 'test'
+  ...
+# Subtest: writer checks output size before reading an oversized file
+ok 178 - writer checks output size before reading an oversized file
+  ---
+  duration_ms: 0.440708
+  type: 'test'
+  ...
+# Subtest: native worker config uses stable absolute environment names
+ok 179 - native worker config uses stable absolute environment names
+  ---
+  duration_ms: 14.017542
+  type: 'test'
+  ...
+1..179
+# tests 236
+# suites 0
+# pass 236
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 36498.920666

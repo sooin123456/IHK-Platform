@@ -18,8 +18,9 @@ function form(entries) {
 }
 
 test("organization administration accepts stable bounded authority inputs only", async () => {
-  const { parseOrganizationAdministrationForm } =
-    await import("../app/lukas/lib/organization-administration.server.ts");
+  const { parseOrganizationAdministrationForm } = await import(
+    "../app/lukas/lib/organization-administration.server.ts"
+  );
   assert.deepEqual(
     parseOrganizationAdministrationForm(
       form({
@@ -104,8 +105,9 @@ test("organization administration accepts stable bounded authority inputs only",
 });
 
 test("every organization mutation binds the route organization into one exact RPC", async () => {
-  const { runOrganizationAdministrationMutation } =
-    await import("../app/lukas/lib/organization-administration.server.ts");
+  const { runOrganizationAdministrationMutation } = await import(
+    "../app/lukas/lib/organization-administration.server.ts"
+  );
   const calls = [];
   const client = {
     rpc(name, args) {
@@ -146,9 +148,79 @@ test("every organization mutation binds the route organization into one exact RP
   );
 });
 
-test("project features are revalidated from the exact project organization", async () => {
-  const { assertProjectOrganizationFeature } =
+test("an invalid production invitation origin fails before the invitation RPC", async () => {
+  const { runOrganizationAdministrationMutationWithInvitationOrigin } =
     await import("../app/lukas/lib/organization-administration.server.ts");
+  const calls = [];
+  const client = {
+    rpc(name, args) {
+      calls.push({ name, args });
+      return Promise.resolve({
+        data: { invitation_id: ids.invitation },
+        error: null,
+      });
+    },
+  };
+
+  await assert.rejects(
+    runOrganizationAdministrationMutationWithInvitationOrigin(
+      client,
+      ids.organization,
+      {
+        intent: "invite_member",
+        email: "person@example.com",
+        role: "member",
+        libraryAccess: false,
+        expiresInDays: 7,
+        requestId: ids.request,
+      },
+      "https://request.example/organizations/settings",
+      "http://invalid.example",
+    ),
+    /APP_URL must use HTTPS/,
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("a missing production invitation origin fails before the invitation RPC", async () => {
+  const { runOrganizationAdministrationMutationWithInvitationOrigin } =
+    await import("../app/lukas/lib/organization-administration.server.ts");
+  const calls = [];
+  const client = {
+    rpc(name, args) {
+      calls.push({ name, args });
+      return Promise.resolve({
+        data: { invitation_id: ids.invitation },
+        error: null,
+      });
+    },
+  };
+
+  await assert.rejects(
+    runOrganizationAdministrationMutationWithInvitationOrigin(
+      client,
+      ids.organization,
+      {
+        intent: "invite_member",
+        email: "person@example.com",
+        role: "member",
+        libraryAccess: false,
+        expiresInDays: 7,
+        requestId: ids.request,
+      },
+      "https://preview-123.vercel.app/organizations/settings",
+      "",
+    ),
+    /APP_URL is required outside local development/,
+  );
+  assert.deepEqual(calls, []);
+});
+
+test("project features are revalidated from the exact project organization", async () => {
+  const {
+    assertProjectOrganizationFeature,
+    projectOrganizationFeatureEnabled,
+  } = await import("../app/lukas/lib/organization-administration.server.ts");
   const calls = [];
   const client = {
     from(table) {
@@ -180,6 +252,14 @@ test("project features are revalidated from the exact project organization", asy
     assertProjectOrganizationFeature(client, ids.project, "ifc_workspace"),
     (error) => error instanceof Response && error.status === 403,
   );
+  assert.equal(
+    await projectOrganizationFeatureEnabled(
+      client,
+      ids.project,
+      "realtime_collaboration",
+    ),
+    false,
+  );
   assert.deepEqual(calls, [
     { column: "id", value: ids.project },
     {
@@ -187,6 +267,14 @@ test("project features are revalidated from the exact project organization", asy
       args: {
         p_organization_id: ids.organization,
         p_feature: "ifc_workspace",
+      },
+    },
+    { column: "id", value: ids.project },
+    {
+      name: "lukas_qto_organization_feature_enabled",
+      args: {
+        p_organization_id: ids.organization,
+        p_feature: "realtime_collaboration",
       },
     },
   ]);
@@ -227,9 +315,10 @@ test("organization administration is mounted and project membership no longer sc
   assert.match(screen, /deliverOrganizationInvitationEmail/);
 });
 
-test("registered and unregistered invitation delivery uses one neutral fail-closed provider path", async () => {
-  const { deliverOrganizationInvitationEmail } =
-    await import("../app/lukas/lib/organization-administration.server.ts");
+test("organization invitation delivery reports a recoverable outcome after the invitation is committed", async () => {
+  const { deliverOrganizationInvitationEmail } = await import(
+    "../app/lukas/lib/organization-administration.server.ts"
+  );
   const deliveries = [];
   const input = {
     email: "person@example.com",
@@ -237,30 +326,55 @@ test("registered and unregistered invitation delivery uses one neutral fail-clos
     organizationName: "1HK",
     origin: "https://example.com",
   };
-  await deliverOrganizationInvitationEmail(input, {
-    apiKey: "test-key",
-    send: async (message) => {
-      deliveries.push(message);
-      return { error: null };
-    },
-  });
+  assert.equal(
+    await deliverOrganizationInvitationEmail(input, {
+      apiKey: "test-key",
+      send: async (message) => {
+        deliveries.push(message);
+        return { error: null };
+      },
+    }),
+    true,
+  );
   assert.equal(deliveries.length, 1);
   assert.deepEqual(deliveries[0].to, [input.email]);
   assert.match(deliveries[0].html, new RegExp(ids.invitation));
-  await assert.rejects(
-    deliverOrganizationInvitationEmail(input, {
+  assert.equal(
+    await deliverOrganizationInvitationEmail(input, {
       apiKey: "",
       send: async () => ({ error: null }),
     }),
-    /delivery provider is unavailable/i,
+    false,
   );
-  await assert.rejects(
-    deliverOrganizationInvitationEmail(input, {
+  assert.equal(
+    await deliverOrganizationInvitationEmail(input, {
       apiKey: "test-key",
       send: async () => ({ error: { message: "provider failed" } }),
     }),
-    /provider failed/i,
+    false,
   );
+});
+
+test("a committed invitation falls back to one exact manual link instead of a false mutation error", () => {
+  const screen = readFileSync(
+    new URL("../app/lukas/screens/organization-settings.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    screen,
+    /const delivered = await deliverOrganizationInvitationEmail/,
+  );
+  assert.match(
+    screen,
+    /if \(!delivered\)[\s\S]*invitationUrl[\s\S]*status:\s*201/,
+  );
+  assert.match(screen, /초대는 생성됐지만 이메일을 보내지 못했습니다/);
+  assert.match(screen, /직접 공유할 초대 링크/);
+  assert.match(
+    screen,
+    /runOrganizationAdministrationMutationWithInvitationOrigin/,
+  );
+  assert.doesNotMatch(screen, /new URL\(request\.url\)\.origin/);
 });
 
 test("workspace dashboard hides organization administration from ordinary members", () => {
@@ -278,10 +392,12 @@ test("workspace dashboard hides organization administration from ordinary member
 });
 
 test("organization invitations, projects, and destinations continue beyond 100 exact rows", async () => {
-  const { loadOrganizationAdminPage } =
-    await import("../app/lukas/lib/organization-administration.server.ts");
-  const { organizationAdminPageHref } =
-    await import("../app/lukas/lib/organization-administration.ts");
+  const { loadOrganizationAdminPage } = await import(
+    "../app/lukas/lib/organization-administration.server.ts"
+  );
+  const { organizationAdminPageHref } = await import(
+    "../app/lukas/lib/organization-administration.ts"
+  );
   const configurations = [
     {
       rpc: "lukas_qto_list_organization_invitations",
@@ -400,7 +516,13 @@ test("invitation login and magic-link preserve the exact safe acceptance return"
     new URL("../app/features/auth/screens/magic-link.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(acceptance, /login\?next=/);
+  const notifications = readFileSync(
+    new URL("../app/lukas/screens/drawing-notifications.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(acceptance, /authLoginPath\(request\.url\)/);
+  assert.match(notifications, /authMagicLinkPath\(request\.url\)/);
+  assert.match(notifications, /\{ headers \}/);
   assert.match(login, /safeAuthNextPath/);
   assert.match(magicLink, /safeAuthNextPath/);
   assert.match(magicLink, /sendCrossBrowserMagicLink\([\s\S]*\bnext,/);

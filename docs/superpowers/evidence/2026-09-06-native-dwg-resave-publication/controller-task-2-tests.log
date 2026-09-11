@@ -1,0 +1,34 @@
+Command: NODE_OPTIONS=--no-experimental-webstorage node --test tests/drawing-native-dwg-resave-artifact-jobs.test.mjs tests/drawing-native-dwg-resave-jobs.test.mjs tests/drawing-native-dwg-resave-artifacts.test.mjs tests/drawing-workspace-m1-database.test.mjs
+CWD: /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform
+
+✔ receipt adapters require complete ordered receipt and exact normalized authorized scope (3.93075ms)
+✔ download descriptor binds every path component to authorized project/job/attempt/kind/hash (1.309084ms)
+✔ latest status authenticates before lookup, accepts null and completed with existing public shape (0.760833ms)
+✔ builds the four exact ordered artifacts through the production verifier (13.173875ms)
+✔ snapshots caller claim and native buffers before the attestation await (4.051833ms)
+✔ rejects unpinned, changed-attestation, no-op and extra claim/result inputs (2.481084ms)
+✔ rejects report object/bytes disagreement and source/request/output mismatches (15.739709ms)
+✔ validates exact staged replay, immutable paths and a closed response (3.650292ms)
+✔ validates the exact public receipt and self-consistent descriptor (4.137792ms)
+✔ publishes fixed safe artifact limits and strict kinds (0.163458ms)
+✔ malformed verified-user responses cannot authorize admission (2.71775ms)
+✔ present non-null falsy RPC errors cannot become successful admission (21.622791ms)
+✔ an unchanged approved source persists a no-changes admission (1.911375ms)
+✔ request compiles approved source and admits only the verified actor and normalized scope (3.857ms)
+✔ untrusted request fields and changed login cannot reach service admission (2.851625ms)
+✔ uppercase browser UUIDs normalize and an abort-ignoring RPC cannot hang admission (4.828ms)
+✔ admission rejects mismatched identity, malformed responses, aborted and malformed transport (13.321916ms)
+✔ service errors expose only conflict, stale and capacity classifications (8.076792ms)
+✔ status and cancel bind exact job identity and reject locators or inconsistent states (0.746375ms)
+✔ claim validates stored attestation and source against exact fresh payload and pinned image (3.147834ms)
+✔ M1 creation is retry-safe and estimate bindings are append-only (3.459916ms)
+✔ M1 protects private helpers and preserves narrow public invokers (1.194375ms)
+✔ M1 executable migrations return retry-safe documents and one personal drawing project per actor (1683.394792ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1782.031666

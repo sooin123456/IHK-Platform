@@ -18,7 +18,11 @@ export const P6_PRODUCTION_RELEASE_EVIDENCE_PATH = fileURLToPath(
 );
 export const P6_RELEASE_EVIDENCE_PATH = P6_LOCAL_RELEASE_EVIDENCE_PATH;
 const statuses = new Set(["PASS", "NOT MET", "UNEXECUTED"]);
-export const P6_RELEASE_MIGRATION_IDS = Object.freeze(["20260827210000"]);
+export const P6_RELEASE_MIGRATION_IDS = Object.freeze([
+  "20260827210000",
+  "20260902080000",
+  "20260902080100",
+]);
 const authorityKeys = [
   "advisors",
   "attacker",

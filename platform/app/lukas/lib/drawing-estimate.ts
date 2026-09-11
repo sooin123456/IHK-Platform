@@ -1,15 +1,13 @@
 import {
-  measureDrawingObject,
+  measureDrawingObjectForCanvas,
   shiftDrawingDecimalLeft,
 } from "./drawing-measurements.ts";
-import { normalizeDrawingSemanticNumber } from "./drawing-semantic-geometry.ts";
 import type {
   DrawingBlockInstance,
   DrawingCanvas,
   DrawingObject,
   DrawingPropertySchema,
   DrawingPropertyValue,
-  Point,
 } from "./drawing-workspace.types.ts";
 
 export const DRAWING_ESTIMATE_CLASSIFICATION_SCHEMA_NAME = "적산 분류";
@@ -185,165 +183,6 @@ function pdfCanvas(canvas: DrawingCanvas) {
   );
 }
 
-function calibratedPoint(point: Point, canvas: DrawingCanvas): Point {
-  const scale = canvas.background!.calibration!.millimetersPerNormalizedUnit;
-  return {
-    x: normalizeDrawingSemanticNumber(
-      (point.x / canvas.widthMillimeters) * scale,
-    ),
-    y: normalizeDrawingSemanticNumber(
-      (point.y / canvas.heightMillimeters) * scale,
-    ),
-  };
-}
-
-type CalibratedObject = {
-  object: DrawingObject;
-  objects: Readonly<Record<string, DrawingObject>> | undefined;
-};
-
-function calibratedObject(
-  object: DrawingObject,
-  canvas: DrawingCanvas,
-  objects?: Readonly<Record<string, DrawingObject>>,
-): CalibratedObject | null {
-  const geometry = object.geometry;
-  if (
-    geometry.type === "line" ||
-    geometry.type === "grid" ||
-    geometry.type === "wall"
-  )
-    return {
-      object: {
-        ...object,
-        geometry: {
-          ...geometry,
-          start: calibratedPoint(geometry.start, canvas),
-          end: calibratedPoint(geometry.end, canvas),
-        },
-      },
-      objects,
-    };
-  if (geometry.type === "polyline")
-    return {
-      object: {
-        ...object,
-        geometry: {
-          ...geometry,
-          points: geometry.points.map((point) =>
-            calibratedPoint(point, canvas),
-          ),
-        },
-      },
-      objects,
-    };
-  if (geometry.type === "space" || geometry.type === "area")
-    return {
-      object: {
-        ...object,
-        geometry: {
-          ...geometry,
-          boundary: geometry.boundary.map((point) =>
-            calibratedPoint(point, canvas),
-          ),
-        },
-      },
-      objects,
-    };
-  if (geometry.type === "rectangle") {
-    if (
-      canvas.widthMillimeters !== canvas.heightMillimeters &&
-      geometry.rotation !== 0
-    )
-      return null;
-    const origin = calibratedPoint(geometry.origin, canvas);
-    const opposite = calibratedPoint(
-      {
-        x: geometry.origin.x + geometry.width,
-        y: geometry.origin.y + geometry.height,
-      },
-      canvas,
-    );
-    return {
-      object: {
-        ...object,
-        geometry: {
-          ...geometry,
-          origin,
-          width: normalizeDrawingSemanticNumber(opposite.x - origin.x),
-          height: normalizeDrawingSemanticNumber(opposite.y - origin.y),
-        },
-      },
-      objects,
-    };
-  }
-  if (geometry.type === "circle" || geometry.type === "arc") {
-    if (canvas.widthMillimeters !== canvas.heightMillimeters) return null;
-    return {
-      object: {
-        ...object,
-        geometry: {
-          ...geometry,
-          center: calibratedPoint(geometry.center, canvas),
-          radius: calibratedPoint({ x: geometry.radius, y: 0 }, canvas).x,
-        },
-      },
-      objects,
-    };
-  }
-  if (geometry.type === "opening") {
-    const host = objects?.[geometry.hostWallId];
-    if (!host || host.geometry.type !== "wall") return null;
-    const horizontal = host.geometry.start.y === host.geometry.end.y;
-    const vertical = host.geometry.start.x === host.geometry.end.x;
-    if (!horizontal && !vertical) return null;
-    const along = (value: number) =>
-      horizontal
-        ? calibratedPoint({ x: value, y: 0 }, canvas).x
-        : calibratedPoint({ x: 0, y: value }, canvas).y;
-    const perpendicular = (value: number) =>
-      horizontal
-        ? calibratedPoint({ x: 0, y: value }, canvas).y
-        : calibratedPoint({ x: value, y: 0 }, canvas).x;
-    const calibratedHost: DrawingObject = {
-      ...host,
-      geometry: {
-        ...host.geometry,
-        start: calibratedPoint(host.geometry.start, canvas),
-        end: calibratedPoint(host.geometry.end, canvas),
-        thicknessMillimeters: perpendicular(host.geometry.thicknessMillimeters),
-        heightMillimeters: perpendicular(host.geometry.heightMillimeters),
-      },
-    };
-    return {
-      object: {
-        ...object,
-        geometry: {
-          ...geometry,
-          offsetMillimeters: along(geometry.offsetMillimeters),
-          widthMillimeters: along(geometry.widthMillimeters),
-          heightMillimeters: perpendicular(geometry.heightMillimeters),
-          sillHeightMillimeters: perpendicular(geometry.sillHeightMillimeters),
-        },
-      },
-      objects: { ...objects, [host.id]: calibratedHost },
-    };
-  }
-  if (geometry.type === "dimension")
-    return {
-      object: {
-        ...object,
-        geometry: {
-          ...geometry,
-          start: calibratedPoint(geometry.start, canvas),
-          end: calibratedPoint(geometry.end, canvas),
-        },
-      },
-      objects,
-    };
-  return { object, objects };
-}
-
 function missingEvidenceReason(metadata: DrawingEstimateSubjectMetadata) {
   if (!metadata.evidenceKind) return "검토 필요: 근거 상태가 없습니다";
   if (metadata.evidenceKind !== "가정값") return null;
@@ -402,18 +241,13 @@ export function drawingEstimateQuantityForSubject(
       unit,
       reason: "검토 필요: PDF 축척 근거가 없습니다",
     };
-  const calibrated = pdfCanvas(input.canvas)
-    ? calibratedObject(activeObject, input.canvas, input.objects)
-    : { object: activeObject, objects: input.objects };
-  if (!calibrated)
-    return {
-      status: "review",
-      unit,
-      reason: "검토 필요: PDF 축척으로 정확히 변환할 수 없습니다",
-    };
   let measurement;
   try {
-    measurement = measureDrawingObject(calibrated.object, calibrated.objects);
+    measurement = measureDrawingObjectForCanvas(
+      activeObject,
+      input.canvas,
+      input.objects,
+    );
   } catch {
     return {
       status: "review",

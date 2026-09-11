@@ -1,0 +1,151 @@
+{
+  "mode": "all",
+  "createdAt": "2026-09-06T00:49:36.535Z",
+  "records": [
+    {
+      "name": "node",
+      "executable": "/opt/homebrew/Cellar/node/26.5.0/bin/node",
+      "args": [
+        "--test",
+        "--test-reporter=tap",
+        "tests/drawing-native-dwg-import-jobs.test.mjs",
+        "tests/drawing-native-dwg-import-worker.test.mjs",
+        "tests/drawing-native-dwg-import-pipeline.test.mjs",
+        "tests/drawing-native-dwg-import.test.mjs",
+        "tests/drawing-native-dwg-reader.test.mjs",
+        "tests/drawing-native-dwg-sandbox.test.mjs",
+        "tests/drawing-native-dwg-sandbox-integration.test.mjs",
+        "tests/drawing-native-dwg-selected-edits.test.mjs",
+        "tests/drawing-native-dwg-source.test.mjs",
+        "tests/drawing-native-dwg-jobs.test.mjs",
+        "tests/drawing-native-dwg-worker.test.mjs",
+        "tests/drawing-dxf-import-client.test.mjs",
+        "tests/drawing-dxf-import-plan-server.test.mjs"
+      ],
+      "startedAt": "2026-09-06T00:48:40.613Z",
+      "durationMilliseconds": 36539,
+      "exitCode": 0,
+      "signal": null,
+      "stdoutSha256": "0122dd7a42e63392e23c22e3e306e86d662f3573ca24aeef70238a889f9de152",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "real-postgres",
+      "executable": "/opt/homebrew/Cellar/node/26.5.0/bin/node",
+      "args": [
+        "--test",
+        "--test-reporter=tap",
+        "tests/drawing-workspace-m1-real-database.test.mjs"
+      ],
+      "startedAt": "2026-09-06T00:49:17.154Z",
+      "durationMilliseconds": 4680,
+      "exitCode": 0,
+      "signal": null,
+      "stdoutSha256": "568fcfd6cd6c601bad3e1c2f5b25097876fe2babc6956a7537ce1c8db6f59efa",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "nativePipelineProof": {
+        "transportQualification": "loopback-test-bridge-not-real-postgrest-jwt-or-supabase-storage",
+        "sourceSha256": "5c287281fafa07f76a0158d5374dd7577910c107dcb55817688acf9fd8656c71",
+        "sourceByteSize": 10987,
+        "sourceHeaderVersion": "AC1024",
+        "reportSha256": "c01a5e9ebae2460de8781e90dda68a47dc8e3bf3a869d8be188d34adebc783cf",
+        "reportByteSize": 1446,
+        "readerImageId": "sha256:c67ff75cdacccad6cd77b275ad2557f889943bd29c98767c8f0e399d5e9b394f",
+        "jobId": "518ca078-4f62-440f-888f-697b90fb6192",
+        "status": "analyzed",
+        "persistenceAuthority": "not-issued",
+        "claimContenders": 2,
+        "claimWinners": 1,
+        "parserContainerResidue": 0,
+        "parserConfigResidue": 0,
+        "databaseResidue": 0
+      }
+    },
+    {
+      "name": "format",
+      "executable": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/node_modules/.bin/prettier",
+      "args": [
+        "--check",
+        "app/lukas/lib/drawing-native-dwg-import-jobs.server.ts",
+        "app/lukas/lib/drawing-native-dwg-import-worker.server.ts",
+        "native-dwg-worker/src/import-supabase.ts",
+        "native-dwg-worker/src/import.ts",
+        "native-dwg-worker/README.md",
+        "package.json",
+        "tests/drawing-native-dwg-import-jobs.test.mjs",
+        "tests/drawing-native-dwg-import-worker.test.mjs",
+        "tests/drawing-native-dwg-import-pipeline.test.mjs",
+        "tests/fixtures/drawing-native-dwg-import-jobs-database.mjs",
+        "tests/fixtures/drawing-native-dwg-import-pipeline.mjs"
+      ],
+      "startedAt": "2026-09-06T00:49:21.834Z",
+      "durationMilliseconds": 316,
+      "exitCode": 0,
+      "signal": null,
+      "stdoutSha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "typecheck",
+      "executable": "npm",
+      "args": [
+        "run",
+        "typecheck"
+      ],
+      "startedAt": "2026-09-06T00:49:22.150Z",
+      "durationMilliseconds": 12217,
+      "exitCode": 0,
+      "signal": null,
+      "stdoutSha256": "30d632d155b5c6ee81c5f42da6918bff2b555f9a92a22715a6f795cdf95d1ec1",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "worker-typecheck",
+      "executable": "npm",
+      "args": [
+        "run",
+        "build:native-dwg-worker"
+      ],
+      "startedAt": "2026-09-06T00:49:34.367Z",
+      "durationMilliseconds": 2165,
+      "exitCode": 0,
+      "signal": null,
+      "stdoutSha256": "f49ae0f8f71ec4ceb28e791d49fe97f6fcafa3a9a64f780c3bf5b948ef22c7b4",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "codeBefore": {
+    "platform/supabase/migrations/20260905234036_drawing_native_dwg_import_jobs.sql": "eb677ff2d4ecf10e93da3e0e83eda0f1382d124ea689152c75a6ecba1859fe3b",
+    "platform/tests/fixtures/drawing-native-dwg-import-jobs-database.mjs": "740416c9a1a4177cdbd5f15dcc583c5320c7b7a0a37629496de3ed73df7985b8",
+    "platform/tests/drawing-workspace-m1-real-database.test.mjs": "6582463d3492c87d49bcecce253f0109c5746e0326c64e2d87d5cb89f52fc302",
+    "platform/database.types.ts": "d22c5356d96dc9f11b42474312e26abd83045037b60d03ab1a85f9af8c7e009d",
+    "platform/app/lukas/lib/drawing-native-dwg-import-jobs.server.ts": "94a4a300dfaa3579afbb117848d6c7a84b72856092a602af76e1302a90e6bc21",
+    "platform/app/lukas/lib/drawing-native-dwg-import-worker.server.ts": "b3432b43af825c8a58d2237ad5c1be5c74a82bff4921a4038ef106f9b5376c80",
+    "platform/native-dwg-worker/src/import-supabase.ts": "c24eb7612447489be4c59073787c5663510fae0c267da1487a8e5e4a48026ecd",
+    "platform/native-dwg-worker/src/import.ts": "1b833b904a1ecfd77b424c018e76b83f6b3dca13044b40643b7220926226d4f2",
+    "platform/native-dwg-worker/README.md": "fe89c9f04e132d577b9bce1c3b933fad5a7e9fcad75980cdc421428d69f68dec",
+    "platform/package.json": "012426666589443366eefd49ef463bbc0d1853c0718072234f0fc2c30744d914",
+    "platform/tests/drawing-native-dwg-import-jobs.test.mjs": "600db7cfc7647326e0dc88c8ddcfe9af9d1dcfbb621929209f58803a23ec0d99",
+    "platform/tests/drawing-native-dwg-import-worker.test.mjs": "32610d0936ab08f0b68b783aab4286c5f1fe384de2edc1ab1baa85ebb4b9ecab",
+    "platform/tests/fixtures/drawing-native-dwg-import-pipeline.mjs": "5fd61efe56194a1a75cd3d287746575aae1a06c309f9601a359351efac64ab4d",
+    "platform/tests/drawing-native-dwg-import-pipeline.test.mjs": "defadf4945dc629fd204b11dc6b0fa095b8943e664ad5b5930ee0efcd3c16ed1"
+  },
+  "codeAfter": {
+    "platform/supabase/migrations/20260905234036_drawing_native_dwg_import_jobs.sql": "eb677ff2d4ecf10e93da3e0e83eda0f1382d124ea689152c75a6ecba1859fe3b",
+    "platform/tests/fixtures/drawing-native-dwg-import-jobs-database.mjs": "740416c9a1a4177cdbd5f15dcc583c5320c7b7a0a37629496de3ed73df7985b8",
+    "platform/tests/drawing-workspace-m1-real-database.test.mjs": "6582463d3492c87d49bcecce253f0109c5746e0326c64e2d87d5cb89f52fc302",
+    "platform/database.types.ts": "d22c5356d96dc9f11b42474312e26abd83045037b60d03ab1a85f9af8c7e009d",
+    "platform/app/lukas/lib/drawing-native-dwg-import-jobs.server.ts": "94a4a300dfaa3579afbb117848d6c7a84b72856092a602af76e1302a90e6bc21",
+    "platform/app/lukas/lib/drawing-native-dwg-import-worker.server.ts": "b3432b43af825c8a58d2237ad5c1be5c74a82bff4921a4038ef106f9b5376c80",
+    "platform/native-dwg-worker/src/import-supabase.ts": "c24eb7612447489be4c59073787c5663510fae0c267da1487a8e5e4a48026ecd",
+    "platform/native-dwg-worker/src/import.ts": "1b833b904a1ecfd77b424c018e76b83f6b3dca13044b40643b7220926226d4f2",
+    "platform/native-dwg-worker/README.md": "fe89c9f04e132d577b9bce1c3b933fad5a7e9fcad75980cdc421428d69f68dec",
+    "platform/package.json": "012426666589443366eefd49ef463bbc0d1853c0718072234f0fc2c30744d914",
+    "platform/tests/drawing-native-dwg-import-jobs.test.mjs": "600db7cfc7647326e0dc88c8ddcfe9af9d1dcfbb621929209f58803a23ec0d99",
+    "platform/tests/drawing-native-dwg-import-worker.test.mjs": "32610d0936ab08f0b68b783aab4286c5f1fe384de2edc1ab1baa85ebb4b9ecab",
+    "platform/tests/fixtures/drawing-native-dwg-import-pipeline.mjs": "5fd61efe56194a1a75cd3d287746575aae1a06c309f9601a359351efac64ab4d",
+    "platform/tests/drawing-native-dwg-import-pipeline.test.mjs": "defadf4945dc629fd204b11dc6b0fa095b8943e664ad5b5930ee0efcd3c16ed1"
+  },
+  "codeUnchanged": true,
+  "passed": true
+}

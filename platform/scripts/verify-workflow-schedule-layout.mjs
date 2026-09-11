@@ -1,0 +1,9 @@
+import {chromium,expect} from '@playwright/test';
+const browser=await chromium.launch();try{
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(7000);const errors=[];page.on('pageerror',e=>errors.push(e.message));const base='http://127.0.0.1:4181/workspace-preview/flow';
+ await page.goto(`${base}?page=library`,{waitUntil:'networkidle'});await page.getByLabel('템플릿 작업 이름',{exact:true}).fill('도면 우선 공정');await page.getByRole('button',{name:'이 템플릿으로 작업 만들기',exact:true}).click();await expect(page).toHaveURL(/blank=/);await page.goto(`${base}?page=schedule&scheduleView=drawing`);
+ const region=page.getByRole('region',{name:'도면 객체 공정표'}),calendar=region.getByRole('region',{name:'도면 공정 달력'});await expect(calendar.getByLabel('공정 시작 날짜',{exact:true})).toBeHidden();
+ const map=region.getByRole('region',{name:'공정 도면 위치'}),editor=region.getByRole('region',{name:'공정 연결 편집'});const mapBox=await map.boundingBox(),editorBox=await editor.boundingBox();expect(mapBox.width).toBeGreaterThan(editorBox.width*1.5);
+ await calendar.locator('summary').click();await calendar.getByLabel('공정 시작 날짜',{exact:true}).fill('2026-09-11');await calendar.locator('summary').click();await calendar.locator('summary').click();await expect(calendar.getByLabel('공정 시작 날짜',{exact:true})).toHaveValue('2026-09-11');await calendar.getByRole('button',{name:'시작 날짜 적용',exact:true}).click();await expect(calendar).toContainText('2026-09-11');await expect(calendar.getByLabel('공정 시작 날짜',{exact:true})).toBeHidden();
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'/tmp/1hk-schedule-layout.png',fullPage:true});expect(errors).toEqual([]);console.log('PASS collapsed schedule settings, retained unsaved input while toggling, applied-date summary, drawing-first desktop width and mobile');
+}finally{await browser.close();}

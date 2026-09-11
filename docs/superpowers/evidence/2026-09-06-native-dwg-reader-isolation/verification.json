@@ -1,0 +1,173 @@
+{
+  "verifiedAt": "2026-09-05T23:28:33.850Z",
+  "scope": "Native DWG reader Linux isolation, internal same-engine synthetic validation",
+  "qualification": "experimental-unqualified",
+  "persistenceAuthority": "not-issued",
+  "goalStatus": "active",
+  "image": {
+    "date": "2026-09-06",
+    "command": "DOCKER_BUILDKIT=0 /opt/homebrew/bin/docker --host unix:///Users/h/.colima/default/docker.sock build --force-rm -f Dockerfile.reader -t 1hk-native-dwg-reader:isolation-20260906 .",
+    "context": "tools/dwg-engine-qualification",
+    "exitCode": 0,
+    "imageId": "sha256:c67ff75cdacccad6cd77b275ad2557f889943bd29c98767c8f0e399d5e9b394f",
+    "beforeIgnoreCorrection": {
+      "reportedContext": "6.227MB",
+      "policy": "Dockerfile.reader.dockerignore ignored by classic builder"
+    },
+    "afterIgnoreCorrection": {
+      "reportedContext": "289.8kB",
+      "policy": "single standard .dockerignore whitelist",
+      "runtimeImageUnchanged": true
+    },
+    "warning": "Classic Docker builder is deprecated; buildx is unavailable in the current environment.",
+    "qualification": "experimental-unqualified"
+  },
+  "nativeRead": {
+    "imageId": "sha256:c67ff75cdacccad6cd77b275ad2557f889943bd29c98767c8f0e399d5e9b394f",
+    "source": {
+      "sha256": "dfd667ecb23a46c8838c82f97245d7fd5bf8c1183975169ad4250f6721e447b2",
+      "byteSize": 10987,
+      "headerVersion": "AC1024"
+    },
+    "parsedReportSha256": "752226634efae07ce8bb1c738e6f490ff5a28e3f67f2cdf5afe14c8fb22328f3",
+    "attempts": 2
+  },
+  "runtime": {
+    "uid": 65532,
+    "gid": 65532,
+    "noNewPrivileges": 1,
+    "seccompMode": 2,
+    "capabilitiesHex": "0000000000000000",
+    "rootWrite": "failed",
+    "tmpWrite": "succeeded",
+    "hostUsersVisible": false,
+    "interfaces": [
+      "lo"
+    ],
+    "ipv4RouteRows": 0,
+    "memoryMax": 1073741824,
+    "cpuMax": {
+      "quota": 100000,
+      "period": 100000,
+      "ratio": 1
+    },
+    "pidsMax": 64,
+    "inheritedSyntheticSecret": false
+  },
+  "checks": [
+    {
+      "name": "native-build",
+      "exitCode": 0,
+      "summary": null,
+      "logSha256": "5969d6f797fcec43c3ad20b7cc11b5744540933decba9aaab3305675163765b2"
+    },
+    {
+      "name": "native-self-test",
+      "exitCode": 0,
+      "summary": null,
+      "logSha256": "be5b147b99f1116c4fd75e6ed5838ae9cf61b034c03856d145763e8e57dc8bdc"
+    },
+    {
+      "name": "native-writer-self-test",
+      "exitCode": 0,
+      "summary": null,
+      "logSha256": "f3c0135db6321aa214747f81e419b6f4013d2b9ae676ecf41192d5c889a8e28d"
+    },
+    {
+      "name": "node-tests",
+      "exitCode": 0,
+      "summary": {
+        "tests": 161,
+        "pass": 161,
+        "fail": 0,
+        "skipped": 0
+      },
+      "logSha256": "d5bf8525322cc25c9c8d5b4bcc524ef80c82c8c8bd21bf8857690ac9e03723f9"
+    },
+    {
+      "name": "typecheck",
+      "exitCode": 0,
+      "summary": null,
+      "logSha256": "30d632d155b5c6ee81c5f42da6918bff2b555f9a92a22715a6f795cdf95d1ec1"
+    }
+  ],
+  "nativeSelfTests": {
+    "readerAndGeneral": 28,
+    "writer": 13,
+    "failed": 0
+  },
+  "code": [
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgReader.cs",
+      "sha256": "dafafd907a7b4d2c140d0ab7c1d80a9f9d40f9a3e9e77e4f532870afa916c66c"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgStreamSelfTests.cs",
+      "sha256": "cb4de5e99c99aa0326a16002dd67c9e1581dc185fbd58acfcdefc5736c99e399"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/Program.cs",
+      "sha256": "3bd6574fb104077060666acffb3efbbf01213550a23bbed4a626536308f51bd0"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/SelfTests.cs",
+      "sha256": "df1b269700fd0fca5a117c6591c7741d85c39c0930281d302f933512b35c9295"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/Dockerfile.reader",
+      "sha256": "18207874a3039c768f7eb601ae0a89820946fa360e04b172419bf941b0dcc0bf"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/.dockerignore",
+      "sha256": "cfbaaa9a92e47fbbddfa11a333709fd32ff8d7c3723af192be4a163a3d776b0a"
+    },
+    {
+      "path": "platform/app/lukas/lib/drawing-native-dwg-sandbox.server.ts",
+      "sha256": "19019e996793827a30862ff1eee902a5f9c17c8310d603c53b8a55337b855fbd"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-import.test.mjs",
+      "sha256": "77715f3d396fe3f185d7461fead519c1b3657045028b8535558cd18f13dfce9b"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-reader.test.mjs",
+      "sha256": "1c1f8c70631cdba5068c52c143362ce376bfc8b1f16c1e2869dd047ec238cfe7"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-selected-edits.test.mjs",
+      "sha256": "d7c0e71d9b523e4d6cc422e6db74be760459b2bb5f5a1d8e6aad275325420b83"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-source.test.mjs",
+      "sha256": "7ffe8641cf6a4d38d2d1e27ee02f00135ca36fae0a5460fafb1bdf74cb8c6f8f"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-jobs.test.mjs",
+      "sha256": "bff2c16f82deaf3c1d82b15895a053e199547af8e871c3e10c9ad131b21136cd"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-worker.test.mjs",
+      "sha256": "548f7937cbc069dddb1b999c745985cea47a2e19375259a4ecd3e68a5e458925"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-export-ui.test.mjs",
+      "sha256": "b4a51536deb52e90b9495a1432fad37daf729c9ef2a23a4005b951d52e718a68"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-sandbox.test.mjs",
+      "sha256": "16255518d0b50cf6a2f57c81dc35d10bd6a50501229d979a50d20ccaa6fef7e9"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-sandbox-integration.test.mjs",
+      "sha256": "e31f5e7c28055a42b5493e2f0921fd7d6c4ce5e4f0c4cb553806300621f95b7e"
+    }
+  ],
+  "limitations": [
+    "No public uploaded-DWG import route or persisted dwg_entity authority",
+    "No browser login/save/restore or approved whole-source DWG resave verification in this unit",
+    "Trusted local Linux arm64 Docker/Colima cgroup v2; not kernel/daemon escape proof",
+    "Synthetic source bytes vary per generated fixture; parsed report hash is compact JSON serialization, not raw transport hash",
+    "No recipient-CAD compatibility or independent delivery qualification",
+    "No deployment or remote DB mutation"
+  ]
+}

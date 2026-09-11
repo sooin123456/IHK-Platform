@@ -81,7 +81,7 @@ export function DrawingScaleControl({
 
   if (!pdf)
     return (
-      <section aria-label="도면 축척" className="mb-4 text-xs text-slate-300">
+      <section aria-label="도면 축척" className="mb-4 text-xs text-slate-700">
         기준 좌표 · 1 도면 단위 = 1 mm
       </section>
     );
@@ -91,9 +91,9 @@ export function DrawingScaleControl({
     : "축척 미확정";
   if (!canEdit)
     return (
-      <section aria-label="도면 축척" className="mb-4 text-xs text-slate-300">
+      <section aria-label="도면 축척" className="mb-4 text-xs text-slate-700">
         <p>{status}</p>
-        <p className="mt-1 text-slate-400">
+        <p className="mt-1 text-slate-500">
           조회 전용 · 축척을 변경할 수 없습니다.
         </p>
       </section>
@@ -105,15 +105,15 @@ export function DrawingScaleControl({
     setError(null);
   };
   return (
-    <section aria-label="도면 축척" className="mb-4 text-xs text-slate-300">
-      <p className="font-semibold text-white">{status}</p>
+    <section aria-label="도면 축척" className="mb-4 text-xs text-slate-700">
+      <p className="font-semibold text-slate-900">{status}</p>
       {calibration ? (
-        <p className="mt-1 text-amber-200">
+        <p className="mt-1 text-amber-700">
           다시 보정하면 현재 초안 수량이 변경될 수 있습니다.
         </p>
       ) : null}
       <button
-        className="mt-2 min-h-9 rounded border border-white/20 px-2 font-semibold text-white"
+        className="mt-2 min-h-9 rounded border border-slate-300 px-2 font-semibold text-slate-900"
         onClick={choosePoints}
         type="button"
       >
@@ -154,10 +154,10 @@ export function DrawingScaleControl({
                 : "두 점 선택"}
           </p>
           <div className="flex gap-2">
-            <label className="grid flex-1 gap-1">
+            <label className="grid min-w-0 flex-1 gap-1">
               실제 길이
               <input
-                className="min-h-9 rounded border border-white/15 bg-slate-950 px-2"
+                className="min-h-9 w-full min-w-0 rounded border border-slate-200 bg-white px-2"
                 inputMode="decimal"
                 name="knownLength"
                 required
@@ -166,7 +166,7 @@ export function DrawingScaleControl({
             <label className="grid gap-1">
               단위
               <select
-                className="min-h-9 rounded border border-white/15 bg-slate-950 px-2"
+                className="min-h-9 rounded border border-slate-200 bg-white px-2"
                 defaultValue="mm"
                 name="unit"
               >
@@ -177,14 +177,14 @@ export function DrawingScaleControl({
             </label>
           </div>
           <button
-            className="min-h-9 rounded bg-indigo-500 px-3 font-semibold text-white disabled:opacity-50"
+            className="min-h-9 rounded bg-indigo-600 px-3 font-semibold text-white disabled:opacity-50"
             disabled={points.length !== 2}
             type="submit"
           >
             축척 저장
           </button>
           {error ? (
-            <p className="text-red-200" role="alert">
+            <p className="text-red-700" role="alert">
               {error}
             </p>
           ) : null}

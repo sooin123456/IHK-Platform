@@ -1,0 +1,52 @@
+
+Running 6 tests using 1 worker
+
+(node:41424) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/6] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 1440px
+[2/6] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px
+(node:41442) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[3/6] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 1440px
+[4/6] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px
+(node:41458) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[5/6] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 1440px
+[6/6] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px
+  1) [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('[data-storage-error-detail]')
+    Expected: 0
+    Received: 1
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 5000ms
+      - waiting for locator('[data-storage-error-detail]')
+        14 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      983 |     await page.keyboard.press("Escape");
+      984 |     await expect(page.getByRole("menuitem", { name: "벽 도구" })).toBeHidden();
+    > 985 |     await expect(page.locator("[data-storage-error-detail]")).toHaveCount(0);
+          |                                                               ^
+      986 |     await expect(semanticTrigger).toBeEnabled();
+      987 |     await expect(semanticTrigger).toBeFocused();
+      988 |     const overflow = await page.evaluate(() => {
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:985:63
+
+    Error Context: test-results/drawing-workspace-shell-ar-228e0-hout-page-overflow-at-768px-chromium-repeat2/error-context.md
+
+
+  1 failed
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px 
+  5 passed (25.4s)

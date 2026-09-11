@@ -103,7 +103,7 @@ function SchemaFields({ schema }: { schema?: DrawingPropertySchema }) {
       <label className="grid gap-1 text-xs" htmlFor={`property-name-${suffix}`}>
         {schema ? "속성 이름" : "새 속성 이름"}
         <input
-          className="min-h-9 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+          className="min-h-9 rounded border border-slate-200 bg-white px-2 text-sm text-slate-900"
           defaultValue={schema?.name}
           id={`property-name-${suffix}`}
           maxLength={255}
@@ -115,7 +115,7 @@ function SchemaFields({ schema }: { schema?: DrawingPropertySchema }) {
       <label className="grid gap-1 text-xs" htmlFor={`property-type-${suffix}`}>
         값 형식
         <select
-          className="min-h-9 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+          className="min-h-9 rounded border border-slate-200 bg-white px-2 text-sm text-slate-900"
           defaultValue={schema?.valueType ?? "text"}
           id={`property-type-${suffix}`}
           name="valueType"
@@ -133,7 +133,7 @@ function SchemaFields({ schema }: { schema?: DrawingPropertySchema }) {
       >
         Enum 옵션 (쉼표 구분)
         <input
-          className="min-h-9 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+          className="min-h-9 rounded border border-slate-200 bg-white px-2 text-sm text-slate-900"
           defaultValue={schema?.enumOptions.join(", ")}
           id={`property-options-${suffix}`}
           name="enumOptions"
@@ -146,7 +146,7 @@ function SchemaFields({ schema }: { schema?: DrawingPropertySchema }) {
       >
         적용 대상
         <select
-          className="min-h-24 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+          className="min-h-24 rounded border border-slate-200 bg-white px-2 text-sm text-slate-900"
           defaultValue={schema?.appliesTo ?? ["rectangle"]}
           id={`property-target-${suffix}`}
           multiple
@@ -198,20 +198,20 @@ export function DrawingPropertiesPanel({
     return (
       <section
         aria-labelledby="drawing-properties-title"
-        className="mt-6 border-t border-white/10 pt-6"
+        className="mt-6 border-t border-slate-200 pt-6"
       >
         <h2 className="text-sm font-bold" id="drawing-properties-title">
           사용자 속성
         </h2>
-        <p className="mt-2 text-xs text-slate-400">읽기 전용 속성 정의</p>
+        <p className="mt-2 text-xs text-slate-600">읽기 전용 속성 정의</p>
         <ul aria-label="사용자 속성 정의" className="mt-3 space-y-2 text-sm">
           {schemas.map((schema) => (
             <li
-              className="rounded border border-white/10 bg-white/5 p-2"
+              className="rounded border border-slate-200 bg-slate-50 p-2"
               key={schema.id}
             >
               <p className="font-medium">{schema.name}</p>
-              <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1 text-xs text-slate-600">
                 {schema.valueType} · {schema.appliesTo.join(", ")}
                 {schema.required ? " · 필수" : ""}
               </p>
@@ -258,7 +258,7 @@ export function DrawingPropertiesPanel({
   return (
     <section
       aria-labelledby="drawing-properties-title"
-      className="mt-6 border-t border-white/10 pt-6"
+      className="mt-6 border-t border-slate-200 pt-6"
     >
       <h2 className="text-sm font-bold" id="drawing-properties-title">
         사용자 속성
@@ -270,14 +270,14 @@ export function DrawingPropertiesPanel({
       >
         <SchemaFields />
         <button
-          className="min-h-10 rounded bg-indigo-500 px-3 text-sm font-semibold"
+          className="min-h-10 rounded bg-indigo-600 px-3 text-sm font-semibold text-white"
           type="submit"
         >
           속성 추가
         </button>
       </form>
       {error ? (
-        <p className="mt-3 text-xs text-red-300" role="alert">
+        <p className="mt-3 text-xs text-red-700" role="alert">
           {error}
         </p>
       ) : null}
@@ -287,7 +287,7 @@ export function DrawingPropertiesPanel({
           const reasonId = `property-delete-reason-${schema.id}`;
           return (
             <li
-              className="rounded border border-white/10 bg-white/5 p-2"
+              className="rounded border border-slate-200 bg-slate-50 p-2"
               key={schema.id}
             >
               <form
@@ -298,7 +298,7 @@ export function DrawingPropertiesPanel({
               >
                 <SchemaFields schema={schema} />
                 <button
-                  className="min-h-9 rounded bg-indigo-500 px-2 text-sm"
+                  className="min-h-9 rounded bg-indigo-600 px-2 text-sm text-white"
                   type="submit"
                 >
                   속성 정의 저장
@@ -307,7 +307,7 @@ export function DrawingPropertiesPanel({
               <button
                 aria-describedby={used ? reasonId : undefined}
                 aria-label={`속성 정의 삭제: ${schema.name}`}
-                className="mt-2 min-h-9 rounded border border-white/20 px-2 text-sm disabled:opacity-50"
+                className="mt-2 min-h-9 rounded border border-slate-300 px-2 text-sm text-slate-700 disabled:opacity-50"
                 disabled={used}
                 onClick={() => {
                   try {
@@ -329,7 +329,7 @@ export function DrawingPropertiesPanel({
               </button>
               {used ? (
                 <span
-                  className="mt-2 block text-xs text-slate-400"
+                  className="mt-2 block text-xs text-slate-600"
                   id={reasonId}
                 >
                   사용 중인 속성 정의는 삭제할 수 없습니다.
@@ -385,7 +385,7 @@ function DrawingPropertyFieldState({
     return (
       <section
         aria-labelledby="drawing-property-values-title"
-        className="mt-5 border-t border-white/10 pt-4"
+        className="mt-5 border-t border-slate-200 pt-4"
       >
         <h3 className="text-sm font-bold" id="drawing-property-values-title">
           사용자 속성
@@ -393,7 +393,7 @@ function DrawingPropertyFieldState({
         <dl className="mt-3 grid gap-2 text-sm">
           {visibleSchemas.map((schema) => (
             <div key={schema.id}>
-              <dt className="text-xs text-slate-400">{schema.name}</dt>
+              <dt className="text-xs text-slate-600">{schema.name}</dt>
               <dd>{shown(shared(schema.id))}</dd>
             </div>
           ))}
@@ -404,7 +404,7 @@ function DrawingPropertyFieldState({
   return (
     <section
       aria-labelledby="drawing-property-values-title"
-      className="mt-5 border-t border-white/10 pt-4"
+      className="mt-5 border-t border-slate-200 pt-4"
     >
       <h3 className="text-sm font-bold" id="drawing-property-values-title">
         사용자 속성
@@ -489,7 +489,11 @@ function DrawingPropertyFieldState({
                   type="checkbox"
                 />
               ) : schema.valueType === "enum" ? (
-                <select {...common} defaultValue={shown(value)}>
+                <select
+                  {...common}
+                  defaultValue={shown(value)}
+                  required={schema.required}
+                >
                   <option value="">값 없음</option>
                   {schema.enumOptions.map((option) => (
                     <option key={option} value={option}>
@@ -502,7 +506,7 @@ function DrawingPropertyFieldState({
                   {...common}
                   defaultValue={shown(value)}
                   maxLength={schema.name === "근거 사유" ? 500 : undefined}
-                  required={schema.name === "근거 사유"}
+                  required={schema.required || schema.name === "근거 사유"}
                   step={schema.valueType === "number" ? "any" : undefined}
                   type={schema.valueType}
                 />
@@ -511,14 +515,14 @@ function DrawingPropertyFieldState({
           );
         })}
         <button
-          className="min-h-10 rounded bg-indigo-500 px-3 text-sm font-semibold"
+          className="min-h-10 rounded bg-indigo-600 px-3 text-sm font-semibold text-white"
           type="submit"
         >
           사용자 속성 적용
         </button>
       </form>
       {error ? (
-        <p className="mt-3 text-xs text-red-300" role="alert">
+        <p className="mt-3 text-xs text-red-700" role="alert">
           {error}
         </p>
       ) : null}

@@ -1,0 +1,61 @@
+{
+  "qualification": "experimental-unqualified",
+  "transport": "actual-SQL-RPC-payload-with-checked-adapter-transport-shim",
+  "implementation": {
+    "platform/app/lukas/lib/drawing-authority-snapshot.server.ts": "b119a0f1024a7cf70b8015c398e49e15719e9c88e1b0263974d46275dae878dd",
+    "platform/app/lukas/lib/drawing-share.server.ts": "f6b7eec51eb2a71eb44a7bb3af87d00c7bd97266913e1644636fdf12c652f4d7",
+    "platform/tests/drawing-authority-snapshot.test.mjs": "0c01ec58cd0af3538c05bab6262429ca64fb641421f736c07cf41d9093f9936e",
+    "platform/supabase/migrations/20260905174308_drawing_native_dwg_source_authority.sql": "f7e6901d227b5464baebf77afb94492befc38c0a17f7c37e468ed23134a5a8d6",
+    "platform/app/lukas/lib/drawing-native-dwg-source.server.ts": "a1bf0e0fd178d434a17f9985704373369694dbda12cf90155cbf7d6aa8fa16f1",
+    "platform/tests/drawing-native-dwg-source.test.mjs": "ef263984b75256e6e546958ed47e8ae0c468fc815c16eafbbc895c827fc23b4e",
+    "platform/tests/fixtures/drawing-native-dwg-source-database.mjs": "4220eaf4e6f616f8ef84b5a5b1671ba6481ed2fe5fb061c85f4cbce66013f126",
+    "platform/tests/drawing-workspace-m1-real-database.test.mjs": "22362bc20f3b78576178ae77b68942d5e07a1ab5a83cca3d3e5653abdaf7ccd8"
+  },
+  "files": [
+    {
+      "path": "snapshot-text.json",
+      "bytes": 9572,
+      "sha256": "f7e36b840e64d27560a031b09954685844c0a5755369937bf1639ce322f41407"
+    },
+    {
+      "path": "source-payload.json",
+      "bytes": 11201,
+      "sha256": "62f073b12d9f22cfbfbd84a5e6384714f08e5e3da5b2623804950f638d149c29"
+    },
+    {
+      "path": "request.json",
+      "bytes": 336,
+      "sha256": "b2376c37fe6c4741e337101636744d5b2565dbbac3ab82dd78a5d5b23f5353e9"
+    },
+    {
+      "path": "authority.json",
+      "bytes": 2744,
+      "sha256": "ab1235c72ec61946c9c8c71b66ac2059fc9813201c66c50370fb3926d34a9cd3"
+    },
+    {
+      "path": "native.cad.json",
+      "bytes": 37466,
+      "sha256": "56bbd9685cc66a94307c3f2f3daa0b931bc526db4d43c2656d5fe1437789b8f9"
+    },
+    {
+      "path": "verification.json",
+      "bytes": 793,
+      "sha256": "a05da4c74bd817298b70a066bb28b1bfed191b74a2771c02c605455f8774d787"
+    },
+    {
+      "path": "writer/native.dwg",
+      "bytes": 13003,
+      "sha256": "a9a14bcd0f8a505eae4e09d53ef18b5a08515c4542a25fed0f57b4a8d3a040d5"
+    },
+    {
+      "path": "writer/source-manifest.json",
+      "bytes": 37466,
+      "sha256": "56bbd9685cc66a94307c3f2f3daa0b931bc526db4d43c2656d5fe1437789b8f9"
+    },
+    {
+      "path": "writer/native-report.json",
+      "bytes": 18453,
+      "sha256": "bc9f4530c4c480179f7dddd7004ec3bc7eaf1fe114c851ccb6cbe1887d40cc5f"
+    }
+  ]
+}

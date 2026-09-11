@@ -1,0 +1,126 @@
+✖ a connected transport is not shown as admitted before initial sync (59.33275ms)
+✖ transient admission retries automatically and preserves pending local changes (4515.722459ms)
+✖ permanent permission denial stops automatic retries and is not labeled offline (4513.682334ms)
+✖ disposing a pending retry cancels work and late status callbacks, not the document (4510.012834ms)
+✖ simultaneous refresh events share one handshake and cannot restart after disposal (4517.777458ms)
+✖ a transport reconnect resynchronizes the retained document before reporting connected (1036.173334ms)
+✖ a server document-only permission revocation cannot leave a connected badge or auto retry (4524.055ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 0
+ℹ fail 7
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 23683.300792
+
+✖ failing tests:
+
+test at tests/drawing-collaboration-connection.test.mjs:52:1
+✖ a connected transport is not shown as admitted before initial sync (59.33275ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:67:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-connection.test.mjs:80:1
+✖ transient admission retries automatically and preserves pending local changes (4515.722459ms)
+  AssertionError [ERR_ASSERTION]: transient refusal should be visible
+      at until (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:20:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:91:3)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-connection.test.mjs:111:1
+✖ permanent permission denial stops automatic retries and is not labeled offline (4513.682334ms)
+  AssertionError [ERR_ASSERTION]: permission denial should have a distinct status
+      at until (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:20:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:119:3)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-connection.test.mjs:131:1
+✖ disposing a pending retry cancels work and late status callbacks, not the document (4510.012834ms)
+  AssertionError [ERR_ASSERTION]: retry should be scheduled
+      at until (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:20:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:139:3)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-connection.test.mjs:152:1
+✖ simultaneous refresh events share one handshake and cannot restart after disposal (4517.777458ms)
+  AssertionError [ERR_ASSERTION]: one pending token request
+      at until (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:20:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:171:3)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-connection.test.mjs:183:1
+✖ a transport reconnect resynchronizes the retained document before reporting connected (1036.173334ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:198:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-connection.test.mjs:217:1
+✖ a server document-only permission revocation cannot leave a connected badge or auto retry (4524.055ms)
+  AssertionError [ERR_ASSERTION]: document-only close must invalidate admission
+      at until (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:20:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-connection.test.mjs:229:3)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

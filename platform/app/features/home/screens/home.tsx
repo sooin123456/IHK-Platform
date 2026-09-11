@@ -15,11 +15,29 @@ import {
 import { Link } from "react-router";
 
 export const meta: Route.MetaFunction = () => [
-  { title: "한길시스템 | BIM 건축 적산·물량산출 전문" },
+  { title: "한길시스템 | 도면 작성·검토·수량 작업실" },
   {
     name: "description",
     content:
-      "30년 건축 적산 실무와 BIM을 연결해 설계 정보, 객체별 물량, 내역과 공사비의 근거를 확인합니다.",
+      "도면 작성, 변경 검토, 수량·견적을 한 작업실에서 연결하고 필요하면 한길시스템 전문가에게 별도로 의뢰합니다.",
+  },
+];
+
+const workspaceTasks = [
+  {
+    icon: Ruler,
+    title: "작성",
+    body: "프로젝트 안에서 빈 도면이나 템플릿으로 시작하고 필요한 도형과 정보를 정리합니다.",
+  },
+  {
+    icon: FileCheck2,
+    title: "검토",
+    body: "도면의 변경 내용과 의견, 결정 근거를 같은 개정 흐름에서 확인합니다.",
+  },
+  {
+    icon: Calculator,
+    title: "수량·견적",
+    body: "도면과 연결된 수량·금액 근거를 살펴보고 담당자가 확인해 결과를 정리합니다.",
   },
 ];
 
@@ -106,28 +124,28 @@ export default function Home() {
               CONSULTING
             </p>
             <h1 className="mt-7 text-[clamp(3rem,7vw,6.8rem)] font-black leading-[.98] tracking-[-.06em]">
-              설계에서 물량까지,
+              도면 업무를,
               <br />
-              <span className="text-[#b9c8ff]">근거를 연결합니다.</span>
+              <span className="text-[#b9c8ff]">한 작업실에서.</span>
             </h1>
             <p className="mt-8 max-w-2xl text-lg leading-8 text-slate-200 sm:text-xl">
-              30년 이상 이어온 건축 적산 경험과 BIM 기술로
-              모델·물량·내역·공사비를 하나의 검토 가능한 데이터 흐름으로
-              만듭니다.
+              빈 도면이나 템플릿에서 시작해 작성·검토·수량·견적을 같은
+              프로젝트에서 이어갑니다. 전문 인력이 필요한 일은 한길시스템의 30년
+              건축 적산 경험으로 별도 수행합니다.
             </p>
             <div className="mt-10 flex flex-wrap gap-3">
               <Link
                 className="inline-flex h-14 items-center gap-2 rounded-full bg-[#5b6cff] px-7 font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#7080ff]"
+                to="/workspace"
+              >
+                직접 작업하기 <ArrowRight className="size-4" />
+              </Link>
+              <Link
+                className="inline-flex h-14 items-center rounded-full border border-white/30 bg-white/10 px-7 font-bold backdrop-blur-xl transition hover:bg-white/15"
                 to="/inquiry"
               >
-                프로젝트 상담 <ArrowRight className="size-4" />
+                전문가에게 의뢰하기
               </Link>
-              <a
-                className="inline-flex h-14 items-center rounded-full border border-white/30 bg-white/10 px-7 font-bold backdrop-blur-xl transition hover:bg-white/15"
-                href="#deliverables"
-              >
-                결과물 확인
-              </a>
               <Link
                 className="inline-flex h-14 items-center rounded-full border border-white/30 bg-white/10 px-7 font-bold backdrop-blur-xl transition hover:bg-white/15"
                 to="/download"
@@ -159,23 +177,64 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="bg-white px-5 py-20 sm:px-8 lg:py-32" id="services">
+      <section className="bg-white px-5 py-20 sm:px-8 lg:py-28" id="workspace">
+        <div className="mx-auto max-w-[1320px]">
+          <div className="grid gap-8 lg:grid-cols-[.9fr_1.1fr] lg:items-end">
+            <div>
+              <p className="text-sm font-bold tracking-[.2em] text-[#4258e8]">
+                ONE WORKSPACE
+              </p>
+              <h2 className="mt-5 text-4xl font-black leading-tight tracking-[-.045em] sm:text-5xl">
+                작성부터 수량 검토까지
+                <br />
+                하나의 작업실에서
+              </h2>
+            </div>
+            <div className="max-w-2xl space-y-3 text-lg leading-8 text-[#5b6270] lg:justify-self-end">
+              <p>
+                한길시스템 작업실에서 직접 도면을 작성하고 검토하며, 연결된
+                수량·견적의 근거를 확인할 수 있습니다.
+              </p>
+              <p className="text-base leading-7">
+                프로그램 이용과 전문 서비스는 별개입니다. 의뢰하면 전문가가 별도
+                범위로 모델링과 수량 업무를 수행하며, 작업실 이용에 상담이 먼저
+                필요하지 않습니다.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-12 grid overflow-hidden rounded-[2rem] border border-[#dce1e8] bg-[#f4f6f8] md:grid-cols-3">
+            {workspaceTasks.map(({ icon: Icon, title, body }, index) => (
+              <article
+                className={`p-7 sm:p-9 ${index > 0 ? "border-t border-[#dce1e8] md:border-l md:border-t-0" : ""}`}
+                key={title}
+              >
+                <Icon className="size-7 text-[#4258e8]" strokeWidth={1.6} />
+                <h3 className="mt-8 text-2xl font-black">{title}</h3>
+                <p className="mt-3 leading-7 text-[#626a78]">{body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-5 py-20 sm:px-8 lg:py-32" id="services">
         <div className="mx-auto max-w-[1320px]">
           <div className="grid gap-8 lg:grid-cols-[.8fr_1.2fr] lg:items-end">
             <div>
               <p className="text-sm font-bold tracking-[.2em] text-[#4258e8]">
-                OUR EXPERTISE
+                PROFESSIONAL SERVICE
               </p>
               <h2 className="mt-5 text-4xl font-black leading-tight tracking-[-.045em] sm:text-5xl">
-                도면을 읽는 경험을
+                맡겨야 하는 전문 업무는
                 <br />
-                데이터로 전환합니다.
+                별도 범위로 수행합니다.
               </h2>
             </div>
             <p className="max-w-2xl text-lg leading-8 text-[#5b6270] lg:justify-self-end">
-              대형 건설사의 프로젝트 신뢰감과 글로벌 적산 컨설턴트의 데이터 중심
-              방식을 결합했습니다. 자동화가 숫자를 결정하는 것이 아니라, 산출
-              근거를 더 빠르고 분명하게 보여줍니다.
+              BIM 모델링과 물량·내역 검토를 의뢰하면 범위와 납품물을 먼저
+              확인합니다. 자동화가 숫자를 결정하는 것이 아니라, 산출 근거를
+              정리하고 전문가가 판단합니다.
             </p>
           </div>
 

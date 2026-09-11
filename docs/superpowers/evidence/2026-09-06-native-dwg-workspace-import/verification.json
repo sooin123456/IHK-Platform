@@ -1,0 +1,135 @@
+{
+  "publishedAt": "2026-09-06T03:14:08.563Z",
+  "root": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1",
+  "head": "9f5f56d93db325ff935772252f9d4fb64d69f98c",
+  "indexEmpty": true,
+  "baselineFiles": 727,
+  "acceptedFiles": 24,
+  "unownedDrift": [],
+  "source": "docs/superpowers/evidence/2026-09-06-native-dwg-import-projection/accepted-code/synthetic-source.dwg",
+  "sourceSha256": "5c287281fafa07f76a0158d5374dd7577910c107dcb55817688acf9fd8656c71",
+  "checks": [
+    {
+      "tag": "node-regressions-final",
+      "startedAt": "2026-09-06T03:11:51.700Z",
+      "endedAt": "2026-09-06T03:12:27.631Z",
+      "command": [
+        "node",
+        "--test",
+        "tests/drawing-collaboration-protocol.test.mjs",
+        "tests/drawing-document-store.test.mjs",
+        "tests/drawing-dxf-import-client.test.mjs",
+        "tests/drawing-dxf-import-plan-server.test.mjs",
+        "tests/drawing-dxf-import-server.test.mjs",
+        "tests/drawing-dxf-route-contract.test.mjs",
+        "tests/drawing-dxf-source-server.test.mjs",
+        "tests/drawing-native-dwg-export-ui.test.mjs",
+        "tests/drawing-native-dwg-import-jobs.test.mjs",
+        "tests/drawing-native-dwg-import-pipeline.test.mjs",
+        "tests/drawing-native-dwg-import-plan-server.test.mjs",
+        "tests/drawing-native-dwg-import-source-server.test.mjs",
+        "tests/drawing-native-dwg-import-worker.test.mjs",
+        "tests/drawing-native-dwg-import.test.mjs",
+        "tests/drawing-native-dwg-jobs.test.mjs",
+        "tests/drawing-native-dwg-reader.test.mjs",
+        "tests/drawing-native-dwg-sandbox.test.mjs",
+        "tests/drawing-native-dwg-selected-edits.test.mjs",
+        "tests/drawing-native-dwg-source.test.mjs",
+        "tests/drawing-native-dwg-worker.test.mjs",
+        "tests/drawing-quantity-lineage-server.test.mjs",
+        "tests/drawing-quantity-lineage.test.mjs",
+        "tests/drawing-source-links.test.mjs",
+        "tests/drawing-workspace-dxf-source-runtime.test.mjs",
+        "tests/drawing-workspace-p5-server.test.mjs",
+        "tests/drawing-workspace-structure.test.mjs",
+        "tests/drawing-yjs-draft.test.mjs",
+        "tests/verified-boq-v1-1.test.mjs",
+        "tests/drawing-native-dwg-import-client.test.mjs",
+        "tests/drawing-native-dwg-import-action.test.mjs",
+        "tests/drawing-native-dwg-import-session.test.mjs",
+        "tests/drawing-workspace-entry-flow.test.mjs",
+        "tests/project-dwg-source.test.mjs",
+        "tests/drawing-workspace-admin-client-lazy-load.test.mjs",
+        "tests/drawing-workspace-commands.test.mjs",
+        "tests/drawing-workspace-outbox.test.mjs",
+        "tests/project-file-upload-resume.test.mjs",
+        "tests/drawing-native-dwg-import-revision-route.test.mjs"
+      ],
+      "code": 0,
+      "signal": null,
+      "changedDuringRun": []
+    },
+    {
+      "tag": "build-final",
+      "startedAt": "2026-09-06T03:11:53.005Z",
+      "endedAt": "2026-09-06T03:12:15.065Z",
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "code": 0,
+      "signal": null,
+      "changedDuringRun": []
+    },
+    {
+      "tag": "worker-types-1",
+      "startedAt": "2026-09-06T02:53:46.899Z",
+      "endedAt": "2026-09-06T02:53:49.807Z",
+      "command": [
+        "npx",
+        "--no-install",
+        "tsc",
+        "-p",
+        "native-dwg-worker/tsconfig.json",
+        "--noEmit"
+      ],
+      "code": 0,
+      "signal": null,
+      "changedDuringRun": []
+    },
+    {
+      "tag": "collaboration-types-1",
+      "startedAt": "2026-09-06T02:53:49.892Z",
+      "endedAt": "2026-09-06T02:53:51.860Z",
+      "command": [
+        "npm",
+        "run",
+        "typecheck:collaboration"
+      ],
+      "code": 0,
+      "signal": null,
+      "changedDuringRun": []
+    },
+    {
+      "tag": "browser-control-final",
+      "startedAt": "2026-09-06T03:11:54.224Z",
+      "endedAt": "2026-09-06T03:12:08.129Z",
+      "command": [
+        "npx",
+        "playwright",
+        "test",
+        "--config=playwright.native-dwg-import.config.ts"
+      ],
+      "code": 0,
+      "signal": null,
+      "changedDuringRun": []
+    }
+  ],
+  "controlScreenshots": [
+    "drawing-native-dwg-import--61819-ge-failure-prevents-network/test-finished-1.png",
+    "drawing-native-dwg-import--750e4-discards-a-pending-response/test-finished-1.png",
+    "drawing-native-dwg-import--82dfc-nalysis-with-a-new-identity/test-finished-1.png",
+    "drawing-native-dwg-import--959a7--after-authority-revocation/test-finished-1.png",
+    "drawing-native-dwg-import--9fce3-olling-until-explicit-check/test-finished-1.png",
+    "drawing-native-dwg-import--e2535-st-unauthorized-is-surfaced/test-finished-1.png",
+    "drawing-native-dwg-import--e402f-urable-request-after-reload/test-finished-1.png",
+    "drawing-native-dwg-import--eac0b-zed-requires-explicit-apply/test-finished-1.png",
+    "drawing-native-dwg-import--ff4a4-quest-offline-stops-polling/test-finished-1.png"
+  ],
+  "appSmokeBoundary": "Before final URL-only producer fix; synthetic app preview, not authenticated import.",
+  "productionDeployment": false,
+  "remoteDatabaseWrites": false,
+  "originalBytesModified": false,
+  "fullGoalCompleted": false
+}

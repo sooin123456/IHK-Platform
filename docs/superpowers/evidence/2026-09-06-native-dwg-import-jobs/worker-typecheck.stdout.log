@@ -1,0 +1,4 @@
+
+> supaplate@1.0 build:native-dwg-worker
+> tsc -p native-dwg-worker/tsconfig.json
+

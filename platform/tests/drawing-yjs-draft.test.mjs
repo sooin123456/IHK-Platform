@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import * as Y from "yjs";
@@ -15,6 +16,7 @@ import {
   initializeDrawingCollaborationDocument,
   reconcileDrawingCollaborationDraft,
 } from "../app/lukas/lib/drawing-collaboration-client.ts";
+import { drawingCollaborationOperationDigestSource } from "../app/lukas/lib/drawing-collaboration-protocol.ts";
 import {
   createDrawingDocumentStore,
   hydrateDrawingDocumentState,
@@ -23,14 +25,12 @@ import {
 const draftModule = await import("../app/lukas/lib/drawing-yjs-draft.ts").catch(
   () => null,
 );
-const persistenceModule =
-  await import("../app/lukas/lib/drawing-yjs-persistence.client.ts").catch(
-    () => null,
-  );
-const yjsModule =
-  await import("../app/lukas/lib/drawing-collaboration-yjs.ts").catch(
-    () => null,
-  );
+const persistenceModule = await import(
+  "../app/lukas/lib/drawing-yjs-persistence.client.ts"
+).catch(() => null);
+const yjsModule = await import(
+  "../app/lukas/lib/drawing-collaboration-yjs.ts"
+).catch(() => null);
 
 const ids = {
   project: "00000000-0000-4000-8000-000000000501",
@@ -424,6 +424,204 @@ test("a fabricated authoritative proof is rejected", () => {
   );
 });
 
+function nativeDwgHistoryFixture({ secondChunk = false } = {}) {
+  const layerId = "00000000-0000-4000-8000-000000000520";
+  const objectId = "00000000-0000-4000-8000-000000000521";
+  const sourceId = "00000000-0000-4000-8000-000000000522";
+  const sourceFileId = "00000000-0000-4000-8000-000000000523";
+  const jobId = "00000000-0000-4000-8000-000000000524";
+  const groupId = "00000000-0000-4000-8000-000000000525";
+  const importedLayer = {
+    id: layerId,
+    name: "QA_GEOMETRY",
+    visible: true,
+    locked: false,
+    systemKind: "custom",
+    canvasId: ids.canvas,
+    sortOrder: 1,
+    version: 1,
+  };
+  const importedObject = {
+    id: objectId,
+    name: "DWG LINE 4A",
+    layerId,
+    geometry: {
+      type: "line",
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 0 },
+    },
+    styleId: null,
+    style: { stroke: "#111827", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  const importedSource = {
+    id: sourceId,
+    objectId,
+    revisionId: ids.revision,
+    sourceFileId,
+    sourceSha256: "b".repeat(64),
+    sourceKind: "dwg_entity",
+    analysisJobId: jobId,
+    reportSha256: "c".repeat(64),
+    handle: "4A",
+    ownerHandle: "40",
+    layerHandle: "48",
+    entityType: "LINE",
+    sourceLayer: "QA_GEOMETRY",
+    unitCode: 4,
+    unitSource: "declared",
+    importerVersion: 1,
+    version: 1,
+  };
+  const secondObject = {
+    ...importedObject,
+    id: "00000000-0000-4000-8000-000000000529",
+    name: "DWG LINE 4B",
+    geometry: {
+      type: "line",
+      start: { x: 0, y: 10 },
+      end: { x: 100, y: 10 },
+    },
+  };
+  const secondSource = {
+    ...importedSource,
+    id: "00000000-0000-4000-8000-000000000530",
+    objectId: secondObject.id,
+    handle: "4B",
+  };
+  let state = validatedBaseProof().state;
+  const commands = [
+    [{ kind: "put_layer", entity: importedLayer, baseVersion: null }],
+    [
+      { kind: "put_object", entity: importedObject, baseVersion: null },
+      { kind: "put_source", entity: importedSource, baseVersion: null },
+    ],
+    ...(secondChunk
+      ? [
+          [
+            { kind: "put_object", entity: secondObject, baseVersion: null },
+            { kind: "put_source", entity: secondSource, baseVersion: null },
+          ],
+        ]
+      : []),
+    [
+      {
+        kind: "put_layer",
+        entity: { ...importedLayer, locked: true },
+        baseVersion: 1,
+      },
+    ],
+  ];
+  for (const [index, actions] of commands.entries())
+    state = applyDrawingCommand(
+      state,
+      {
+        type: "mutate_structure",
+        actorId: ids.actorA,
+        historyGroup: {
+          id: groupId,
+          kind: "dwg_import",
+          index,
+          count: commands.length,
+        },
+        actions,
+      },
+      {
+        createId: () =>
+          `00000000-0000-4000-8000-${String(526 + index).padStart(12, "0")}`,
+        now: () => `2026-09-06T00:00:0${index}.000Z`,
+      },
+    ).state;
+  return { state, sourceId, secondSource };
+}
+
+test("canonical Yjs history hydrates a homogeneous native DWG import group", () => {
+  const { state, sourceId } = nativeDwgHistoryFixture();
+  const compacted = {
+    ...structuredClone(state),
+    operations: [],
+    undoStackByActor: {},
+    redoStackByActor: {},
+  };
+  const adapter = create(initializedDoc(), { authoritativeState: compacted });
+
+  assert.equal(adapter.hydrateCanonicalHistory(state), true);
+  assert.deepEqual(
+    adapter
+      .getSnapshot()
+      .state.operations.map((operation) => operation.forward.historyGroup.kind),
+    ["dwg_import", "dwg_import", "dwg_import"],
+  );
+  assert.equal(
+    adapter.getSnapshot().state.structure.sources[sourceId].sourceKind,
+    "dwg_entity",
+  );
+  adapter.dispose();
+});
+
+test("canonical Yjs history rejects native sources labeled as a DXF import", () => {
+  const { state } = nativeDwgHistoryFixture();
+  const mislabeled = structuredClone(state);
+  for (const operation of mislabeled.operations) {
+    operation.forward.historyGroup.kind = "dxf_import";
+    operation.inverse.historyGroup.kind = "dxf_import";
+  }
+  const compacted = {
+    ...structuredClone(mislabeled),
+    operations: [],
+    undoStackByActor: {},
+    redoStackByActor: {},
+  };
+  const adapter = create(initializedDoc(), { authoritativeState: compacted });
+
+  assert.throws(
+    () => adapter.hydrateCanonicalHistory(mislabeled),
+    /canonical contract/i,
+  );
+  adapter.dispose();
+});
+
+test("canonical Yjs history rejects source kinds alternating across chunks", () => {
+  const { state, secondSource } = nativeDwgHistoryFixture({
+    secondChunk: true,
+  });
+  const mixed = structuredClone(state);
+  const dxfSource = {
+    id: secondSource.id,
+    objectId: secondSource.objectId,
+    revisionId: secondSource.revisionId,
+    sourceFileId: secondSource.sourceFileId,
+    sourceSha256: secondSource.sourceSha256,
+    sourceKind: "dxf_entity",
+    entityKey: "entities:1",
+    entityType: "LINE",
+    sourceLayer: secondSource.sourceLayer,
+    handle: secondSource.handle,
+    unitCode: secondSource.unitCode,
+    unitSource: secondSource.unitSource,
+    importerVersion: secondSource.importerVersion,
+    version: 1,
+  };
+  mixed.structure.sources[dxfSource.id] = dxfSource;
+  const mixedAction = mixed.operations[2].forward.actions.find(
+    (action) => action.kind === "put_source",
+  );
+  mixedAction.entity = dxfSource;
+  const compacted = {
+    ...structuredClone(mixed),
+    operations: [],
+    undoStackByActor: {},
+    redoStackByActor: {},
+  };
+  const adapter = create(initializedDoc(), { authoritativeState: compacted });
+
+  assert.throws(
+    () => adapter.hydrateCanonicalHistory(mixed),
+    /canonical contract/i,
+  );
+  adapter.dispose();
+});
+
 test("an offline ledger keeps the replay clone and full projection validation path", () => {
   const doc = initializedDoc();
   const operation = recorded(
@@ -628,6 +826,32 @@ test("authoritative outcome selects a same-object winner without quarantining th
     ids.operationA,
   ]);
   assert.deepEqual(adapter.getSnapshot().provisionalConflictOperationIds, []);
+});
+
+test("authoritative deletion replays a null result without quarantining the room", () => {
+  const doc = initializedDoc();
+  const deleted = recorded(
+    baseState(),
+    {
+      type: "delete_objects",
+      actorId: ids.actorA,
+      objectIds: [ids.objectA],
+    },
+    ids.operationA,
+  );
+  append(doc, deleted.envelope);
+  status(doc, ids.operationA, {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 1,
+    resultVersions: { [ids.objectA]: null },
+  });
+
+  const snapshot = create(doc).getSnapshot();
+
+  assert.equal(snapshot.quarantine, null);
+  assert.equal(snapshot.state.objects[ids.objectA], undefined);
+  assert.equal(snapshot.state.objects[ids.objectB].name, "B");
 });
 
 test("keeps undo history actor-scoped and excludes acknowledged checkpoint operations", () => {
@@ -958,13 +1182,13 @@ test("compacted acknowledged add and undo authorize a pending redo over a fresh 
     operationId: ids.operationA,
     status: "acked",
     authoritativeSequence: 1,
-    resultVersions: added.operation.realizedVersions,
+    resultVersions: added.operation.resultVersions,
   });
   status(doc, ids.operationB, {
     operationId: ids.operationB,
     status: "acked",
     authoritativeSequence: 2,
-    resultVersions: undone.operation.realizedVersions,
+    resultVersions: undone.operation.resultVersions,
   });
 
   const adapter = create(doc, {
@@ -1010,7 +1234,7 @@ test("compacted redo stays provisional when its acknowledged result lineage is w
     operationId: ids.operationA,
     status: "acked",
     authoritativeSequence: 1,
-    resultVersions: added.operation.realizedVersions,
+    resultVersions: added.operation.resultVersions,
   });
   status(doc, ids.operationB, {
     operationId: ids.operationB,
@@ -1074,6 +1298,7 @@ test("durable enqueue race appends a provisional conflict and boot repair termin
   const recovered = create(recoveredDoc);
   await reconcileDrawingCollaborationDraft({
     actorId: ids.actorA,
+    revisionId: ids.revision,
     adapter: recovered,
     outbox: {
       async entries() {
@@ -1168,6 +1393,37 @@ test("a service-released failed review restores draft writability", () => {
   );
 });
 
+test("HTTP-only canonical authority ignores a stale realtime freeze without weakening revision freeze", () => {
+  const doc = initializedDoc();
+  doc.getMap("serverMeta").set("freezeState", "frozen");
+  doc.getMap("serverMeta").set("freezeRequestId", ids.operationB);
+
+  const editable = create(doc, { enforceServerFreeze: false });
+  assert.equal(editable.getSnapshot().frozen, false);
+  assert.doesNotThrow(() =>
+    editable.prepareLocal({
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "HTTP authority" } }],
+    }),
+  );
+  editable.dispose();
+
+  const reviewed = create(doc, {
+    enforceServerFreeze: false,
+    frozen: true,
+  });
+  assert.equal(reviewed.getSnapshot().frozen, true);
+  assert.throws(() =>
+    reviewed.prepareLocal({
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "still frozen" } }],
+    }),
+  );
+  reviewed.dispose();
+});
+
 test("malformed or oversized updates quarantine evidence and preserve the last projection", () => {
   const doc = initializedDoc();
   const adapter = create(doc);
@@ -1236,10 +1492,32 @@ test("waits for local persistence before reporting sync", async () => {
   assert.equal(synced, true);
 });
 
+test("local persistence is isolated by owner and revision without opening legacy v1", () => {
+  assert.ok(persistenceModule);
+  assert.equal(
+    persistenceModule.drawingYjsPersistenceName(ids.actorA, ids.revision),
+    `1hk:drawing-draft:v2:${ids.actorA}:${ids.revision}`,
+  );
+  assert.equal(
+    persistenceModule.drawingYjsPersistenceName(ids.actorB, ids.revision),
+    `1hk:drawing-draft:v2:${ids.actorB}:${ids.revision}`,
+  );
+  assert.notEqual(
+    persistenceModule.drawingYjsPersistenceName(ids.actorA, ids.revision),
+    `1hk:drawing-draft:v1:${ids.revision}`,
+  );
+  assert.throws(
+    () =>
+      persistenceModule.drawingYjsPersistenceName("not-a-user", ids.revision),
+    /canonical owner UUID/,
+  );
+});
+
 test("SSR never opens drawing IndexedDB", async () => {
   assert.ok(persistenceModule);
   assert.equal(
     await persistenceModule.openDrawingYjsPersistence({
+      ownerId: ids.actorA,
       revisionId: ids.revision,
       document: {},
     }),
@@ -1424,6 +1702,376 @@ test("raw operation and order multiplicities must match before canonical dedupe"
     assert.throws(() => readDrawingCollaborationLedger(document));
     assert.ok(create(document).getSnapshot().quarantine);
   }
+});
+
+test("one recovery contribution does not consume the 10,000 unique operation capacity", () => {
+  const { readDrawingCollaborationLedger } = requireYjsModule();
+  const template = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "capacity" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  const operationIds = Array.from(
+    { length: 10_000 },
+    (_, index) =>
+      `40000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const document = initializedDoc();
+  document.transact(() => {
+    document.getArray("operations").push(
+      operationIds.map((clientOperationId) => ({
+        ...template,
+        clientOperationId,
+      })),
+    );
+    document.getArray("operationOrder").push(operationIds);
+  });
+  append(document, {
+    ...template,
+    clientOperationId: operationIds[0],
+    createdAt: "1970-01-01T00:00:00.000Z",
+  });
+
+  const ledger = readDrawingCollaborationLedger(document);
+
+  assert.equal(ledger.operationOrder.length, 10_000);
+  assert.equal(
+    ledger.operations[operationIds[0]].createdAt,
+    template.createdAt,
+  );
+});
+
+test("repeated identical recovery contributions converge to one operation", () => {
+  const { readDrawingCollaborationLedger } = requireYjsModule();
+  const original = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "bounded" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  const document = initializedDoc();
+  append(document, original);
+  append(document, {
+    ...original,
+    createdAt: "1970-01-01T00:00:00.000Z",
+  });
+  append(document, structuredClone(original));
+
+  const ledger = readDrawingCollaborationLedger(document);
+
+  assert.deepEqual(ledger.operationOrder, [ids.operationA]);
+  assert.deepEqual(ledger.operations[ids.operationA], original);
+  const snapshot = create(document).getSnapshot();
+  assert.equal(snapshot.quarantine, null);
+  assert.deepEqual(snapshot.pendingOperationIds, [ids.operationA]);
+});
+
+test("local HTTP acknowledgement overlays projection without authoring protected server status", () => {
+  const document = initializedDoc();
+  const envelope = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "HTTP ACK" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  append(document, envelope);
+  const adapter = create(document, { baseOperationSequence: 6 });
+
+  adapter.recordLocalAcknowledgement({
+    clientOperationId: ids.operationA,
+    authoritativeSequence: 7,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+
+  assert.equal(
+    adapter.getSnapshot().state.objects[ids.objectA].name,
+    "HTTP ACK",
+  );
+  assert.deepEqual(adapter.getSnapshot().pendingOperationIds, []);
+  assert.equal(
+    adapter.isOperationCheckpointAcknowledged(ids.operationA, 6),
+    false,
+  );
+  assert.equal(
+    adapter.isOperationCheckpointAcknowledged(ids.operationA, 7),
+    true,
+  );
+  assert.deepEqual(document.getMap("operationStatus").toJSON(), {});
+  adapter.dispose();
+  document.destroy();
+});
+
+test("server-verified acknowledgement supersedes only a stale pending status", () => {
+  const document = initializedDoc();
+  const envelope = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "Recovered ACK" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  append(document, envelope);
+  status(document, ids.operationA, {
+    operationId: ids.operationA,
+    status: "pending",
+    authoritativeSequence: null,
+    resultVersions: {},
+  });
+  const adapter = create(document, { baseOperationSequence: 6 });
+  const acknowledgement = {
+    clientOperationId: ids.operationA,
+    authoritativeSequence: 7,
+    resultVersions: { [ids.objectA]: 2 },
+  };
+
+  assert.throws(() => adapter.recordLocalAcknowledgement(acknowledgement));
+  assert.equal(
+    adapter.recordLocalAcknowledgement(acknowledgement, "canonical"),
+    true,
+  );
+  assert.equal(
+    adapter.getSnapshot().state.objects[ids.objectA].name,
+    "Recovered ACK",
+  );
+  assert.deepEqual(adapter.getSnapshot().pendingOperationIds, []);
+  assert.equal(adapter.operationStatus(ids.operationA).status, "acked");
+  assert.equal(
+    document.getMap("operationStatus").get(ids.operationA).status,
+    "pending",
+  );
+
+  adapter.dispose();
+  document.destroy();
+});
+
+test("server-verified acknowledgement cannot replace an immutable server ACK", () => {
+  const document = initializedDoc();
+  const envelope = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "Immutable ACK" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  append(document, envelope);
+  status(document, ids.operationA, {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 8,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+  const adapter = create(document, { baseOperationSequence: 6 });
+
+  assert.throws(
+    () =>
+      adapter.recordLocalAcknowledgement(
+        {
+          clientOperationId: ids.operationA,
+          authoritativeSequence: 7,
+          resultVersions: { [ids.objectA]: 2 },
+        },
+        "canonical",
+      ),
+    /conflicts with server status/,
+  );
+
+  adapter.dispose();
+  document.destroy();
+});
+
+test("a canonical checkpoint absorbs stale ACK evidence without rewriting server status", () => {
+  const document = initializedDoc();
+  const envelope = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "Absorbed ACK" } }],
+    },
+    ids.operationA,
+  ).envelope;
+  append(document, envelope);
+  status(document, ids.operationA, {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 8,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+  const adapter = create(document, { baseOperationSequence: 8 });
+
+  assert.equal(
+    adapter.recordLocalAcknowledgement(
+      {
+        clientOperationId: ids.operationA,
+        authoritativeSequence: 7,
+        resultVersions: { [ids.objectA]: 2 },
+      },
+      "canonical",
+    ),
+    false,
+  );
+  assert.deepEqual(adapter.operationStatus(ids.operationA), {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 8,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+  assert.equal(adapter.getSnapshot().quarantine, null);
+
+  adapter.dispose();
+  document.destroy();
+});
+
+test("checkpoint absorption survives later canonical receipt revalidation", async () => {
+  const document = initializedDoc();
+  const applied = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "Late server ACK" } }],
+    },
+    ids.operationA,
+  );
+  append(document, applied.envelope);
+  const adapter = create(document, { baseOperationSequence: 8 });
+  adapter.recordLocalAcknowledgement(
+    {
+      clientOperationId: ids.operationA,
+      authoritativeSequence: 7,
+      resultVersions: { [ids.objectA]: 2 },
+    },
+    "canonical",
+  );
+  const server = new Y.Doc();
+  Y.applyUpdate(server, Y.encodeStateAsUpdate(document));
+  status(server, ids.operationA, {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 8,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+
+  assert.equal(
+    adapter.applyServerProjection(
+      Y.encodeStateAsUpdate(server, Y.encodeStateVector(document)),
+    ),
+    true,
+  );
+  assert.equal(adapter.getSnapshot().quarantine, null);
+  assert.deepEqual(adapter.operationStatus(ids.operationA), {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 8,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+
+  await adapter.replaceAuthoritative(applied.state, {
+    baseOperationSequence: 9,
+    recentOutcomes: [
+      {
+        revisionId: ids.revision,
+        clientOperationId: ids.operationA,
+        actorId: ids.actorA,
+        sequence: 7,
+        resultVersions: { [ids.objectA]: 2 },
+        operationSha256: createHash("sha256")
+          .update(
+            drawingCollaborationOperationDigestSource(
+              applied.envelope,
+              ids.actorA,
+            ),
+          )
+          .digest("hex"),
+      },
+    ],
+  });
+  assert.equal(adapter.getSnapshot().quarantine, null);
+  assert.deepEqual(adapter.operationStatus(ids.operationA), {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 8,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+  assert.deepEqual(document.getMap("operationStatus").get(ids.operationA), {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 8,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+  assert.equal(
+    adapter.getSnapshot().state.objects[ids.objectA].version,
+    2,
+    "the absorbed receipt must not replay the operation over its checkpoint",
+  );
+
+  adapter.dispose();
+  server.destroy();
+  document.destroy();
+});
+
+test("checkpoint revalidation rejects a mismatched server ACK beyond the captured boundary", async () => {
+  const document = initializedDoc();
+  const applied = recorded(
+    baseState(),
+    {
+      type: "update_objects",
+      actorId: ids.actorA,
+      updates: [{ objectId: ids.objectA, patch: { name: "Ahead ACK" } }],
+    },
+    ids.operationA,
+  );
+  append(document, applied.envelope);
+  status(document, ids.operationA, {
+    operationId: ids.operationA,
+    status: "acked",
+    authoritativeSequence: 9,
+    resultVersions: { [ids.objectA]: 2 },
+  });
+  const adapter = create(document, { baseOperationSequence: 8 });
+  const recentOutcome = {
+    revisionId: ids.revision,
+    clientOperationId: ids.operationA,
+    actorId: ids.actorA,
+    sequence: 7,
+    resultVersions: { [ids.objectA]: 2 },
+    operationSha256: createHash("sha256")
+      .update(
+        drawingCollaborationOperationDigestSource(applied.envelope, ids.actorA),
+      )
+      .digest("hex"),
+  };
+
+  await assert.rejects(
+    () =>
+      adapter.replaceAuthoritative(applied.state, {
+        baseOperationSequence: 9,
+        recentOutcomes: [recentOutcome],
+      }),
+    /acknowledgement conflicts/i,
+  );
+  assert.equal(
+    adapter.operationStatus(ids.operationA).authoritativeSequence,
+    9,
+  );
+  assert.equal(adapter.getSnapshot().quarantine, null);
+
+  adapter.dispose();
+  document.destroy();
 });
 
 test("same durable ID with any mismatched offline envelope quarantines in 100 CRDT orders", () => {

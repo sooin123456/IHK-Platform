@@ -1,0 +1,53 @@
+Initial invocation used --progress=plain; legacy Docker rejected unknown --progress before build. Retried without it, no installation.
+
+/opt/homebrew/bin/docker --host unix:///Users/h/.colima/default/docker.sock build --pull=false --network=none -f tools/dwg-engine-qualification/Dockerfile.reader -t 1hk-task2-resave-20260906-7ac831 --iidfile .superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/task-2-image.id tools/dwg-engine-qualification
+
+Step 1 pinned SDK bb32ba3ba3ea cached
+Step 2 WORKDIR /src cached 6cd144a96afc
+Step 3 csproj/packages.lock copy cached bd7c2197bfb3
+Step 4 locked-mode restore cached 3487ed3a97d0
+Step 5 COPY *.cs
+ ---> 6a51ce34ce8f
+Step 6/17 : COPY THIRD_PARTY_NOTICES.md ./
+ ---> ad092bae3130
+Step 7/17 : RUN dotnet publish DwgEngineQualification.csproj --configuration Release --no-restore --output /out /p:UseAppHost=false
+ ---> Running in d443c6750395
+  DwgEngineQualification -> /src/bin/Release/net8.0/DwgEngineQualification.dll
+  DwgEngineQualification -> /out/
+ ---> Removed intermediate container d443c6750395
+ ---> a2aff33e7e47
+Step 8/17 : FROM mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:9d94ecf60a21c6e7a784cf0761fbd4a8391646617a0ff2f39621443d580cc2c3
+ ---> 9d94ecf60a21
+Step 9/17 : LABEL org.1hk.native-dwg-reader.protocol="1hk-dwg-import/1"
+ ---> Using cache
+ ---> 7c4126a668a3
+Step 10/17 : LABEL org.1hk.native-dwg-resaver.protocol="1hk-dwg-resave/1"
+ ---> Running in 905fec540a8f
+ ---> Removed intermediate container 905fec540a8f
+ ---> 3d3dd7455a65
+Step 11/17 : ENV DOTNET_EnableDiagnostics=0
+ ---> Running in ff8a41f54ac1
+ ---> Removed intermediate container ff8a41f54ac1
+ ---> 06e900c8a32d
+Step 12/17 : WORKDIR /app
+ ---> Running in 313b37f5a044
+ ---> Removed intermediate container 313b37f5a044
+ ---> 5677a1cf08ff
+Step 13/17 : RUN test -x /usr/bin/timeout
+ ---> Running in 21d755a56f6d
+ ---> Removed intermediate container 21d755a56f6d
+ ---> 87d3f8651b68
+Step 14/17 : COPY --from=build /out/ ./
+ ---> 1880439033df
+Step 15/17 : COPY --from=build /src/THIRD_PARTY_NOTICES.md ./THIRD_PARTY_NOTICES.md
+ ---> 0d501bba22ce
+Step 16/17 : USER 65532:65532
+ ---> Running in 580984f6ceb2
+ ---> Removed intermediate container 580984f6ceb2
+ ---> a6b26f915eba
+Step 17/17 : ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "120s", "/usr/share/dotnet/dotnet", "/app/DwgEngineQualification.dll", "read-native-stdio"]
+ ---> Running in d509a1c78eab
+ ---> Removed intermediate container d509a1c78eab
+ ---> c921c67ddb37
+Successfully built c921c67ddb37
+Successfully tagged 1hk-task2-resave-20260906-7ac831:latest

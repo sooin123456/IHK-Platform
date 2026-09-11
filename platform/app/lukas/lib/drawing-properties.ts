@@ -22,6 +22,21 @@ type PropertyState = Pick<
 
 type PropertyValue = DrawingPropertyValue["value"];
 
+/** Review completeness keeps explicit zero/false values while rejecting blank strings. */
+export function isDrawingRequiredPropertyComplete(
+  schema: Pick<DrawingPropertySchema, "valueType">,
+  value: PropertyValue,
+) {
+  if (value === null) return false;
+  if (schema.valueType === "boolean") return typeof value === "boolean";
+  if (schema.valueType === "number")
+    return typeof value === "number" && Number.isFinite(value);
+  return (
+    typeof value === "string" &&
+    /[^\u0009-\u000d\u0020]/u.test(value)
+  );
+}
+
 function canonicalState(state: DrawingDocumentState): PropertyState {
   if (!state.structure)
     throw new DrawingStructureError("Drawing property state is unavailable.");
@@ -92,8 +107,20 @@ export function parseDrawingPropertyInput(
   }
   if (typeof input !== "string")
     throw new DrawingStructureError("Drawing property input must be text.");
-  if (schema.valueType === "text") return input;
-  if (input === "") return null;
+  if (schema.valueType === "text") {
+    if (schema.required && !isDrawingRequiredPropertyComplete(schema, input))
+      throw new DrawingStructureError(
+        "Required drawing property text cannot be blank.",
+      );
+    return input;
+  }
+  if (input === "") {
+    if (schema.required)
+      throw new DrawingStructureError(
+        "Required drawing property values cannot be empty.",
+      );
+    return null;
+  }
   if (schema.valueType === "number") {
     const value = Number(input);
     if (!Number.isFinite(value))
@@ -443,8 +470,13 @@ export function missingRequiredDrawingProperties(
           (schema.appliesTo as readonly string[]).includes(target.type),
         )
         .filter(
-          (target) =>
-            propertyValueFor(state, schema.id, target.id)?.value == null,
+          (target) => {
+            const value = propertyValueFor(state, schema.id, target.id);
+            return (
+              !value ||
+              !isDrawingRequiredPropertyComplete(schema, value.value)
+            );
+          },
         )
         .map((target) => ({
           schemaId: schema.id,

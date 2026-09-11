@@ -1,0 +1,148 @@
+{
+  "nativeSourceBuildSha256": "0d9e421cf1765fadc84c4f290839fdca13a72a3e40f4814fd91f05bf911fe168",
+  "nativeInputs": [
+    {
+      "path": "tools/dwg-engine-qualification/.dockerignore",
+      "sha256": "cfbaaa9a92e47fbbddfa11a333709fd32ff8d7c3723af192be4a163a3d776b0a",
+      "byteSize": 102
+    },
+    {
+      "path": "tools/dwg-engine-qualification/Dockerfile.reader",
+      "sha256": "bde84323fe3577a61cedd5e1a0b68e8955beda512ef030cbb751f837579c9e5d",
+      "byteSize": 1011
+    },
+    {
+      "path": "tools/dwg-engine-qualification/DwgEngineQualification.csproj",
+      "sha256": "ff954dc270832be5cf2086afc09c6f5f6e311930a491ae256aa47a1ca6306a02",
+      "byteSize": 445
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeCadManifest.cs",
+      "sha256": "e7fb566f6d2c59e7c66adda0dff02f765592f3d7754a5a7a47421542d697c422",
+      "byteSize": 51561
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgReader.cs",
+      "sha256": "967a6687a74df41607632a89d258064cd7e8eff6c290ffde75bc0b215f619a75",
+      "byteSize": 23321
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgReaderSelfTests.cs",
+      "sha256": "73f42c722ec3df57cb8850582bd32735fe3ab71ff335156ca385a2404fd68fd0",
+      "byteSize": 23088
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgResaveSelfTests.cs",
+      "sha256": "76dc1cb04fd4c75d7f55b8ddb2dedd0a054778ea5328a241a9fdcc5b3e04aab0",
+      "byteSize": 21322
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgResaver.cs",
+      "sha256": "1bc3b3bacfb59992f3026bfc05a43389e03a8abafd16ba3617371232418d3559",
+      "byteSize": 6679
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgSelfTests.cs",
+      "sha256": "c3b7155ded172d4d3a87b84cccbabf9f7e705ae1457a1ae03cbf2f0fbb633713",
+      "byteSize": 32747
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgStreamSelfTests.cs",
+      "sha256": "cb4de5e99c99aa0326a16002dd67c9e1581dc185fbd58acfcdefc5736c99e399",
+      "byteSize": 9945
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgVerification.cs",
+      "sha256": "047c1d6f9dce7d4de729f64b83f588fba51d9f62374014ca1c584a5a27aa86aa",
+      "byteSize": 35926
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgWriter.cs",
+      "sha256": "4153be37975daca810378a5ed5bca03e5a08e681887f9a0e59fd42972f74f175",
+      "byteSize": 25508
+    },
+    {
+      "path": "tools/dwg-engine-qualification/Program.cs",
+      "sha256": "62ba82cce55f962aac1c78c5366df0c8fcdce684a09725004206a49128832d01",
+      "byteSize": 4387
+    },
+    {
+      "path": "tools/dwg-engine-qualification/QualificationCore.cs",
+      "sha256": "920e953822e6f216216bfd8dd36ce64602f4ac67da33a554f1f837f2e73c33ff",
+      "byteSize": 11950
+    },
+    {
+      "path": "tools/dwg-engine-qualification/QualificationRunner.cs",
+      "sha256": "266d1dff6baf5bd2f73fcb1d525915043870fd028522b2f9863143f5a7879be2",
+      "byteSize": 27918
+    },
+    {
+      "path": "tools/dwg-engine-qualification/SelectedDwgEditSelfTests.cs",
+      "sha256": "1c6c4c6acf9b199285575bc2f87d8f013e80d25197e501e9633768aadaadd4ba",
+      "byteSize": 13627
+    },
+    {
+      "path": "tools/dwg-engine-qualification/SelectedDwgEdits.cs",
+      "sha256": "ccd12c75330e42786a1107b6793d46e2e077f47a1ef367d69c2ae7e4710dae62",
+      "byteSize": 17757
+    },
+    {
+      "path": "tools/dwg-engine-qualification/SelectedDwgGeometrySelfTests.cs",
+      "sha256": "2b98ea852a9e230be773ed86a4d2b92acb2ada79c545828707fd1fade5eb2fab",
+      "byteSize": 27996
+    },
+    {
+      "path": "tools/dwg-engine-qualification/SelfTests.cs",
+      "sha256": "a562343f2d8d364ec1726e9060924ed427a40576b9360748f55131751e35c0d3",
+      "byteSize": 13593
+    },
+    {
+      "path": "tools/dwg-engine-qualification/THIRD_PARTY_NOTICES.md",
+      "sha256": "1cfcc69f38b0608618a7681eaccc86bcd0101a3335cfc27321d78609359ff2f2",
+      "byteSize": 1877
+    },
+    {
+      "path": "tools/dwg-engine-qualification/packages.lock.json",
+      "sha256": "551793ff12f9558a92d6579b9ca0147da28adc1cb7abd30262a5ce055331f50c",
+      "byteSize": 302
+    }
+  ],
+  "task2Files": [
+    {
+      "path": "platform/app/lukas/lib/drawing-native-dwg-resave-protocol.server.ts",
+      "sha256": "54c8e3b032464dbeaf5718f6f849c8f4b4d1d6152d680d89d178ce4fe9e1bc08",
+      "byteSize": 6335
+    },
+    {
+      "path": "platform/app/lukas/lib/drawing-native-dwg-sandbox.server.ts",
+      "sha256": "87e62b6ddea49c0af38cc37a0681d6a587812106f3ecdef4b646bf503153f54c",
+      "byteSize": 19641
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-resave-protocol.test.mjs",
+      "sha256": "ec23975ccbb52fa5e8bd358a9e5a4d77722fa855a442e9b6b4c5c6adbf0e53eb",
+      "byteSize": 9522
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-resave-sandbox.test.mjs",
+      "sha256": "3a49aa4dfe29eabca946b3ceb806f2e7ed08da1dcd6ded2743b4c0cf10e53f87",
+      "byteSize": 12105
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs",
+      "sha256": "f353fffb15c8f181d3a55482b3643f44afbbd154301be0d400feea7a1eff7497",
+      "byteSize": 22853
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-sandbox.test.mjs",
+      "sha256": "3499141bf9197e04157872241440eae890b9940b4708d4b977abf1885271f043",
+      "byteSize": 15721
+    },
+    {
+      "path": "platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs",
+      "sha256": "d0311521371cde4bf1c098b692b961571c629a8a8a3f445d2671ed97615a1e38",
+      "byteSize": 9271
+    }
+  ],
+  "task1HashesPreserved": true
+}

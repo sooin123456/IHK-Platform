@@ -1,0 +1,37 @@
+import {chromium,expect} from '@playwright/test';
+import {createServer} from 'vite';
+import {PDFDocument} from 'pdf-lib';
+import {createHash} from 'node:crypto';
+const pdf=await PDFDocument.create();pdf.addPage([800,520]);pdf.addPage([800,520]);const buffer=Buffer.from(await pdf.save());
+const source={name:'overlay.pdf',sha256:createHash('sha256').update(buffer).digest('hex'),pages:2};
+const old=[{id:'m',x:40,y:60,label:'이동 벽'},{id:'r',x:300,y:100,label:'삭제 벽',page:2}];
+const doc={id:'overlay',title:'변경 도면',source,revision:2,shapes:[{...old[0],x:220},{id:'a',x:420,y:160,label:'추가 공간',page:2}],reviewRounds:[{revision:1,source,objects:old,targetId:'m',message:'승인',phase:'approved'}]};
+const vite=await createServer({configFile:false,appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+const {createWorkflow}=await vite.ssrLoadModule('/app/lukas/lib/workflow-prototype.ts');const codec=await vite.ssrLoadModule('/app/lukas/lib/workflow-prototype-session.ts');
+const raw=codec.encodeWorkflowSession({scenarios:Object.fromEntries(['architecture','ifc','civil'].map(s=>[s,createWorkflow(s)])),drafts:{},blankDocuments:[doc]});await vite.close();
+const browser=await chromium.launch();
+try {
+ const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.addInitScript(({key,raw})=>{if(!sessionStorage.getItem(key))sessionStorage.setItem(key,raw);},{key:codec.workflowSessionKey,raw});
+ await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=changes&scope=local&quantityDocument=overlay',{waitUntil:'networkidle'});
+ const panel=page.getByRole('region',{name:'도면 변경 오버레이'});await expect(panel).toBeVisible();
+ await panel.getByLabel('작업실 PDF 선택',{exact:true}).setInputFiles({name:source.name,mimeType:'application/pdf',buffer});await expect(panel.locator('.flow-local-pdf-surface [aria-busy="false"]')).toHaveCount(1);
+ await expect(panel.getByRole('img',{name:'이전 이동 벽 · 변경',exact:true})).toBeVisible();await expect(panel.getByRole('img',{name:'현재 이동 벽 · 변경',exact:true})).toBeVisible();
+ await panel.getByRole('button',{name:'이전 위치: 삭제 벽 · 2쪽',exact:true}).click();await expect(panel.getByLabel('비교 페이지')).toHaveValue('2');await expect(panel.getByRole('img',{name:'이전 삭제 벽 · 삭제',exact:true})).toBeVisible();await expect(panel.getByRole('img',{name:'현재 추가 공간 · 추가',exact:true})).toBeVisible();
+ const stored=await page.evaluate(key=>JSON.parse(sessionStorage.getItem(key)),codec.workflowSessionKey);expect(stored.blankDocuments[0]).toEqual(JSON.parse(raw).blankDocuments[0]);
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await expect.poll(async()=>Math.round((await panel.locator('.flow-local-pdf-surface').boundingBox()).height)).toBeLessThanOrEqual(400);
+ const fitWidth=await panel.locator('.flow-local-pdf-surface canvas').evaluate(canvas=>canvas.getBoundingClientRect().width);
+ await panel.getByRole('button',{name:'PDF 확대',exact:true}).click();await expect.poll(async()=>panel.locator('.flow-local-pdf-surface canvas').evaluate(canvas=>canvas.getBoundingClientRect().width)).toBeGreaterThan(fitWidth);
+ await panel.getByRole('button',{name:'이전 위치: 이동 벽 · 1쪽',exact:true}).click();
+ await expect(panel.getByRole('region',{name:'도면 비교 표시 영역',exact:true})).toBeFocused();
+ const focusedSurface=await panel.locator('.flow-local-pdf-surface').boundingBox();expect(focusedSurface.y).toBeGreaterThanOrEqual(0);expect(focusedSurface.y+focusedSurface.height).toBeLessThanOrEqual(844);
+ await panel.getByRole('button',{name:'선택한 변경 항목으로 돌아가기',exact:true}).click();
+ await expect(panel.getByRole('button',{name:'이전 위치: 이동 벽 · 1쪽',exact:true})).toBeFocused();
+ await panel.getByRole('button',{name:'현재 위치: 추가 공간 · 2쪽',exact:true}).click();
+ await expect(panel.getByRole('img',{name:'현재 추가 공간 · 추가',exact:true})).toBeVisible();
+ await panel.getByRole('button',{name:'선택한 변경 항목으로 돌아가기',exact:true}).click();
+ await expect(panel.getByRole('button',{name:'현재 위치: 추가 공간 · 2쪽',exact:true})).toBeFocused();
+ await panel.screenshot({path:'/tmp/1hk-drawing-overlay.png'});expect(errors).toEqual([]);
+ console.log('PASS frozen geometry overlay, real PDF reconnect, changed/deleted/added page navigation, unchanged document and mobile');
+}finally{await browser.close();}

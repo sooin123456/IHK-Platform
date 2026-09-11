@@ -6,8 +6,11 @@ const measurementModule = await import(
 ).catch(() => ({}));
 const {
   DRAWING_MEASUREMENT_RULE_VERSION,
+  DrawingMeasurementCalibrationGeometryUnsupportedError,
   formatDrawingMeasurement,
+  formatDrawingMeasurementForDisplay,
   measureDrawingObject,
+  measureDrawingObjectForCanvas,
 } = measurementModule;
 
 const HOST_ID = "00000000-0000-4000-8000-000000000201";
@@ -40,8 +43,144 @@ const objects = { [HOST_ID]: wallObject };
 function requireKernel() {
   assert.equal(DRAWING_MEASUREMENT_RULE_VERSION, "P4_MEASUREMENT_V1");
   assert.equal(typeof measureDrawingObject, "function");
+  assert.equal(typeof measureDrawingObjectForCanvas, "function");
   assert.equal(typeof formatDrawingMeasurement, "function");
+  assert.equal(typeof formatDrawingMeasurementForDisplay, "function");
 }
+
+test("workspace display rounds exact metric evidence to construction precision", () => {
+  requireKernel();
+  const measurement = {
+    ruleVersion: "P4_MEASUREMENT_V1",
+    lengthMillimeters: "4999.99894",
+    areaSquareMillimeters: "1999999.6",
+    count: "1",
+  };
+  assert.equal(formatDrawingMeasurement(measurement, "meters"), "4.99999894 m");
+  assert.equal(
+    formatDrawingMeasurementForDisplay(measurement, "meters"),
+    "5 m",
+  );
+  assert.equal(
+    formatDrawingMeasurementForDisplay(measurement, "squareMeters"),
+    "2 m²",
+  );
+});
+
+test("PDF canvas calibration is shared by deterministic measurements", () => {
+  requireKernel();
+  const pdfCanvas = {
+    id: "00000000-0000-4000-8000-000000000220",
+    pageId: "00000000-0000-4000-8000-000000000221",
+    name: "Paper",
+    spaceKind: "paper",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: {
+      sourceFileId: "00000000-0000-4000-8000-000000000222",
+      sourceSha256: "a".repeat(64),
+      pdfPageNumber: 1,
+      calibration: {
+        normalizedStart: { x: 0, y: 0 },
+        normalizedEnd: { x: 0.5, y: 0 },
+        realLengthMillimeters: 5_000,
+        millimetersPerNormalizedUnit: 10_000,
+      },
+    },
+    sortOrder: 0,
+    version: 1,
+  };
+  const line = object("00000000-0000-4000-8000-000000000223", {
+    type: "line",
+    start: { x: 10, y: 20 },
+    end: { x: 60, y: 20 },
+  });
+  assert.equal(
+    measureDrawingObjectForCanvas(line, pdfCanvas).lengthMillimeters,
+    "5000",
+  );
+  assert.throws(
+    () =>
+      measureDrawingObjectForCanvas(line, {
+        ...pdfCanvas,
+        background: { ...pdfCanvas.background, calibration: null },
+      }),
+    /calibration|축척/i,
+  );
+});
+
+test("anisotropic PDF calibration reports circles and rotated rectangles as typed unsupported geometry", () => {
+  requireKernel();
+  assert.equal(
+    typeof DrawingMeasurementCalibrationGeometryUnsupportedError,
+    "function",
+  );
+  const pdfCanvas = {
+    id: "00000000-0000-4000-8000-000000000224",
+    pageId: "00000000-0000-4000-8000-000000000225",
+    name: "Paper",
+    spaceKind: "paper",
+    widthMillimeters: 200,
+    heightMillimeters: 100,
+    background: {
+      sourceFileId: "00000000-0000-4000-8000-000000000226",
+      sourceSha256: "a".repeat(64),
+      pdfPageNumber: 1,
+      calibration: {
+        normalizedStart: { x: 0, y: 0 },
+        normalizedEnd: { x: 0.5, y: 0 },
+        realLengthMillimeters: 5_000,
+        millimetersPerNormalizedUnit: 10_000,
+      },
+    },
+    sortOrder: 0,
+    version: 1,
+  };
+  const unsupportedObjects = [
+    object("00000000-0000-4000-8000-000000000227", {
+      type: "circle",
+      center: { x: 50, y: 50 },
+      radius: 10,
+    }),
+    object("00000000-0000-4000-8000-000000000228", {
+      type: "rectangle",
+      origin: { x: 20, y: 20 },
+      width: 40,
+      height: 20,
+      rotation: 30,
+    }),
+  ];
+
+  for (const candidate of unsupportedObjects)
+    assert.throws(
+      () => measureDrawingObjectForCanvas(candidate, pdfCanvas),
+      (error) =>
+        error instanceof
+          DrawingMeasurementCalibrationGeometryUnsupportedError &&
+        /PDF|축척|정확/i.test(error.message),
+      candidate.geometry.type,
+    );
+
+  const orphanOpening = object("00000000-0000-4000-8000-000000000229", {
+    type: "opening",
+    semanticVersion: 1,
+    hostWallId: "00000000-0000-4000-8000-000000000230",
+    offsetMillimeters: 500,
+    widthMillimeters: 900,
+    heightMillimeters: 2_100,
+    sillHeightMillimeters: 0,
+    openingKind: "door",
+  });
+  assert.throws(
+    () => measureDrawingObjectForCanvas(orphanOpening, pdfCanvas),
+    (error) =>
+      error instanceof Error &&
+      !(
+        error instanceof DrawingMeasurementCalibrationGeometryUnsupportedError
+      ) &&
+      /host wall/i.test(error.message),
+  );
+});
 
 test("3-4-5 wall and diagonal grid lengths round to micromillimeters", () => {
   requireKernel();

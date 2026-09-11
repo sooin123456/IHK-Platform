@@ -1,0 +1,98 @@
+[
+  {
+    "path": "platform/app/lukas/lib/drawing-cad-import-client.ts",
+    "sha256": "36b45f41f07b12ee0beb2b5c406eb95652cf7a4c854d5f29db72655d1947d291"
+  },
+  {
+    "path": "platform/app/lukas/lib/drawing-native-dwg-import-client.ts",
+    "sha256": "1d2bae44eb4ef319387c0b023eaafd9c1e4742ed9661faa554dbacb4540075f6"
+  },
+  {
+    "path": "platform/app/lukas/lib/drawing-dxf-import-client.ts",
+    "sha256": "b17139fe561afa52b415e6a20d05cc4195fbc9dd8caf83650ebfcad5dcf32be4"
+  },
+  {
+    "path": "platform/tests/drawing-native-dwg-import-client.test.mjs",
+    "sha256": "b3197d09188de2f1f1d4580439b57ac4a115ee4c7d07b0bfabd5d3424657cd6a"
+  },
+  {
+    "path": "platform/app/lukas/lib/drawing-native-dwg-import-action.server.ts",
+    "sha256": "27146bb9aae24aaf632ca898988a069aed048dd44d44fe6bd1c0dc21de198bad"
+  },
+  {
+    "path": "platform/app/lukas/screens/drawing-workspace.tsx",
+    "sha256": "dff049743e6535ac8681c35919aba66d713a25df4ce0ab2a7f7aaea427bf72f0"
+  },
+  {
+    "path": "platform/app/lukas/lib/drawing-workspace.server.ts",
+    "sha256": "044a92bf8c6c314326ad7822cef06ba99ecf2b2663d02c0751909bc9eb60a726"
+  },
+  {
+    "path": "platform/app/lukas/lib/drawing-entry.ts",
+    "sha256": "4f9922150c374bb2d592feee1fc02a5bf08745298a001fad6a822a89b2243347"
+  },
+  {
+    "path": "platform/app/lukas/screens/project.tsx",
+    "sha256": "5740ce6b01f22d2cf17d990b4e7a2cd5d1c8c1686f0ee0f994ff5dff62fb8a30"
+  },
+  {
+    "path": "platform/app/lukas/screens/drawing-workspace-new.tsx",
+    "sha256": "e627e5171b6f270f8381f86159a01b6f5257648356ebebd2c924d502f4460d0f"
+  },
+  {
+    "path": "platform/app/lukas/components/drawing-workspace-start.tsx",
+    "sha256": "3055eccc954c205c2a8e2bd99d9ab69280bf1a15256f2bd9b8f556be782f76b1"
+  },
+  {
+    "path": "platform/tests/drawing-native-dwg-import-action.test.mjs",
+    "sha256": "eaaca8baceea1e3e68e3955dd572b932125da6037082ae5dabccbb96491e49f9"
+  },
+  {
+    "path": "platform/tests/drawing-workspace-entry-flow.test.mjs",
+    "sha256": "bc048e02f4347feb5a40738f1d9d5ba0e6119ed7a05ab5e835e7ba7bef91ea51"
+  },
+  {
+    "path": "platform/tests/project-dwg-source.test.mjs",
+    "sha256": "b1c429f4bbbd241cc604e729243350105f6849b87aba50761edc78b858d03357"
+  },
+  {
+    "path": "platform/tests/drawing-dxf-route-contract.test.mjs",
+    "sha256": "9e88bc3efa60ab7bbe6a737047c6ede4fbe19c25f57e9b2ac07ba7782fd1f08a"
+  },
+  {
+    "path": "platform/tests/drawing-workspace-p5-server.test.mjs",
+    "sha256": "0e7a9933b450bb6b73a0de917cb41e378db1ca3420a744a7dda05462c97009cf"
+  },
+  {
+    "path": "platform/app/lukas/components/drawing-native-dwg-import.tsx",
+    "sha256": "25279f0aefff2efd5419255acc728a0ff61ed96418b45f893b0b7bc4a0765fb7"
+  },
+  {
+    "path": "platform/app/lukas/lib/drawing-native-dwg-import-session.ts",
+    "sha256": "3dfb19fbcc4f7b54c64b2d1a97899f2cfe5a04bbd27daf32002312c095810f2f"
+  },
+  {
+    "path": "platform/app/lukas/components/drawing-workspace.tsx",
+    "sha256": "514bc7599aacbfdd571416dad8ac466ce2d822a35f5a75d108e3bc4e6ac17acb"
+  },
+  {
+    "path": "platform/tests/drawing-native-dwg-import-session.test.mjs",
+    "sha256": "165d10ffc6d281e8ddec38217700096aab22bfcb278ac1e8e031bc50d75ca6e6"
+  },
+  {
+    "path": "platform/e2e/drawing-native-dwg-import-control.spec.ts",
+    "sha256": "52f675d316eba61f1e5ce0000ebe2c766e843857fffc4efbd7ae21919ee89b60"
+  },
+  {
+    "path": "platform/e2e/utils/drawing-native-dwg-import-control.tsx",
+    "sha256": "8a512e6c8d40dc15d908755f079b9c1dcc2e80e0059a3d85d0e97d0bc5a9c58e"
+  },
+  {
+    "path": "platform/playwright.native-dwg-import.config.ts",
+    "sha256": "cfd5d75512384b56c79a2b1d986e4c81ad17598a2d9e449afadc725028e6e880"
+  },
+  {
+    "path": "platform/tests/drawing-native-dwg-import-revision-route.test.mjs",
+    "sha256": "d072c24a5127f2b4670f9d92af851f8a181d9e30d66584341118600ace58b712"
+  }
+]

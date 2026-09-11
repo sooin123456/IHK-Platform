@@ -5,6 +5,7 @@ import {
   DrawingCollaborationClientAppendSchema,
   DrawingCollaborationOperationOrderSchema,
   DrawingCollaborationOperationSchema,
+  resolveDrawingCollaborationOperation,
   type DrawingCollaborationLedger,
   type DrawingCollaborationOperation,
 } from "./drawing-collaboration-protocol.ts";
@@ -39,7 +40,10 @@ export function readDrawingCollaborationLedger(
 ): DrawingCollaborationLedger {
   const rawOperations = document.getArray<unknown>("operations").toArray();
   const rawOrder = document.getArray<unknown>("operationOrder").toArray();
-  if (rawOperations.length > DRAWING_COLLABORATION_LIMITS.maxOperations)
+  if (
+    rawOperations.length >
+    DRAWING_COLLABORATION_LIMITS.maxOperationContributions
+  )
     throw new Error("Too many drawing operation contributions.");
   const operationOrder =
     DrawingCollaborationOperationOrderSchema.parse(rawOrder);
@@ -49,11 +53,14 @@ export function readDrawingCollaborationLedger(
     const operation = DrawingCollaborationOperationSchema.parse(rawOperation);
     contributionIds.push(operation.clientOperationId);
     const existing = operations[operation.clientOperationId];
-    if (existing && !same(existing, operation))
+    const resolved = existing
+      ? resolveDrawingCollaborationOperation(existing, operation)
+      : operation;
+    if (!resolved)
       throw new Error(
         "Drawing operation ID has mismatched concurrent envelopes.",
       );
-    operations[operation.clientOperationId] = operation;
+    operations[operation.clientOperationId] = resolved;
   }
   if (!same(contributionIds.sort(), (rawOrder as string[]).slice().sort()))
     throw new Error(
@@ -69,10 +76,12 @@ export function appendDrawingCollaborationOperation(
   document: Y.Doc,
   operation: DrawingCollaborationOperation,
 ) {
-  document
-    .getArray<DrawingCollaborationOperation>("operations")
-    .push([operation]);
-  document
-    .getArray<string>("operationOrder")
-    .push([operation.clientOperationId]);
+  document.transact(() => {
+    document
+      .getArray<DrawingCollaborationOperation>("operations")
+      .push([operation]);
+    document
+      .getArray<string>("operationOrder")
+      .push([operation.clientOperationId]);
+  });
 }

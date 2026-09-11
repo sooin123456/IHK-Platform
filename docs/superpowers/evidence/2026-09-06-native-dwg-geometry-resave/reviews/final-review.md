@@ -1,0 +1,8 @@
+# Final whole-unit independent review
+
+Reviewer `/root/dwg_resave_final_review`, astra/high; read-only, no source author. **Needs fixes**: two Important findings, no Critical/Minor.
+
+1. Compiler375 emits an invalid native full turn for edited start300°/sweep360°. Actual retained source report → projector → compiler yields start5.235987755982989/end11.519173063162576, difference6.283185307179587 > Math.PI*2 (6.283185307179586). C#SelectedDwgEdits187–190 rejects this exact request, as do related strict boundaries. Existing30° serialization and0° native tests miss it. Fix producer representation without weakening inconsistent individual validators or collapsing full turn; add actual300°/360° compile→loader→DWGreadback regression. Reviewer did not create/qualify an altered request because read-only.
+2. Compiler482 checks TEXT extent against immutable stale width even when content or height changes. Actual importer490 estimates fresh width. Literal validmm source[8999999990,0,0],height1,textA →100ASCII chars compiles but actual prospective projector rejects extent(+60mm crosses9e9). Height growth has same issue. Validate output TEXT projection using finalnativecontent/height/frozenunits; directwidthedit staysprohibited. Regress both nearboundary, earlier validedit atomicbatchfailure and inputpreservation.
+
+Other cross-task v2contract/rawprecision/v1/atomicity/globalvertexbudget/registrygate/indexedvertices align with clarifiedspec. Actualbinaryintegration/prooflimits meaningful. All10live/snapshot hashesmatch. Root accepted900Node/35C#/13native/1integration/builds passed but do not cover these two reproduced boundaries. No suites/builds/fileschanged by reviewer.

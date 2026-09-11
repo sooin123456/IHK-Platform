@@ -147,6 +147,7 @@ async function connect(
           }
         },
       });
+      provider.attach();
     });
   } catch (error) {
     provider?.destroy();
@@ -203,6 +204,7 @@ async function requireNonMemberRejection(fixture: DrawingFixture) {
           resolve(true);
         },
       });
+      provider.attach();
     });
     if (!denied) throw new Error("Non-member unexpectedly entered the room.");
   } finally {

@@ -2,7 +2,7 @@ import type {
   DrawingWorkspaceCapability,
   DrawingWorkspaceFile,
 } from "./drawing-workspace.server.ts";
-import { containPdfSource } from "./drawing-geometry.ts";
+import { containPdfSource, DRAWING_MIN_ZOOM } from "./drawing-geometry.ts";
 import {
   pdfNormalizedRegionToWorldBounds,
   type DrawingPdfPageTransform,
@@ -20,6 +20,32 @@ type RevisionStatus =
   | "superseded";
 
 export type DrawingWorkspaceViewMode = "2d" | "3d" | "split";
+
+export function drawingWorkspaceCanComment(
+  capability: DrawingWorkspaceCapability,
+) {
+  return ["admin", "editor", "commenter", "reviewer"].includes(capability);
+}
+
+export function drawingWorkspaceCanRestoreApprovedSnapshot(
+  capability: DrawingWorkspaceCapability,
+) {
+  return ["admin", "editor", "reviewer"].includes(capability);
+}
+
+export function drawingWorkspaceLineageFocusObjectId(input: {
+  boqVersionId: string | null;
+  boqLineId: string | null;
+  objectId: string | null;
+  revisionId: string | null;
+}) {
+  const hasObjectFocus = Boolean(input.revisionId && input.objectId);
+  const hasCompleteBoqScope = Boolean(input.boqVersionId && input.boqLineId);
+  const hasNoBoqScope = !input.boqVersionId && !input.boqLineId;
+  return hasObjectFocus && (hasCompleteBoqScope || hasNoBoqScope)
+    ? input.objectId
+    : null;
+}
 
 export function drawingWorkspaceEvidenceFocusKey(input: {
   boqVersionId: string | null;
@@ -87,7 +113,7 @@ export function drawingWorkspaceObjectFocusViewport(input: {
   const zoom = Math.min(
     4,
     Math.max(
-      0.05,
+      DRAWING_MIN_ZOOM,
       Math.min(
         availableWidth / Math.max(1, input.bounds.width),
         availableHeight / Math.max(1, input.bounds.height),

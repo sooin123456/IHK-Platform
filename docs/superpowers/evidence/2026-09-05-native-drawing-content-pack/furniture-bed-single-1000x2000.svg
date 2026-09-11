@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1320mm" height="2320mm" viewBox="0 0 1320 2320">
+<rect x="0" y="0" width="1320" height="2320" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/frame" transform="matrix(1 0 0 1 160 160)">
+<rect x="0" y="0" width="1000" height="2000" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/pillow" transform="matrix(1 0 0 1 160 160)">
+<rect x="100" y="100" width="800" height="400" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/blanket" transform="matrix(1 0 0 1 160 160)">
+<line x1="0" y1="700" x2="1000" y2="700" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+</svg>

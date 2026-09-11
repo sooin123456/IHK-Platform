@@ -1,0 +1,302 @@
+[
+  {
+    "path": "accepted-files.json",
+    "bytes": 1803,
+    "sha256": "4d41fe6e3c16f63f8e5c44ecbede5d9cc4a26c914f1138cd9d4686fda04106d4"
+  },
+  {
+    "path": "controller-collaboration.log",
+    "bytes": 14834,
+    "sha256": "ee43bb09b12921025cbe3e8f9f32e06ac85ce7375de98b6cbad8fb0eaee33415"
+  },
+  {
+    "path": "controller-final-collaboration.log",
+    "bytes": 15208,
+    "sha256": "d669a48ccd806811f78dbbd245d72e16fd9b552ed131c3009b3cd10b1710c996"
+  },
+  {
+    "path": "controller-final-legacy.log",
+    "bytes": 1530,
+    "sha256": "6c1eac2b319e3819db1777461b391dfab1eb78b430ec218934e0736419a5aaa5"
+  },
+  {
+    "path": "controller-final-tsc.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "controller-legacy.log",
+    "bytes": 1534,
+    "sha256": "f98af3077dc6e5310dcde8d4d32d23d87f9d49212888d52d8e3447d8b63d4a43"
+  },
+  {
+    "path": "controller-report.md",
+    "bytes": 6470,
+    "sha256": "41bfe92f60d9558518c8c4692aab4ce0837be75aa384f806c42737aa0cd37902"
+  },
+  {
+    "path": "controller-tsc.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "decision-rulings.md",
+    "bytes": 2760,
+    "sha256": "f582d8081b08b6070c417e49c16df24eba308f8b78d864cd51ba5667c36f9b47"
+  },
+  {
+    "path": "final-review.md",
+    "bytes": 1397,
+    "sha256": "23a651dc0f18c9418afc70402449f5f806d3e3e612e1b85b54aae377bae32413"
+  },
+  {
+    "path": "final.diff",
+    "bytes": 126062,
+    "sha256": "3414f621dd2a22ae626d16a1aceaeca93737f9996615f6eb43ded5bdc84b1db5"
+  },
+  {
+    "path": "progress.md",
+    "bytes": 12057,
+    "sha256": "176b56fe12ee865176bb32d6ada2585983ad2002ec431f0d916e18193376a8c4"
+  },
+  {
+    "path": "task-1-green-postgres.log",
+    "bytes": 57903,
+    "sha256": "79e5ae34981482a885d49eafe702259a7505aecfff48492d71134246c731a63f"
+  },
+  {
+    "path": "task-1-green-utf8-postgres.log",
+    "bytes": 156264,
+    "sha256": "5bd6d94ec6def0ea226a9c344bbf2c41e53333dba0396cbff2ab8fcbb679488d"
+  },
+  {
+    "path": "task-1-green-utf8.log",
+    "bytes": 66543,
+    "sha256": "5c09c6e82264edc824003c0a1222be792ed033276cd9ea0679a0b4c625500eaa"
+  },
+  {
+    "path": "task-1-green.log",
+    "bytes": 69298,
+    "sha256": "df7bfe2424b91eb7805a0048b1b054448e5eea358b3b4b4cf883a0d9675df7eb"
+  },
+  {
+    "path": "task-1-red-postgres.log",
+    "bytes": 2290,
+    "sha256": "dff4141139ed8fe06f511f311e1127b1556b06cce3ebf4767195701429632a47"
+  },
+  {
+    "path": "task-1-red.log",
+    "bytes": 62761,
+    "sha256": "544acb3fef2c180704b713efa8a6dd8ba2e862ea363e75cee7d55d8ba7bf9571"
+  },
+  {
+    "path": "task-1-report.md",
+    "bytes": 6713,
+    "sha256": "8fc320aa2a2ef4453a93c6481674e74fd0ada05a3a0abfad5bff265ba0ad881f"
+  },
+  {
+    "path": "task-1-review.md",
+    "bytes": 1360,
+    "sha256": "be238287c05cdebcdbdf91fc3b8b0d850d33682848c1917aabbd6a06ddc27ffa"
+  },
+  {
+    "path": "task-1.diff",
+    "bytes": 25604,
+    "sha256": "8132e38b3ddd60368c455a0c0ef02ad5c097ff7a43daf82b4958f8898db3281d"
+  },
+  {
+    "path": "task-2-fix1-bounded-red.log",
+    "bytes": 2219,
+    "sha256": "9a3572f957f4df1f8fc3f6328e2d5532e2582373c38dec471c05517f56ac157d"
+  },
+  {
+    "path": "task-2-fix1-focused-final-green.log",
+    "bytes": 486,
+    "sha256": "cf3b1381a0679d920c4296f605e14d9f28e17adb184aa9030372155bb3d72aa2"
+  },
+  {
+    "path": "task-2-fix1-focused-green.log",
+    "bytes": 1015,
+    "sha256": "a3703e878f4b3a9584ecc01e403ef0060464dcc2a3e9ee608f9042b6532503fe"
+  },
+  {
+    "path": "task-2-fix1-full-green.log",
+    "bytes": 15199,
+    "sha256": "c356144d05af793cd8ae9db2443abbcd979e7c3fe7c9fd528d21ae900cdb0bad"
+  },
+  {
+    "path": "task-2-fix1-red.log",
+    "bytes": 1254,
+    "sha256": "52f900834ba8ca70ba5b147ddf51f2c1b58ecf76a1b69796c4eab73fcfc11198"
+  },
+  {
+    "path": "task-2-fix1-review.md",
+    "bytes": 729,
+    "sha256": "f325b9616420a2742c3f907bebc0b2a485b82248928ef1cb464a948f53869a38"
+  },
+  {
+    "path": "task-2-fix1-tsc.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "task-2-fix1-wire-red.log",
+    "bytes": 1259,
+    "sha256": "daed5862b960c8661502f5baf341f81eec1e2fc6e1fb7a5371957f6e2f59d7c5"
+  },
+  {
+    "path": "task-2-fix1.diff",
+    "bytes": 11901,
+    "sha256": "154f922f18af00b94b0f54fbcef87063c96634b0723709b8f91c38e9486282ae"
+  },
+  {
+    "path": "task-2-full-green.log",
+    "bytes": 14821,
+    "sha256": "d346bb9e50234a575f1fd44cec2f8f9890adf080dd6b5f12654aa0bb8fc14cd6"
+  },
+  {
+    "path": "task-2-green-initial.log",
+    "bytes": 2334,
+    "sha256": "13f1f0a236eddc2892c824e5406d3100da681daec244c9e2f4a1505cdcc949db"
+  },
+  {
+    "path": "task-2-legacy-focused.log",
+    "bytes": 1185,
+    "sha256": "091aeeac94e9d4701172ac8b11211cf204bb569c00db6f1f079e52f14402e3a1"
+  },
+  {
+    "path": "task-2-red.log",
+    "bytes": 6498,
+    "sha256": "7b2484e90246766d765ea47e494fbdc1ce3685d31a4938f49eafdc79e0c9c540"
+  },
+  {
+    "path": "task-2-report.md",
+    "bytes": 10555,
+    "sha256": "0e1313fd910b0432b056a1c69dbbe72798a10f9a0629a151ba2184f5358be5db"
+  },
+  {
+    "path": "task-2-review.md",
+    "bytes": 1084,
+    "sha256": "f94a0fe8f69e770a862e22d2b8c5bf624261227ebba03fe3baeb10e17fed09a7"
+  },
+  {
+    "path": "task-2-tsc.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "task-2-wire-review.md",
+    "bytes": 850,
+    "sha256": "f7f6d149d1d634d54f7fa22f5a4e90f130f751bf82f1886d1a2b5b7c28beed48"
+  },
+  {
+    "path": "task-2.diff",
+    "bytes": 81296,
+    "sha256": "2ba93fa976a97819430ee4427beb9261cceb07234ceb0d36ff6fa4c74408c267"
+  },
+  {
+    "path": "task-3-advisor-owned-missing-docs-postgres.log",
+    "bytes": 85680,
+    "sha256": "360d57f7be6aa545d34ddd11cbc96441e02fa11ca5eded7c5e1eb52e4b267143"
+  },
+  {
+    "path": "task-3-advisor-owned-missing-docs.log",
+    "bytes": 69193,
+    "sha256": "7f9447921d82741f56d0d425a2d985f421a92342315657243d52e4bec870998b"
+  },
+  {
+    "path": "task-3-advisor-postgres.log",
+    "bytes": 157150,
+    "sha256": "3e836e032ed5b74e6a8dd956b1fa7bb3ecf0072502f06a877b86a7c463c52bcf"
+  },
+  {
+    "path": "task-3-advisor-tls-failure-postgres.log",
+    "bytes": 31116,
+    "sha256": "5d03c086067fb5a1c2416141a15187a838967cd478afae2036a20e40e7829f27"
+  },
+  {
+    "path": "task-3-advisor-tls-failure.log",
+    "bytes": 62819,
+    "sha256": "9ff727ac4299476ea82be494abf3bb8c806276487b444f4d3f70ab729d23c0b4"
+  },
+  {
+    "path": "task-3-advisor.log",
+    "bytes": 67170,
+    "sha256": "fb79dba178c9989b53992b3c9f8262f476ca321cea9b8bfce6e0ae8831073661"
+  },
+  {
+    "path": "task-3-fix1-green-postgres.log",
+    "bytes": 157144,
+    "sha256": "ef92723bb36c092a2ef753f41b4d87c03d70149e26ad41ddee69328f8a79db20"
+  },
+  {
+    "path": "task-3-fix1-green.log",
+    "bytes": 66909,
+    "sha256": "2de8cbe3504c01bdad257847683279c89207eafcf9cfd55fd6f4382336543f36"
+  },
+  {
+    "path": "task-3-fix1-red-postgres.log",
+    "bytes": 30230,
+    "sha256": "0e75153c52d6217a835475ebd10c48055146764fa12c30903b4e4808ba929606"
+  },
+  {
+    "path": "task-3-fix1-red.log",
+    "bytes": 61907,
+    "sha256": "42cda3387a8571b007cf4a93b73eefbfbf814ab37975531f21de6aa9d495127c"
+  },
+  {
+    "path": "task-3-fix1-review.md",
+    "bytes": 536,
+    "sha256": "f6c2ef9aa574c08f4ffd3007495180a9d6758376d8c50261d9ef1b2a642ee299"
+  },
+  {
+    "path": "task-3-fix1.diff",
+    "bytes": 6488,
+    "sha256": "db349db35e793609f03e8f7ab4eee46768b0c9f5c747e8b72b19a18e362219d2"
+  },
+  {
+    "path": "task-3-green-before-viewer-operation-postgres.log",
+    "bytes": 157150,
+    "sha256": "52099df19883e1e9019b91e1f7fc009ec7d0d39925e71806667ba915a0fcf0dc"
+  },
+  {
+    "path": "task-3-green-before-viewer-operation.log",
+    "bytes": 66946,
+    "sha256": "6e8dc04f6bb8c7090addfdff5130874029fc2f3c540524164da67d785136c526"
+  },
+  {
+    "path": "task-3-green-postgres.log",
+    "bytes": 157150,
+    "sha256": "e9a5cf6f71c3158c5e13fb622ef3a875ee39ae955d029dbdcfea5aad89c9be6f"
+  },
+  {
+    "path": "task-3-green.log",
+    "bytes": 66946,
+    "sha256": "ae661c5583fb0b96736bd07e4fb3f22e7889d049df70f4554fc33415e2e32b21"
+  },
+  {
+    "path": "task-3-red-postgres.log",
+    "bytes": 30236,
+    "sha256": "ee26147c8a1f3cbaa5ab8082ab97c3d8fa8568463933d117d22fbf4b342dc0f7"
+  },
+  {
+    "path": "task-3-red.log",
+    "bytes": 62199,
+    "sha256": "eabeb5554532138380a7f1070115c087670ca6c6090f2c17f56cc2c65270b457"
+  },
+  {
+    "path": "task-3-report.md",
+    "bytes": 9291,
+    "sha256": "6098b957010204022b8094d1c24c27872171d2a576d67af011550d8a2ae4ed6b"
+  },
+  {
+    "path": "task-3-review.md",
+    "bytes": 1041,
+    "sha256": "968bbceff5d7000498e58813ab11ff5d30e980a7b68323d64d4bd9f31a5d9a38"
+  },
+  {
+    "path": "task-3.diff",
+    "bytes": 17117,
+    "sha256": "5b34807308f5404cbb49d7c09fb360c5e5c975c09bdd680250e8acf850289eeb"
+  }
+]

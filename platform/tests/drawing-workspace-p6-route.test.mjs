@@ -12,6 +12,7 @@ import {
 import {
   drawingWorkspaceEvidenceFocusBounds,
   drawingWorkspaceEvidenceFocusKey,
+  drawingWorkspaceLineageFocusObjectId,
   drawingWorkspaceObjectFocusViewport,
 } from "../app/lukas/lib/drawing-workspace-view.ts";
 import { sanitizeDrawingTransientInput } from "../app/lukas/lib/drawing-document-store.ts";
@@ -82,7 +83,8 @@ test("material lineage route binds and preserves exact plan and BOQ line filters
   assert.match(route, /승인 BOQ 자재 구성을 읽지 못했거나/);
   assert.match(route, /collectBoundedRows/);
   assert.match(authority, /collectBoundedRows/);
-  assert.match(authority, /\.range\(from, to\)/);
+  assert.match(authority, /\.gt\("id", afterId\)/);
+  assert.match(authority, /\.limit\(limit\)/);
 });
 
 test("drawing quantity form accepts only stable intent identity and measurement kind", () => {
@@ -118,6 +120,32 @@ test("drawing quantity form accepts only stable intent identity and measurement 
       /허용되지 않은 필드/,
     );
   }
+});
+
+test("quantity confirmation pauses during route transitions and scopes retry IDs per object", () => {
+  const quantityInspector = readFileSync(
+    new URL(
+      "../app/lukas/components/drawing-quantity-inspector.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const drawingInspector = readFileSync(
+    new URL("../app/lukas/components/drawing-inspector.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(quantityInspector, /useNavigation\(\)/);
+  assert.match(
+    quantityInspector,
+    /disabled=\{navigation\.state !== "idle"\}/,
+    "a confirmation click must not race a query revalidation that replaces its form",
+  );
+  assert.match(
+    drawingInspector,
+    /<DrawingQuantityInspector[\s\S]{0,160}key=\{selectedMeasurableObject\.id\}/,
+    "stable retry IDs must not be reused for a different drawing object",
+  );
 });
 
 test("quantity action scope binds the posted object to the current file document and revision", () => {
@@ -325,6 +353,32 @@ test("BOQ evidence focus is one-shot per exact authorized tuple", () => {
   );
 });
 
+test("source-free BOQ lineage keeps its authorized drawing object selected", () => {
+  const tuple = {
+    revisionId: "00000000-0000-4000-8000-000000000031",
+    objectId: "00000000-0000-4000-8000-000000000032",
+    boqVersionId: "00000000-0000-4000-8000-000000000033",
+    boqLineId: "00000000-0000-4000-8000-000000000034",
+  };
+  assert.equal(
+    drawingWorkspaceLineageFocusObjectId(tuple),
+    tuple.objectId,
+  );
+  assert.equal(
+    drawingWorkspaceLineageFocusObjectId({ ...tuple, boqLineId: null }),
+    null,
+  );
+  assert.equal(
+    drawingWorkspaceLineageFocusObjectId({
+      ...tuple,
+      boqVersionId: null,
+      boqLineId: null,
+    }),
+    tuple.objectId,
+    "an authorized revision/object deep link remains focusable without a BOQ scope",
+  );
+});
+
 test("PDF evidence focus consumes the persisted page and normalized region", () => {
   const evidence = {
     id: "00000000-0000-4000-8000-000000000041",
@@ -396,7 +450,7 @@ test("workspace loader binds the BOQ tuple before returning focus and never fall
     client,
     /initialEvidenceFocusKeyRef\.current === evidenceFocusKey/,
   );
-  assert.match(client, /setAuthorizedSelection\(\[evidenceFocusObjectId\]\)/);
+  assert.match(client, /setAuthorizedSelection\(transition\.selectedIds\)/);
   assert.match(client, /selectedDrawingObjectId !== evidenceFocusObjectId/);
   const workspaceServer = await readFile(
     new URL("../app/lukas/lib/drawing-workspace.server.ts", import.meta.url),
@@ -538,6 +592,22 @@ test("verified BOQ Drawing mutations bind their targets to the current route pro
   assert.match(
     source.slice(deleteScope, deleteRpc),
     /\.eq\("project_id", context\.project\.id\)/,
+  );
+  assert.doesNotMatch(
+    source.slice(putRpc, putRpc + 180),
+    /putDrawingBoqLink\(context\.client, mutation\)/,
+  );
+  assert.doesNotMatch(
+    source.slice(deleteRpc, deleteRpc + 180),
+    /deleteDrawingBoqLink\(context\.client, mutation\)/,
+  );
+  const decisionRpc = source.indexOf(
+    "await recheckAndDecideVerifiedBoqV1_1",
+    source.indexOf('intent === "decision"'),
+  );
+  assert.doesNotMatch(
+    source.slice(decisionRpc, decisionRpc + 220),
+    /context\.user\.id,\s*mutation,/,
   );
 });
 

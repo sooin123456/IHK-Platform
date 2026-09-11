@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1hk-native-dwg-geometry-resave-integration/1",
+  "qualification": "experimental-unqualified",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "source": {
+    "sha256": "e6c1b7625f781d7cf1e36334a7e8389d3b0972ff4d2b012d86a0e4c40abfbfff",
+    "originalBytesPreserved": true
+  },
+  "wrapped": {
+    "requestSha256": "ac80e58c00d20055a3a3f70f60094d19a0e257ce00895e9b3a9accc522b09330",
+    "editedDwgSha256": "06a7aa7683cefb4fbcfab13dde5d03c3f8eba6426bee873180390233bd680468",
+    "editedHandles": [
+      "4A",
+      "4B",
+      "4C",
+      "4D",
+      "4E"
+    ]
+  },
+  "fullTurn": {
+    "requestSha256": "5d0b41e9c0c3e6da9f1b833019a1b1077674a00377f70d4d7d669ffcab3a34af",
+    "editedDwgSha256": "b15bf5ea0e84c38f3f447d3383fb124d7181071cd7ae00243a2735515cae07ba",
+    "editedHandles": [
+      "4C"
+    ]
+  },
+  "boundary": "Same-engine local synthetic roundtrip only; Auth, database, storage, worker, browser delivery, independent CAD acceptance, and customer files were not exercised."
+}

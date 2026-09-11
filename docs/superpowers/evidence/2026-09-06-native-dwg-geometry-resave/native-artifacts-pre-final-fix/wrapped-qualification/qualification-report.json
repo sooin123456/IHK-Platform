@@ -1,0 +1,561 @@
+{
+  "status": "experimental",
+  "internalSyntheticResult": "passed-with-inventory-gaps",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "generatedAtUtc": "2026-09-06T04:08:46.3012350\u002B00:00",
+  "engine": {
+    "package": "ACadSharp",
+    "pinnedVersion": "3.7.1",
+    "assemblyVersion": "3.7.1.0",
+    "framework": ".NET 8.0",
+    "license": "MIT",
+    "releaseUrl": "https://github.com/DomCR/ACadSharp/releases/tag/v3.7.1",
+    "sourceUrl": "https://github.com/DomCR/ACadSharp/tree/v3.7.1"
+  },
+  "tolerances": {
+    "geometryNumericAbsolute": 1E-09
+  },
+  "input": {
+    "path": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-geometry-resave/native-artifacts-final/generated-fixture/synthetic-input.dwg",
+    "sha256Before": "e6c1b7625f781d7cf1e36334a7e8389d3b0972ff4d2b012d86a0e4c40abfbfff",
+    "sha256WorkingCopy": "e6c1b7625f781d7cf1e36334a7e8389d3b0972ff4d2b012d86a0e4c40abfbfff",
+    "sha256After": "e6c1b7625f781d7cf1e36334a7e8389d3b0972ff4d2b012d86a0e4c40abfbfff",
+    "originalBytesPreserved": true
+  },
+  "baselineInventory": {
+    "entities": [
+      {
+        "handle": "47",
+        "type": "VIEWPORT",
+        "owner": "44",
+        "layer": "0",
+        "geometry": "unsupported-type=ACadSharp.Entities.Viewport",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4A",
+        "type": "LINE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "start=0,0,0;end=100,0,0;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4B",
+        "type": "CIRCLE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=25,25,0;radius=10;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4C",
+        "type": "ARC",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=50,25,0;radius=12;startAngle=0.25;endAngle=2.5;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4D",
+        "type": "LWPOLYLINE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "closed=True;flags=Closed;elevation=0;normal=0,0,1;thickness=0;constantWidth=0;vertices=0,10:0:0:0/15,18:0:0:0/30,10:0:0:0/0,10:0:0:0",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4E",
+        "type": "TEXT",
+        "owner": "40",
+        "layer": "QA_TEXT",
+        "geometry": "insert=5,40,0;alignment=0,0,0;normal=0,0,1;height=2.5;rotation=0;horizontal=Left;vertical=Baseline;oblique=0;widthFactor=1;mirror=None;thickness=0;style=Standard",
+        "text": "SYNTHETIC QA TEXT",
+        "reference": "2D:Standard"
+      },
+      {
+        "handle": "52",
+        "type": "LINE",
+        "owner": "4F",
+        "layer": "QA_GEOMETRY",
+        "geometry": "start=0,0,0;end=8,0,0;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "53",
+        "type": "CIRCLE",
+        "owner": "4F",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=4,4,0;radius=2;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "54",
+        "type": "INSERT",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "block=QA_ORDINARY_BLOCK;insert=70,30,0;normal=0,0,1;scale=1.5,1.5,1;rotation=0.2;rows=1:0;columns=1:0;attributes=0",
+        "text": null,
+        "reference": "4F:QA_ORDINARY_BLOCK"
+      }
+    ],
+    "units": "Millimeters",
+    "version": "AC1024",
+    "layers": [
+      "3C|0",
+      "48|QA_GEOMETRY",
+      "49|QA_TEXT"
+    ],
+    "blocks": [
+      {
+        "handle": "40",
+        "name": "*Model_Space",
+        "layout": "Model",
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "4A",
+          "4B",
+          "4C",
+          "4D",
+          "4E",
+          "54"
+        ]
+      },
+      {
+        "handle": "44",
+        "name": "*Paper_Space",
+        "layout": "Layout1",
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "47"
+        ]
+      },
+      {
+        "handle": "4F",
+        "name": "QA_ORDINARY_BLOCK",
+        "layout": null,
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "52",
+          "53"
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "handle": "43",
+        "name": "Layout1",
+        "associatedBlock": "*Paper_Space"
+      },
+      {
+        "handle": "3F",
+        "name": "Model",
+        "associatedBlock": "*Model_Space"
+      }
+    ],
+    "textStyles": [
+      {
+        "handle": "2D",
+        "name": "Standard",
+        "fontFile": "",
+        "bigFontFile": ""
+      }
+    ],
+    "diagnostics": [
+      "unsupported inventory fields for VIEWPORT handle 47"
+    ]
+  },
+  "noEditInventory": {
+    "entities": [
+      {
+        "handle": "47",
+        "type": "VIEWPORT",
+        "owner": "44",
+        "layer": "0",
+        "geometry": "unsupported-type=ACadSharp.Entities.Viewport",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4A",
+        "type": "LINE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "start=0,0,0;end=100,0,0;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4B",
+        "type": "CIRCLE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=25,25,0;radius=10;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4C",
+        "type": "ARC",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=50,25,0;radius=12;startAngle=0.25;endAngle=2.5;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4D",
+        "type": "LWPOLYLINE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "closed=True;flags=Closed;elevation=0;normal=0,0,1;thickness=0;constantWidth=0;vertices=0,10:0:0:0/15,18:0:0:0/30,10:0:0:0/0,10:0:0:0",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4E",
+        "type": "TEXT",
+        "owner": "40",
+        "layer": "QA_TEXT",
+        "geometry": "insert=5,40,0;alignment=0,0,0;normal=0,0,1;height=2.5;rotation=0;horizontal=Left;vertical=Baseline;oblique=0;widthFactor=1;mirror=None;thickness=0;style=Standard",
+        "text": "SYNTHETIC QA TEXT",
+        "reference": "2D:Standard"
+      },
+      {
+        "handle": "52",
+        "type": "LINE",
+        "owner": "4F",
+        "layer": "QA_GEOMETRY",
+        "geometry": "start=0,0,0;end=8,0,0;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "53",
+        "type": "CIRCLE",
+        "owner": "4F",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=4,4,0;radius=2;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "54",
+        "type": "INSERT",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "block=QA_ORDINARY_BLOCK;insert=70,30,0;normal=0,0,1;scale=1.5,1.5,1;rotation=0.2;rows=1:0;columns=1:0;attributes=0",
+        "text": null,
+        "reference": "4F:QA_ORDINARY_BLOCK"
+      }
+    ],
+    "units": "Millimeters",
+    "version": "AC1024",
+    "layers": [
+      "3C|0",
+      "48|QA_GEOMETRY",
+      "49|QA_TEXT"
+    ],
+    "blocks": [
+      {
+        "handle": "40",
+        "name": "*Model_Space",
+        "layout": "Model",
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "4A",
+          "4B",
+          "4C",
+          "4D",
+          "4E",
+          "54"
+        ]
+      },
+      {
+        "handle": "44",
+        "name": "*Paper_Space",
+        "layout": "Layout1",
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "47"
+        ]
+      },
+      {
+        "handle": "4F",
+        "name": "QA_ORDINARY_BLOCK",
+        "layout": null,
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "52",
+          "53"
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "handle": "43",
+        "name": "Layout1",
+        "associatedBlock": "*Paper_Space"
+      },
+      {
+        "handle": "3F",
+        "name": "Model",
+        "associatedBlock": "*Model_Space"
+      }
+    ],
+    "textStyles": [
+      {
+        "handle": "2D",
+        "name": "Standard",
+        "fontFile": "",
+        "bigFontFile": ""
+      }
+    ],
+    "diagnostics": [
+      "unsupported inventory fields for VIEWPORT handle 47"
+    ]
+  },
+  "editedInventory": {
+    "entities": [
+      {
+        "handle": "47",
+        "type": "VIEWPORT",
+        "owner": "44",
+        "layer": "0",
+        "geometry": "unsupported-type=ACadSharp.Entities.Viewport",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4A",
+        "type": "LINE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "start=10,11,0;end=120,21,0;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4B",
+        "type": "CIRCLE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=12,14,0;radius=7;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4C",
+        "type": "ARC",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=45,30,0;radius=9;startAngle=5.235987755982989;endAngle=6.806784082777885;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4D",
+        "type": "LWPOLYLINE",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "closed=False;flags=Default;elevation=0;normal=0,0,1;thickness=0;constantWidth=0;vertices=1,12:0:0:0/16,20:0:0:0/31,12:0:0:0/1,12:0:0:0",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "4E",
+        "type": "TEXT",
+        "owner": "40",
+        "layer": "QA_TEXT",
+        "geometry": "insert=8,42,0;alignment=0,0,0;normal=0,0,1;height=3.25;rotation=0;horizontal=Left;vertical=Baseline;oblique=0;widthFactor=1;mirror=None;thickness=0;style=Standard",
+        "text": "\uC218\uC815\uB41C \uC2E4\uBA85",
+        "reference": "2D:Standard"
+      },
+      {
+        "handle": "52",
+        "type": "LINE",
+        "owner": "4F",
+        "layer": "QA_GEOMETRY",
+        "geometry": "start=0,0,0;end=8,0,0;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "53",
+        "type": "CIRCLE",
+        "owner": "4F",
+        "layer": "QA_GEOMETRY",
+        "geometry": "center=4,4,0;radius=2;thickness=0;normal=0,0,1",
+        "text": null,
+        "reference": null
+      },
+      {
+        "handle": "54",
+        "type": "INSERT",
+        "owner": "40",
+        "layer": "QA_GEOMETRY",
+        "geometry": "block=QA_ORDINARY_BLOCK;insert=70,30,0;normal=0,0,1;scale=1.5,1.5,1;rotation=0.2;rows=1:0;columns=1:0;attributes=0",
+        "text": null,
+        "reference": "4F:QA_ORDINARY_BLOCK"
+      }
+    ],
+    "units": "Millimeters",
+    "version": "AC1024",
+    "layers": [
+      "3C|0",
+      "48|QA_GEOMETRY",
+      "49|QA_TEXT"
+    ],
+    "blocks": [
+      {
+        "handle": "40",
+        "name": "*Model_Space",
+        "layout": "Model",
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "4A",
+          "4B",
+          "4C",
+          "4D",
+          "4E",
+          "54"
+        ]
+      },
+      {
+        "handle": "44",
+        "name": "*Paper_Space",
+        "layout": "Layout1",
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "47"
+        ]
+      },
+      {
+        "handle": "4F",
+        "name": "QA_ORDINARY_BLOCK",
+        "layout": null,
+        "units": "Unitless",
+        "flags": "None",
+        "externalReferencePath": null,
+        "entityHandles": [
+          "52",
+          "53"
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "handle": "43",
+        "name": "Layout1",
+        "associatedBlock": "*Paper_Space"
+      },
+      {
+        "handle": "3F",
+        "name": "Model",
+        "associatedBlock": "*Model_Space"
+      }
+    ],
+    "textStyles": [
+      {
+        "handle": "2D",
+        "name": "Standard",
+        "fontFile": "",
+        "bigFontFile": ""
+      }
+    ],
+    "diagnostics": [
+      "unsupported inventory fields for VIEWPORT handle 47"
+    ]
+  },
+  "noEditRoundTrip": {
+    "name": "no-edit",
+    "outputPath": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-geometry-resave/native-artifacts-final/wrapped-qualification/no-edit-roundtrip.dwg",
+    "outputSha256": "1ebeca975ac30f834f7643458a53bee07376c03e35b922a39871ac9ed3751927",
+    "beforeEntityCount": 9,
+    "afterEntityCount": 9,
+    "expectedEditedHandles": [],
+    "failures": [],
+    "diagnostics": [
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "unsupported inventory fields for VIEWPORT handle 47"
+    ]
+  },
+  "editedRoundTrip": {
+    "name": "selected-handle-edits",
+    "outputPath": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-geometry-resave/native-artifacts-final/wrapped-qualification/edited-roundtrip.dwg",
+    "outputSha256": "06a7aa7683cefb4fbcfab13dde5d03c3f8eba6426bee873180390233bd680468",
+    "beforeEntityCount": 9,
+    "afterEntityCount": 9,
+    "expectedEditedHandles": [
+      "4A",
+      "4B",
+      "4C",
+      "4D",
+      "4E"
+    ],
+    "failures": [],
+    "diagnostics": [
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "unsupported inventory fields for VIEWPORT handle 47",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "unsupported inventory fields for VIEWPORT handle 47"
+    ]
+  },
+  "editRequest": {
+    "sha256": "ac80e58c00d20055a3a3f70f60094d19a0e257ce00895e9b3a9accc522b09330",
+    "sourceSha256": "e6c1b7625f781d7cf1e36334a7e8389d3b0972ff4d2b012d86a0e4c40abfbfff",
+    "handles": [
+      "4A",
+      "4B",
+      "4C",
+      "4D",
+      "4E"
+    ]
+  },
+  "warnings": [
+    "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+    "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+    "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+    "reader: ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+    "unsupported inventory fields for VIEWPORT handle 47",
+    "Input provenance and edit request authorization are not authenticated by this internal CLI.",
+    "Synthetic ACadSharp-generated input is circular internal evidence only.",
+    "Independent CAD open/save/visual verification was not performed.",
+    "This run does not qualify production DWG re-save or customer delivery.",
+    "Common appearance, attributes, viewport/layout settings, and extended data are not fully inventoried.",
+    "External references are rejected and no referenced path or URL is followed."
+  ]
+}

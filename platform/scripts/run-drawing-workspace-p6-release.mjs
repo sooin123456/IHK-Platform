@@ -34,6 +34,7 @@ function exactLocalManifest() {
         "--test",
         "tests/drawing-quantity-lineage.test.mjs",
         "tests/drawing-quantity-lineage-server.test.mjs",
+        "tests/drawing-workspace-material-blank-specification.test.mjs",
         "tests/drawing-workspace-p6-database-contract.test.mjs",
         "tests/drawing-workspace-p6-route.test.mjs",
         "tests/verified-boq-v1-1.test.mjs",

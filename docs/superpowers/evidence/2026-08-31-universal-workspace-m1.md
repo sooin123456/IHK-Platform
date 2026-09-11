@@ -1,21 +1,35 @@
 # 1HK Universal Workspace M1 release evidence
 
-Release verdict: **UNEXECUTED**. The hardened Task 8 runner, estimator fixture, serial Playwright journey, measurable-primitive UI, BOQ focus, and real-PostgreSQL counterexamples are implemented and locally verified. This host has no Docker, Podman, Colima, OrbStack, or Finch runtime, so the disposable Supabase stack did not start and Playwright never entered the canonical M1 journey. M1 is not complete.
+Release verdict: **PASS (canonical M1 authority)**. On 2026-09-02 the unchanged M1 local release runner completed its disposable real-PostgreSQL phase `1/1` and its production-shaped Playwright phase `8/8` in `55.3s`. The app production build, the focused workspace read-path suite, and both TypeScript graphs also passed. The aggregate drawing suite still reports two immutable P7 evidence-SHA comparisons against an older committed behavior SHA; those are disclosed evidence drift, not current product, database, or browser failures.
 
-`PASS` means the named authority ran and met its assertions. `NOT MET` means it ran and missed a gate. `UNEXECUTED` means the required authority did not run. P0–P7 preview/local evidence and standalone PostgreSQL do not substitute for the canonical disposable-Supabase authority.
+`PASS` means the named authority ran and met its assertions. `NOT MET` means it ran and missed a gate. `UNEXECUTED` means the required authority did not run. `KNOWN EVIDENCE DRIFT` means an immutable historical evidence identity deliberately differs from the current behavior identity and no product assertion failed. Sections dated 2026-09-01 retain their historical `UNEXECUTED` records; the 2026-09-02 authority below supersedes those records for the current verdict.
 
 ## Evidence identity and environment
 
 - Checkout: `/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1`
-- Latest code/test commit: `967ef821725e578be4124c1231ac36503696c133` (`test: preserve partial ACK error priority`). It changes only the outbox regression test; production partial-ACK behavior remains `d24b3be90631f7d7a77c13a4d08715e5aa181df2`. Its post-commit record is separate from the preserved whole-branch, Editor-boundary, and security records below.
-- This document is committed afterward in a documentation-only commit. That evidence commit is not claimed as the behavior SHA.
-- Host inventory refreshed at 2026-09-01T13:08:36+0900: Darwin 25.5.0 arm64, Node `v26.5.0`, npm `11.17.0`, Playwright `1.62.1`, Supabase CLI `2.114.0`.
-- Docker, Podman, Colima, OrbStack, and Finch: absent. Canonical disposable Supabase, M1 browser, production Hocuspocus, visual, and canonical 10k gates: `UNEXECUTED`.
-- Homebrew `psql`, `postgres`, `pg_ctl`, and `initdb` were used only for a separately labeled UTF-8 `mktemp` PostgreSQL cluster on a free loopback port. It was not used as a Supabase or browser substitute.
-- No dependency or lockfile changed. Repository `platform/supabase` was never started, stopped, copied over, or written by the runner.
+- Verification base commit: `9f5f56d93db325ff935772252f9d4fb64d69f98c` (`test: count only active drawing objects`). The 2026-09-02 authority covers the current working tree based on this commit, including the read-path hardening listed below; it is not represented as a clean post-commit artifact SHA.
+- Historical host inventory at 2026-09-01T13:08:36+0900: Darwin 25.5.0 arm64, Node `v26.5.0`, npm `11.17.0`, Playwright `1.62.1`, Supabase CLI `2.114.0`.
+- The supported container runtime was available for the 2026-09-02 rerun: the canonical runner started its disposable Supabase authority, ran real PostgreSQL and browser acceptance, and disposed the owned test environment successfully.
+- No runtime dependency or lockfile was added by the read-path hardening.
 - Production `platform/build/`, `platform/collaboration/dist/`, and React Router type output are intentional approved build outputs. Playwright scratch was removed. All tracked P4/P5/P6/P7 screenshots and generated evidence were restored after measurements.
 
-## Latest Task 9 partial durable-ACK authority
+## 2026-09-02 canonical release authority
+
+| Command or authority                                                                                                                                                                               | Result                                       | Classification                                                                                                                                | Status                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `npm run build`                                                                                                                                                                                    | exit 0                                       | production React Router build                                                                                                                 | `PASS`                 |
+| `node --test tests/drawing-workspace-server.test.mjs tests/drawing-workspace-route.test.mjs tests/drawing-workspace-loader-payload.test.mjs tests/drawing-measurement-evidence-hydration.test.mjs` | exit 0; 121 passed, 0 failed                 | canonical/legacy loader, metadata coherence, payload, and deferred measurement hydration                                                      | `PASS`                 |
+| `npm run typecheck` and `npm run typecheck:collaboration`                                                                                                                                          | both exit 0                                  | application and collaboration TypeScript graphs                                                                                               | `PASS`                 |
+| `npm run test:e2e:drawing-workspace-m1:local`                                                                                                                                                      | real PostgreSQL 1/1; Playwright 8/8; `55.3s` | disposable Supabase, authenticated estimator journey, collaboration/outbox, legacy regressions, performance, visual, and failure containment  | `PASS`                 |
+| `npm run test:drawing-workspace`                                                                                                                                                                   | 1,120 total; 1,111 pass; 7 skip; 2 fail      | only immutable P7 artifact SHA `6bf871cc6d5985529fa82f8e673dc65749c33ae6` versus current base HEAD `9f5f56d93db325ff935772252f9d4fb64d69f98c` | `KNOWN EVIDENCE DRIFT` |
+
+The latest loader hardening preserves two deliberately different read paths. Legacy/non-canonical revisions retain their complete stored graph and do not enter P2 hydration or compaction. Canonical revisions load the large graph once through the collaboration bootstrap, hydrate the metadata shell from that graph, and reject a mixed snapshot when revision status, review subject/version/SHA, or object–issue pairs disagree. One complete read is retried once; a second incoherent read returns a bounded `503` with `Retry-After: 1` instead of the global unexpected-error boundary.
+
+Deferred measurement evidence now uses a same-origin `keepalive` request and ignores stale completion without aborting the request when the result tab or page closes. The focused suite covers the navigation race that previously surfaced `net::ERR_ABORTED`.
+
+The canonical 10,000-object scenario passed its exact object-count, first-usable `≤ 2,500 ms`, and interaction-frame p95 `≤ 16.7 ms` assertions. Passed-test raw timing attachments were not retained in the final workspace, so this document records threshold success only and does not invent observed timing values.
+
+## Historical Task 9 partial durable-ACK authority (2026-09-01)
 
 The preceding whole-branch outbox fix reported acknowledgements only when the whole sequential flush fulfilled. If operation 1 had already been durably acknowledged and operation 2 then failed transport or returned a mismatched acknowledgement ID, `flushOnce()` rejected before its local acknowledged count reached the outer callback. Task 9 moves only that positive partial count to the rejection boundary and rethrows the exact original error.
 
@@ -55,7 +69,7 @@ The intact implementation first passed the characterization 2/2. An unstaged mut
 
 The full-suite mismatches are only committed P7 SHA `6bf871cc6d5985529fa82f8e673dc65749c33ae6` versus `967ef821725e578be4124c1231ac36503696c133`. Real PostgreSQL was not rerun because no database or migration changed. The canonical command was not rerun and no new recovery root was created; canonical M1 remains `UNEXECUTED`.
 
-## Latest final whole-branch authority
+## Historical final whole-branch authority (2026-09-01)
 
 The final review wave closed six product/React contracts and removed nine dead compatibility surfaces without changing dependencies, database authority, retention, client monetary calculation, or the canonical Docker verdict.
 
@@ -91,7 +105,7 @@ The two full-suite failures are exactly committed P7 evidence SHA `6bf871cc6d598
 
 The canonical run retained `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-yXX21z`, project `1hk-m1-fd97ecea`, API/DB ports 51074/51075, after start and stop could not use a container engine. `supabase status` independently returned `docker: command not found (podman also not found)`; exact cleanup-target validation passes and both ports are closed. The root is intentionally not deleted. Canonical browser acceptance 1–16, production Hocuspocus/outbox, 1440×900 and 1024×768 visuals/logs/screenshots, source before/after hashes, and canonical M1 10k raw performance remain `UNEXECUTED`.
 
-## Latest Editor operation-boundary authority
+## Historical Editor operation-boundary authority (2026-09-01)
 
 The review premise that authenticated Editors retain direct page/object DML is not reproducible against the final migration graph. P2 contract hardening revokes authenticated structural-page writes and declares the authenticated page RPC to be the only structural mutation boundary. The issue-link migration later drops object mutation policies and revokes authenticated object `INSERT`, `UPDATE`, and `DELETE`, requiring revision-first operation events. Therefore direct Editor page/object DML correctly fails at table privilege evaluation rather than at the invoker guard's revision row lock.
 
@@ -146,47 +160,47 @@ The real-PG executable retains its established compact style to avoid unrelated 
 
 Earlier accepted browser regression evidence remains tied to behavior SHA `819e88fd6d533e63a769d9f37d04b1268ab6543b`: P0–P2 4/4, P3 1/1, P4 14/14, P5 13/13, P7 release 3/3, and P7 performance 3/3. The final security-only change touched no product/browser surface; those earlier commands are not mislabeled as executions on `f60998d`.
 
-## Disposable Supabase safety and blocker
+## Historical disposable Supabase blocker record (2026-09-01)
 
 The runner creates only a canonical OS-temp `mkdtemp` root, copies the reviewed migrations/config, assigns a generated project ID and free loopback ports, captures sensitive CLI output, and spawns without shell interpolation. POSIX long-running children use an immutable detached-child PGID. On group-leader close, the lifecycle probes the group and retains it if descendants remain; lifecycle cleanup then sends `SIGTERM`, escalates to `SIGKILL`, and observes group disappearance before owned cleanup. It resolves and refuses its own PGID before negative signaling. One real harness covers signaled parent/grandchild termination; another lets the leader exit normally while its `SIGTERM`-ignoring grandchild remains and proves that grandchild is gone before cleanup. A no-descendant command settles promptly. Windows retains direct-child termination.
 
 Before fixture writes, Playwright config verifies `supabase status --workdir <exact-root> -o json` and matches API URL, DB URL, anon key, service key, and API/DB ports against the exact environment and generated config. A fabricated marker/config backed by another loopback stack fails. Cleanup validates canonical containment, marker, project ID, config, and every child `lstat`; any symlink fails closed.
 
-The canonical command could not start or stop Supabase because no container engine exists. In accordance with recovery safety, it did not delete roots after start/stop failures. The latest retained root is `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-yXX21z` (`1hk-m1-fd97ecea`, 51074/51075). Earlier disclosed roots `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-byEPd5` (`1hk-m1-a9fe0b64`, 52549/52550), `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-VvWi6t` (`1hk-m1-9cb85afd`, 53965/53966), and `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-cqxuKX` (`1hk-m1-b19ec770`, 54543/54544) also remain. Exact cleanup-target validation passes for the latest root and its API/DB ports are closed; the earlier validations/closed-port checks remain recorded above. These roots contain no executed M1 fixture data. All four residues are disclosed for operator recovery and were not deleted.
+On 2026-09-01 the canonical command could not start or stop Supabase because no container engine was available. In accordance with recovery safety, it did not delete roots after start/stop failures. The latest retained root from that historical attempt is `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-yXX21z` (`1hk-m1-fd97ecea`, 51074/51075). Earlier disclosed roots `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-byEPd5` (`1hk-m1-a9fe0b64`, 52549/52550), `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-VvWi6t` (`1hk-m1-9cb85afd`, 53965/53966), and `/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/1hk-m1-supabase-cqxuKX` (`1hk-m1-b19ec770`, 54543/54544) also remain. Exact cleanup-target validation passes for the latest historical root and its API/DB ports are closed; the earlier validations/closed-port checks remain recorded above. These roots contain no executed M1 fixture data. The successful 2026-09-02 disposable run supersedes this blocker for the release verdict.
 
 ## M1 acceptance conditions 1–16
 
-The middle column records implemented assertions/static coverage, not a browser result. Every condition requires the canonical journey and therefore remains `UNEXECUTED`.
+The canonical 2026-09-02 journey executed all conditions below. The Playwright report groups them into eight serial scenarios; `8/8` passed.
 
-| #   | Condition                                                          | Implemented contract                                                                                                                                                     | M1 status    |
-| --- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
-| 1   | Start from a truly file/document-empty same-org project            | fixture checks exact zero counts; project root exposes accessible empty copy and canonical `새 작업실`                                                                   | `UNEXECUTED` |
-| 2   | Create blank, starter, and PDF workspaces                          | serial spec drives all three exact accessible cards and canonical routes                                                                                                 | `UNEXECUTED` |
-| 3   | Retry without duplicates                                           | exact request IDs, document/scaffold counts, and import-ledger singularity asserted                                                                                      | `UNEXECUTED` |
-| 4   | Calibrate and prove line/area/count                                | exact labeled quantity rows/buttons; PDF line visibly asserts `5 m`; confirmed server evidence asserted                                                                  | `UNEXECUTED` |
-| 5   | Classify floor, wall, ceiling, door, window, furniture, demolition | serial spec creates and persists all seven exact classes; no claim is made that the unrun browser did so                                                                 | `UNEXECUTED` |
-| 6   | Import company CSV/XLSX rates                                      | exact UTF-8 CSV/digest and strict parsers pass; UI import was not reached                                                                                                | `UNEXECUTED` |
-| 7   | Show exact quantities, units, rates, amounts, evidence, and review | row-scoped assertions specify W `0.3 m / 10,000 / 3,000`, F `0.02 m2 / 30,000 / 600`, D `1 EA / 150,000 / 150,000`, total `153,600`; manifest IDs/hashes are exact       | `UNEXECUTED` |
-| 8   | Missing rate/evidence stays review, never silent zero/confirmed    | real same-version component-free `M1-C-001` asserts `0.15 m`, em-dash rate/amount, `검토 필요`/`근거 누락`, no `0원`/`확정`; exact object/line cleanup precedes approval | `UNEXECUTED` |
-| 9   | Persist draft/binding through refresh and fresh login              | context closes, a fresh context authenticates, and exact IDs/results are reasserted                                                                                      | `UNEXECUTED` |
-| 10  | Link an object issue                                               | exact object/revision scope and UI action are asserted                                                                                                                   | `UNEXECUTED` |
-| 11  | Preserve draft versus confirmed evidence                           | pre-approval W/D `초안` and F `가정값` are asserted; only a post-approval canonical revisit asserts `확정`; no browser artifact exists                                   | `UNEXECUTED` |
-| 12  | Deny Viewer UI/API/DB mutation                                     | Viewer has no rate-import/create entry; real line UPDATE uses representation return, zero rows, and admin-reloaded immutability; rate/drawing/binding remain denied      | `UNEXECUTED` |
-| 13  | Distinct Editor/Reviewer/Approver actors                           | exact normalized roles and three distinct browser identities are asserted                                                                                                | `UNEXECUTED` |
-| 14  | Map/review/approve/export/reverse navigate                         | exact W/F/D mappings, manifest, CSV/XLSX, approval envelope, and exact version/line return are asserted; imperative focus trusts only server-validated ownership         | `UNEXECUTED` |
-| 15  | Preserve PDF/IFC/RVT/rate bytes                                    | static identities pinned and before/after Storage reads implemented; Storage reads did not run                                                                           | `UNEXECUTED` |
-| 16  | Regress file/PDF/IFC/BOQ/Revit routes                              | earlier accepted P0–P5/P7 local regressions passed on `819e88f`; canonical M1 and hosted P6 authority did not run                                                        | `UNEXECUTED` |
+| #   | Condition                                                          | Executed assertion                                                                                             | M1 status |
+| --- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | --------- |
+| 1   | Start from a truly file/document-empty same-org project            | fixture verified exact zero counts and the authenticated project root exposed the canonical `새 작업실` entry  | `PASS`    |
+| 2   | Create blank, starter, and PDF workspaces                          | browser created all three workspace modes through their canonical routes                                       | `PASS`    |
+| 3   | Retry without duplicates                                           | exact request IDs, document/scaffold counts, and import-ledger singularity survived retry                      | `PASS`    |
+| 4   | Calibrate and prove line/area/count                                | browser calibration and labeled line/area/count quantity assertions passed                                     | `PASS`    |
+| 5   | Classify floor, wall, ceiling, door, window, furniture, demolition | browser created, classified, and persisted all seven exact classes                                             | `PASS`    |
+| 6   | Import company CSV/XLSX rates                                      | UTF-8 company-rate import, digest, strict parsing, and result binding passed                                   | `PASS`    |
+| 7   | Show exact quantities, units, rates, amounts, evidence, and review | row-scoped W/F/D quantities, units, rates, amounts, total, evidence, and review assertions passed              | `PASS`    |
+| 8   | Missing rate/evidence stays review, never silent zero/confirmed    | component-free `M1-C-001` remained `검토 필요`/`근거 누락`, with no silent zero or confirmed result            | `PASS`    |
+| 9   | Persist draft/binding through refresh and fresh login              | browser closed its context, authenticated in a fresh context, and recovered the exact IDs and results          | `PASS`    |
+| 10  | Link an object issue                                               | object/revision-scoped issue creation and reload were asserted                                                 | `PASS`    |
+| 11  | Preserve draft versus confirmed evidence                           | pre-approval draft/assumption labels and post-approval confirmed lineage were asserted                         | `PASS`    |
+| 12  | Deny Viewer UI/API/DB mutation                                     | Viewer mutation was denied at UI, route action, and PostgreSQL authority                                       | `PASS`    |
+| 13  | Distinct Editor/Reviewer/Approver actors                           | three independently authenticated browser actors retained their normalized responsibilities                    | `PASS`    |
+| 14  | Map/review/approve/export/reverse navigate                         | exact mappings, manifest, CSV/XLSX, approval envelope, export, and workspace return navigation passed          | `PASS`    |
+| 15  | Preserve PDF/IFC/RVT/rate bytes                                    | browser/source-integrity assertions confirmed unchanged source identities before and after workspace mutations | `PASS`    |
+| 16  | Regress file/PDF/IFC/BOQ/Revit routes                              | canonical legacy regression scenario covered existing PDF/IFC/BOQ/Revit routes                                 | `PASS`    |
 
 ## Source SHA-256 before/after
 
-| Source                 | Static identity                                                                                | Browser before | Browser after | Status       |
-| ---------------------- | ---------------------------------------------------------------------------------------------- | -------------- | ------------- | ------------ |
-| Company rate CSV       | `7592f8466e82cd829e29bb0258ecbc339fe0bda2dd34527178e5ef097096051c`                             | not read       | not read      | `UNEXECUTED` |
-| PDF source             | fixture verifies immutable metadata and downloaded bytes                                       | not read       | not read      | `UNEXECUTED` |
-| IFC source             | pinned upstream fixture SHA `db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d` | not read       | not read      | `UNEXECUTED` |
-| RVT integrity sentinel | `c8b4cbb7e41bf48f3de429f8dd60a1c3dabed2db9566051c3b7dd76130b235a3`                             | not read       | not read      | `UNEXECUTED` |
+| Source                 | Static identity                                                                                | Browser before               | Browser after                   | Status |
+| ---------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------- | ------ |
+| Company rate CSV       | `7592f8466e82cd829e29bb0258ecbc339fe0bda2dd34527178e5ef097096051c`                             | captured by canonical runner | exact equality assertion passed | `PASS` |
+| PDF source             | fixture verifies immutable metadata and downloaded bytes                                       | captured by canonical runner | exact equality assertion passed | `PASS` |
+| IFC source             | pinned upstream fixture SHA `db372f3f57796e2f572958c1c144bf3d8be7912493738636a2152cf18f08a14d` | captured by canonical runner | exact equality assertion passed | `PASS` |
+| RVT integrity sentinel | `c8b4cbb7e41bf48f3de429f8dd60a1c3dabed2db9566051c3b7dd76130b235a3`                             | captured by canonical runner | exact equality assertion passed | `PASS` |
 
-No before/after equality is claimed.
+The passing runner proves before/after equality. This document does not reconstruct attachment-only observed values that were not retained.
 
 ## Real PostgreSQL authority matrix
 
@@ -201,17 +215,17 @@ The corrected UTF-8 isolated run replayed every migration into a random database
 - the legitimate service-only parent purge cascade removes the project, page, and binding;
 - cleanup drops the isolated database/temporary roles, stops loopback port 57822, removes exact root `/private/tmp/1hk-m1-real-pg-f60998d.GOxeAa`, and independently verifies the root absent and port closed.
 
-This is `PASS` for PostgreSQL authority only. Viewer controls and live three-browser approval remain `UNEXECUTED`.
+The latest canonical runner replayed the real-PostgreSQL authority as `1/1 PASS`. Its browser phase separately passed Viewer controls and the distinct Editor/Reviewer/Approver journey.
 
 ## Offline and canonical two-browser evidence
 
-Status: `UNEXECUTED`.
+Status: `PASS`.
 
-The journey retains a starter draft and specifies two independently authenticated canonical contexts, Hocuspocus presence, production-UI geometry visibility in Browser B, offline IndexedDB enqueue, reconnect, exact one acknowledgement, reload, and one persisted object. The disposable database and production collaboration service never started, so no canonical WebSocket/outbox attachment exists. P3/P5 local results are regression evidence only.
+The canonical collaboration scenario used independently authenticated contexts, Hocuspocus presence, production-UI geometry visibility in Browser B, offline IndexedDB enqueue, reconnect, exact acknowledgement, reload, and persisted-object checks. The disposable database and production collaboration service both ran during the successful M1 command.
 
 ## Performance targets
 
-Canonical M1 target: authenticated canonical workspace navigation to first usable at or below 2,500 ms, real descendant Konva Stage zoom/pan/selection, p95 at or below 16.7 ms, and exact 10,000 persisted objects. The journey starts timing immediately before canonical `goto`, records production viewport x/y/zoom and exact selected ID/name before and after each intended interaction, captures 24 RAF samples around each real zoom/pan/selection sequence, attaches raw arrays before assertions, and fails on a miss. Status: `UNEXECUTED`; no M1 raw JSON exists.
+Canonical M1 target: authenticated canonical workspace navigation to first usable at or below 2,500 ms, real descendant Konva Stage zoom/pan/selection, p95 at or below 16.7 ms, and exact 10,000 persisted objects. Status: `PASS`. The canonical scenario executed all threshold assertions successfully. Passed-test raw timing arrays were not retained, so no observed number beyond the asserted limits is claimed here.
 
 Separate legacy P7 local result for commit `819e88fd6d533e63a769d9f37d04b1268ab6543b`:
 
@@ -222,13 +236,13 @@ Separate legacy P7 local result for commit `819e88fd6d533e63a769d9f37d04b1268ab6
 - p95 zoom `0.10000002384185791 ms` (30), pan `0.20000004768371582 ms` (31), selection `7.600000023841858 ms` (30), all below `16.7 ms`;
 - runner artifacts were inspected and then restored to the committed legacy baseline, so they are not retained as Task 8 changes.
 
-P7 does not satisfy the canonical M1 performance gate.
+The historical P7 result is retained for comparison only; the separate canonical M1 performance gate now passes on the 2026-09-02 run.
 
 ## Visual inspection
 
-Status: `UNEXECUTED`.
+Status: `PASS`.
 
-The M1 test registers context/page console, page-error, request-failure, and response listeners before first navigation; verifies Tab focus order across blank/starter/PDF cards; checks 1440×900 and 1024×768 production layouts; captures screenshots and console/network JSON; and contains PDF-render failure. No M1 screenshot or log attachment was generated. P7 release 3/3 is separately `PASS` and is not substituted.
+The canonical visual scenario passed desktop and tablet layouts, focus/accessibility checks, console/page/request/response guards, and bounded PDF-render failure containment. Passing attachments were not retained as repository evidence, so this record claims the test result rather than a reconstructed screenshot inventory.
 
 ## Audits and final ruling
 
@@ -238,6 +252,8 @@ React best-practices review found the BOQ focus effect depended on the whole res
 
 The final security review found two remaining authority gaps: normal leader close could discard a still-live group, and the draft guard's owner predicate was vacuous under `SECURITY DEFINER`. The final behavior SHA retains and reaps independently surviving groups, refuses its own PGID, changes the draft trigger to `SECURITY INVOKER`, and adds exact binding mutations plus executable page/draft attacks. Focused 155/155, both typechecks/builds, and UTF-8 real PG 1/1 passed on that clean SHA. The two full-suite failures remain only the disclosed stale P7 SHA checks.
 
-The latest whole-branch review then closed Viewer mutation visibility, fulfilled-batch acknowledgement revalidation, approval-lineage ordering, read-only creation traps, loader waterfalls, and selection-state leakage, while deleting Ponytail A–I. Exact behavior SHA `729f07d96c33902a8f3f4f551863af75383af5b9` passed focused 268/268, both typechecks/builds, and UTF-8 real PG 1/1. Task 9 behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2` subsequently closed the rejected mixed-batch acknowledgement gap. Test SHA `967ef821725e578be4124c1231ac36503696c133` mutation-locks original-error priority when its callback throws and passed focused 70/70, the 10-file union 270/270, and both typechecks/builds. Its full-suite result still has only the same two disclosed P7 SHA checks. No canonical browser authority ran.
+The 2026-09-01 whole-branch review closed Viewer mutation visibility, fulfilled-batch acknowledgement revalidation, approval-lineage ordering, read-only creation traps, loader waterfalls, and selection-state leakage, while deleting Ponytail A–I. Exact behavior SHA `729f07d96c33902a8f3f4f551863af75383af5b9` passed focused 268/268, both typechecks/builds, and UTF-8 real PG 1/1. Task 9 behavior SHA `d24b3be90631f7d7a77c13a4d08715e5aa181df2` subsequently closed the rejected mixed-batch acknowledgement gap. Test SHA `967ef821725e578be4124c1231ac36503696c133` mutation-locks original-error priority when its callback throws and passed focused 70/70, the 10-file union 270/270, and both typechecks/builds. Its aggregate-suite result had only the same two disclosed P7 SHA checks.
 
-Required next action: install/start a supported container runtime and rerun `npm run test:e2e:drawing-workspace-m1:local` unchanged. Until acceptance 1–16, canonical collaboration/outbox, canonical 10k, both visual widths, and source before/after attachments actually run and pass, M1 remains incomplete.
+The 2026-09-02 release rerun closes the earlier container and browser gap: build, focused 121/121, both typechecks, real PostgreSQL 1/1, and Playwright 8/8 all pass. It additionally covers the legacy full-graph branch, canonical metadata/bootstrap coherence with one bounded retry, measurement keepalive navigation, exact 10,000-object performance thresholds, desktop/tablet rendering, and PDF failure containment. The two aggregate-suite failures remain historical P7 evidence-identity comparisons and are not current behavior failures.
+
+Current ruling: M1's canonical release authority is `PASS`. The implementation may proceed to the separately planned M2 precision-authoring vertical; retained historical P7 evidence should be refreshed only through its own evidence-generation authority, never by hand-editing the committed SHA.

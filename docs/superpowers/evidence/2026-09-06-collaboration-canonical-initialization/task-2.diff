@@ -1,0 +1,2462 @@
+# Exact dirty-worktree delta; HEAD is unchanged, no commits
+
+## platform/collaboration/src/storage.ts
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline/platform/collaboration/src/storage.ts b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/collaboration/src/storage.ts
+index 228631a..026700b 100644
+--- a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline/platform/collaboration/src/storage.ts
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/collaboration/src/storage.ts
+@@ -2,71 +2,82 @@ import postgres from "postgres";
+ import * as Y from "yjs";
+ 
+ import type { DrawingRoomAuthorization } from "./auth.ts";
+ import type { DrawingFreezeDatabase, DrawingFreezeState } from "./freeze.ts";
+ 
+ export type DrawingStorageScope = {
+   userId: string;
+   projectId: string;
+   revisionId: string;
+ };
+ export type DrawingServiceStorageScope = Omit<DrawingStorageScope, "userId">;
+ export type DrawingStoredState = {
+   yjsState: Uint8Array;
+   generation: number;
+   sha256: string;
+   baseOperationSequence: number;
+   freezeState?: DrawingFreezeState["state"];
+   freezeRequestId?: string | null;
+ };
+ export type DrawingStoreInput = DrawingStorageScope & {
+   state: Uint8Array;
+   baseOperationSequence: number;
+   expectedGeneration: number;
+   expectedSha256: string | null;
+ };
++export type DrawingInitializeInput = DrawingStorageScope & {
++  state: Uint8Array;
++  baseOperationSequence: number;
++  baseSnapshotSha256: string;
++};
+ export type DrawingAcceptedOperation = {
+   revisionId: string;
+   clientOperationId: string;
+   actorId: string;
+   operationType: string;
+   baseVersions: Record<string, number>;
+   forward: unknown;
+   inverse: unknown;
+   historyAction: "undo" | "redo" | null;
+   originalOperationId: string | null;
+   sequence: number;
+   resultVersions: Record<string, number | null>;
+ };
+ 
+ export type DrawingCollaborationDatabase = {
+   authorize?: (
+     userId: string,
+     projectId: string,
+     revisionId: string,
+   ) => Promise<DrawingRoomAuthorization>;
+   load: (scope: DrawingStorageScope) => Promise<DrawingStoredState | null>;
++  initializeState?: (
++    input: DrawingInitializeInput,
++  ) => Promise<DrawingStoredState>;
++  initializeServiceState?: (
++    input: Omit<DrawingInitializeInput, "userId">,
++  ) => Promise<DrawingStoredState>;
+   store: (
+     input: DrawingStoreInput,
+   ) => Promise<{ generation: number; sha256: string }>;
+   loadService?: (
+     scope: DrawingServiceStorageScope,
+   ) => Promise<DrawingStoredState | null>;
+   storeService?: (
+     input: Omit<DrawingStoreInput, "userId">,
+   ) => Promise<{ generation: number; sha256: string }>;
+   bootstrap?: (scope: DrawingStorageScope) => Promise<unknown>;
+   bootstrapService?: (scope: DrawingServiceStorageScope) => Promise<unknown>;
+   lookupOperations?: (
+     revisionId: string,
+     operationIds: string[],
+   ) => Promise<DrawingAcceptedOperation[]>;
+   nativeOperations?: (
+     scope: DrawingServiceStorageScope,
+     afterSequence: number,
+   ) => Promise<DrawingAcceptedOperation[]>;
+   freeze?: DrawingFreezeDatabase;
+   health?: () => Promise<boolean>;
+   close?: () => Promise<void>;
+ };
+ 
+ const transientCodes = new Set([
+@@ -112,63 +123,88 @@ export function createDrawingCollaborationStorage(input: {
+ }) {
+   const tokens = new Map<
+     string,
+     { generation: number; sha256: string | null }
+   >();
+   const sleep =
+     input.sleep ??
+     ((milliseconds) =>
+       new Promise((resolve) => setTimeout(resolve, milliseconds)));
+   const key = (scope: DrawingServiceStorageScope, userId: string | null) =>
+     `${userId ?? "service"}:${scope.projectId}:${scope.revisionId}`;
+ 
+   async function loadWith(
+     scope: DrawingStorageScope | DrawingServiceStorageScope,
+     service: boolean,
+   ) {
+     if (service && !input.database.loadService)
+       throw new Error("Drawing collaboration service load is unavailable.");
+     const state = await retry(
+       () =>
+         service
+           ? input.database.loadService!(scope)
+           : input.database.load(scope as DrawingStorageScope),
+       sleep,
+     );
++    if (state) input.validateState?.(state.yjsState, scope);
+     const userId = service ? null : (scope as DrawingStorageScope).userId;
+     tokens.set(
+       key(scope, userId),
+       state
+         ? { generation: state.generation, sha256: state.sha256 }
+         : { generation: 0, sha256: null },
+     );
+     return state;
+   }
+   const load = (scope: DrawingStorageScope) => loadWith(scope, false);
+   const loadService = (scope: DrawingServiceStorageScope) =>
+     loadWith(scope, true);
+ 
++  async function initializeWith(
++    value: DrawingInitializeInput | Omit<DrawingInitializeInput, "userId">,
++    service: boolean,
++  ) {
++    const initialize = service
++      ? input.database.initializeServiceState
++      : input.database.initializeState;
++    if (!initialize)
++      throw new Error(
++        "Drawing collaboration canonical initialization is unavailable.",
++      );
++    input.validateState?.(value.state, value);
++    const winner = await retry(
++      () => initialize(value as DrawingInitializeInput),
++      sleep,
++    );
++    input.validateState?.(winner.yjsState, value);
++    const token = { generation: winner.generation, sha256: winner.sha256 };
++    tokens.set(key(value, null), token);
++    if (!service)
++      tokens.set(key(value, (value as DrawingInitializeInput).userId), token);
++    return winner;
++  }
++
+   async function storeWith(
+     value: (DrawingStorageScope | DrawingServiceStorageScope) & {
+       state: Uint8Array;
+       baseOperationSequence: number;
+     },
+     service: boolean,
+   ) {
+     if (service && !input.database.storeService)
+       throw new Error("Drawing collaboration service store is unavailable.");
+     let state = value.state;
+     const userId = service ? null : (value as DrawingStorageScope).userId;
+     let token = tokens.get(key(value, userId)) ?? {
+       generation: 0,
+       sha256: null,
+     };
+     for (let casAttempt = 0; ; casAttempt += 1) {
+       try {
+         const stored = await retry(() => {
+           const payload = {
+             ...value,
+             state,
+             expectedGeneration: token.generation,
+             expectedSha256: token.sha256,
+           };
+           return service
+@@ -209,94 +245,131 @@ export function createDrawingCollaborationStorage(input: {
+         value = { ...value, baseOperationSequence };
+         if (!input.validateState) throw error;
+         input.validateState(state, value);
+         token = { generation: current.generation, sha256: current.sha256 };
+       }
+     }
+   }
+   const store = (
+     value: DrawingStorageScope & {
+       state: Uint8Array;
+       baseOperationSequence: number;
+     },
+   ) => storeWith(value, false);
+   const storeService = (
+     value: DrawingServiceStorageScope & {
+       state: Uint8Array;
+       baseOperationSequence: number;
+     },
+   ) => storeWith(value, true);
+ 
+   return {
+     load,
+     store,
+     loadService,
+     storeService,
++    initializeState: (value: DrawingInitializeInput) =>
++      initializeWith(value, false),
++    initializeServiceState: (value: Omit<DrawingInitializeInput, "userId">) =>
++      initializeWith(value, true),
+     authorize: input.database.authorize,
+     bootstrap: input.database.bootstrap,
+     bootstrapService: input.database.bootstrapService,
+     lookupOperations: input.database.lookupOperations
+       ? (revisionId: string, operationIds: string[]) =>
+           retry(
+             () => input.database.lookupOperations!(revisionId, operationIds),
+             sleep,
+           )
+       : undefined,
+     nativeOperations: input.database.nativeOperations
+       ? (scope: DrawingServiceStorageScope, afterSequence: number) =>
+           retry(
+             () => input.database.nativeOperations!(scope, afterSequence),
+             sleep,
+           )
+       : undefined,
+     freeze: input.database.freeze,
+     health: input.database.health,
+     close: input.database.close,
+   };
+ }
+ 
+ function firstRow<T>(rows: readonly T[]): T | null {
+   return rows[0] ?? null;
+ }
+ 
+ export function createPostgresDrawingCollaborationDatabase(
+   databaseUrl: string,
+ ): DrawingCollaborationDatabase {
+   const sql = postgres(databaseUrl, {
+     max: 10,
+     onnotice: () => {},
+     transform: { undefined: null },
+   });
+   const inRole = <T>(
+     action: (transaction: postgres.TransactionSql) => Promise<T>,
+   ) =>
+     sql.begin(async (transaction) => {
+       await transaction.unsafe("set local role lukas_drawing_collaboration");
+       return action(transaction);
+     });
+ 
++  const initialize = (
++    value: DrawingInitializeInput | Omit<DrawingInitializeInput, "userId">,
++    service: boolean,
++  ) =>
++    inRole(async (tx) => {
++      const rows = service
++        ? await tx`select * from private.lukas_drawing_collaboration_service_initialize_state(
++          ${value.projectId}::uuid,${value.revisionId}::uuid,
++          ${Buffer.from(value.state)}::bytea,${value.baseOperationSequence}::bigint,
++          ${value.baseSnapshotSha256}::text
++        )`
++        : await tx`select * from private.lukas_drawing_collaboration_initialize_state(
++          ${(value as DrawingInitializeInput).userId}::uuid,${value.projectId}::uuid,${value.revisionId}::uuid,
++          ${Buffer.from(value.state)}::bytea,${value.baseOperationSequence}::bigint,
++          ${value.baseSnapshotSha256}::text
++        )`;
++      const row = firstRow(rows);
++      if (!row)
++        throw new Error(
++          "Drawing collaboration initialization returned no state.",
++        );
++      return {
++        yjsState: new Uint8Array(row.yjs_state),
++        generation: Number(row.store_generation),
++        sha256: row.yjs_sha256 as string,
++        baseOperationSequence: Number(row.base_operation_sequence),
++        freezeState: row.freeze_state as DrawingFreezeState["state"],
++        freezeRequestId: row.freeze_request_id as string | null,
++      };
++    });
++
+   return {
++    initializeState: (value) => initialize(value, false),
++    initializeServiceState: (value) => initialize(value, true),
+     authorize: (userId, projectId, revisionId) =>
+       inRole(async (tx) => {
+         const row = firstRow(
+           await tx<
+             {
+               capability: string;
+               can_write: boolean;
+               revision_status: string;
+             }[]
+           >`select * from private.lukas_drawing_collaboration_authorize(${userId}::uuid,${projectId}::uuid,${revisionId}::uuid)`,
+         );
+         if (!row)
+           throw new Error("Drawing collaboration target is unavailable.");
+         return {
+           capability: row.capability,
+           canWrite: row.can_write,
+           revisionStatus: row.revision_status,
+         };
+       }),
+     load: (scope) =>
+       inRole(async (tx) => {
+         const row = firstRow(
+           await tx<
+             {
+               yjs_state: Uint8Array;
+
+## platform/collaboration/src/server.ts
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline/platform/collaboration/src/server.ts b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/collaboration/src/server.ts
+index 6b4cc94..74f9fff 100644
+--- a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline/platform/collaboration/src/server.ts
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/collaboration/src/server.ts
+@@ -27,50 +27,52 @@ import {
+   resolveDrawingCollaborationOperation,
+   type DrawingCollaborationOperation,
+   validateDrawingCollaborationAppend,
+ } from "../../app/lukas/lib/drawing-collaboration-protocol.ts";
+ import {
+   appendDrawingCollaborationOperation,
+   readDrawingCollaborationLedger,
+ } from "../../app/lukas/lib/drawing-collaboration-yjs.ts";
+ import {
+   authorizeDrawingRoom,
+   createDrawingAccessTokenVerifier,
+   type DrawingConnectionContext,
+   type DrawingRoomAuthorization,
+   type VerifiedDrawingUser,
+ } from "./auth.ts";
+ import {
+   parseDrawingCollaborationConfig,
+   type DrawingCollaborationConfig,
+ } from "./config.ts";
+ import {
+   createDrawingCollaborationStorage,
+   createPostgresDrawingCollaborationDatabase,
+   type DrawingAcceptedOperation,
+   type DrawingCollaborationDatabase,
+   type DrawingStorageScope,
++  type DrawingServiceStorageScope,
++  type DrawingStoredState,
+ } from "./storage.ts";
+ import {
+   createDrawingFreezeCoordinator,
+   createDrawingFreezeSecretVerifier,
+   reconcileDrawingFreezeMetadata,
+ } from "./freeze.ts";
+ 
+ type CollaborationStorage = ReturnType<
+   typeof createDrawingCollaborationStorage
+ >;
+ type DrawingRuntimeContext = DrawingConnectionContext & {
+   serviceAuthority?: boolean;
+ };
+ type TrackedConnection = {
+   context: DrawingRuntimeContext;
+   readOnly: boolean;
+   close: (event?: { code: number; reason: string }) => void;
+   requestToken?: () => void;
+   document?: {
+     awareness: Awareness;
+     getClients: (connection: any) => Set<any>;
+   };
+ };
+ 
+ class OutcomeReceiptAuthenticationError extends Error {}
+@@ -220,52 +222,52 @@ function validateLedgerWithoutAppend(document: Y.Doc, roomName: string) {
+   if (meta.projectId !== room.projectId || meta.revisionId !== room.revisionId)
+     throw new Error("Drawing document scope does not match its room.");
+   DrawingCollaborationClientAppendSchema.parse({
+     operationOrder: value.ledger.operationOrder,
+     operations: value.ledger.operations,
+   });
+   validateDrawingHistoryLedger(
+     value.ledger.operationOrder,
+     value.ledger.operations,
+   );
+   for (const [operationId, status] of Object.entries(value.operationStatus)) {
+     if (!(operationId in value.ledger.operations))
+       throw new Error("Drawing status must reference an operation.");
+     DrawingCollaborationStatusSchema.parse(status);
+   }
+   const encoded = Y.encodeStateAsUpdate(document);
+   if (encoded.byteLength > 8 * 1024 * 1024)
+     throw new Error("Drawing collaboration document is too large.");
+ }
+ 
+ export function validatePersistedDrawingState(
+   state: Uint8Array,
+   scope: Pick<DrawingStorageScope, "projectId" | "revisionId">,
+ ) {
+   const document = new Y.Doc();
+-  Y.applyUpdate(document, state, DRAWING_COLLABORATION_SERVER_ORIGIN);
+   try {
++    Y.applyUpdate(document, state, DRAWING_COLLABORATION_SERVER_ORIGIN);
+     ensureDrawingCollections(document);
+     validateLedgerWithoutAppend(
+       document,
+       `drawing:${scope.projectId}:${scope.revisionId}`,
+     );
+   } finally {
+     document.destroy();
+   }
+ }
+ 
+ export async function initializeDrawingCollaborationDocument(
+   document: Y.Doc,
+   input: {
+     projectId: string;
+     revisionId: string;
+     bootstrap: () => Promise<unknown>;
+   },
+ ) {
+   if (document.share.size) return document;
+   const bootstrap = z
+     .object({
+       sha256: z.string().regex(/^[0-9a-f]{64}$/),
+       operationSequence: z.number().int().nonnegative(),
+       recentOutcomes: z.array(BootstrapOutcomeSchema).max(256).optional(),
+       historyOutcomes: z.array(BootstrapOutcomeSchema).max(10_000).optional(),
+@@ -695,50 +697,52 @@ export async function reconcileNativeDrawingOperations(
+       );
+       document.transact(
+         () => Y.applyUpdate(document, update),
+         DRAWING_COLLABORATION_SERVER_ORIGIN,
+       );
+     }
+     return changed;
+   } finally {
+     candidate.destroy();
+   }
+ }
+ 
+ type Dependencies = {
+   config: DrawingCollaborationConfig;
+   verifyToken: (token: string) => Promise<VerifiedDrawingUser>;
+   authorize: (
+     userId: string,
+     projectId: string,
+     revisionId: string,
+   ) => Promise<DrawingRoomAuthorization | null>;
+   storage: Pick<
+     CollaborationStorage,
+     | "load"
+     | "store"
+     | "loadService"
++    | "initializeState"
++    | "initializeServiceState"
+     | "storeService"
+     | "bootstrap"
+     | "bootstrapService"
+     | "lookupOperations"
+     | "nativeOperations"
+     | "freeze"
+     | "health"
+     | "close"
+   >;
+   preflightAuth?: () => Promise<void>;
+   purgeAuth?: () => void;
+   now?: () => number;
+   setInterval?: typeof globalThis.setInterval;
+   clearInterval?: typeof globalThis.clearInterval;
+   flush?: () => Promise<void>;
+   destroy?: () => Promise<void>;
+ };
+ 
+ export function createDrawingCollaborationServer(dependencies: Dependencies) {
+   const now = dependencies.now ?? Date.now;
+   const connections = new Set<TrackedConnection>();
+   let live = true;
+   let authReady = !dependencies.preflightAuth;
+   let started = false;
+   let requestHandlerInstalled = false;
+@@ -944,50 +948,189 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
+             );
+           if (!dependencies.storage.lookupOperations) return;
+           const revisionId = String(
+             document.getMap("serverMeta").get("revisionId"),
+           );
+           await reconcileAcceptedDrawingOperations(document, (ids) =>
+             dependencies.storage.lookupOperations!(revisionId, ids),
+           );
+         },
+       })
+     : null;
+   const reconcileLoadedDocument = async (document: Y.Doc, roomName: string) => {
+     const preparing = preparingFreezeRequests.get(roomName);
+     if (preparing) {
+       reconcileDrawingFreezeMetadata(document, "freezing", preparing.requestId);
+       return {
+         freezeState: "freezing" as const,
+         freezeRequestId: preparing.requestId,
+       };
+     }
+     return (
+       (await freezeCoordinator?.reconcileLoaded({ document, roomName })) ?? null
+     );
+   };
+ 
++  function documentFromStored(
++    stored: DrawingStoredState,
++    scope: DrawingServiceStorageScope,
++  ) {
++    const document = new Y.Doc();
++    try {
++      Y.applyUpdate(
++        document,
++        stored.yjsState,
++        DRAWING_COLLABORATION_SERVER_ORIGIN,
++      );
++      ensureDrawingCollections(document);
++      validateLedgerWithoutAppend(
++        document,
++        `drawing:${scope.projectId}:${scope.revisionId}`,
++      );
++      return document;
++    } catch (error) {
++      document.destroy();
++      throw error;
++    }
++  }
++
++  async function loadCanonicalDocument(
++    scope: DrawingStorageScope | DrawingServiceStorageScope,
++    service: boolean,
++  ) {
++    for (let attempt = 0; attempt < 3; attempt += 1) {
++      const stored = service
++        ? await dependencies.storage.loadService(scope)
++        : await dependencies.storage.load(scope as DrawingStorageScope);
++      if (stored) return documentFromStored(stored, scope);
++      const bootstrap = service
++        ? dependencies.storage.bootstrapService
++        : dependencies.storage.bootstrap;
++      const initialize = service
++        ? dependencies.storage.initializeServiceState
++        : dependencies.storage.initializeState;
++      if (!bootstrap || !initialize)
++        throw new Error(
++          "Drawing collaboration canonical initialization is unavailable.",
++        );
++      const candidate = new Y.Doc();
++      try {
++        await initializeDrawingCollaborationDocument(candidate, {
++          ...scope,
++          bootstrap: () => bootstrap(scope as DrawingStorageScope),
++        });
++        const meta = DrawingCollaborationMetaSchema.parse(
++          candidate.getMap("serverMeta").toJSON(),
++        );
++        const winner = await initialize({
++          ...(scope as DrawingStorageScope),
++          state: Y.encodeStateAsUpdate(candidate),
++          baseOperationSequence: meta.baseOperationSequence,
++          baseSnapshotSha256: meta.baseSnapshotSha256,
++        });
++        return documentFromStored(winner, scope);
++      } catch (error) {
++        if (
++          attempt === 2 ||
++          !error ||
++          typeof error !== "object" ||
++          !("code" in error) ||
++          error.code !== "P3S04"
++        )
++          throw error;
++      } finally {
++        candidate.destroy();
++      }
++    }
++    throw new Error(
++      "Drawing collaboration canonical initialization exhausted.",
++    );
++  }
++
++  function reconciliationRetry() {
++    return Object.assign(
++      new Error(
++        "Drawing collaboration reconciliation is not durable; retry admission.",
++      ),
++      {
++        code: "DRAWING_RECONCILIATION_RETRY",
++        retryable: true,
++      },
++    );
++  }
++
++  async function loadDurableAdmission(
++    scope: DrawingStorageScope,
++    roomName: string,
++  ) {
++    for (let attempt = 0; attempt < 3; attempt += 1) {
++      const document = await loadCanonicalDocument(scope, false);
++      try {
++        const before = Y.encodeStateAsUpdate(document);
++        await reconcileLoadedDocument(document, roomName);
++        validateLedgerWithoutAppend(document, roomName);
++        const reconciled = Y.encodeStateAsUpdate(document);
++        let stored = await dependencies.storage.load(scope);
++        if (!stored) throw reconciliationRetry();
++        let durable = documentFromStored(stored, scope);
++        try {
++          if (same(reconciled, Y.encodeStateAsUpdate(durable)))
++            return reconciled;
++          // Concurrent durable movement requires reconciliation from its new origin.
++          if (!same(before, Y.encodeStateAsUpdate(durable))) continue;
++          const meta = DrawingCollaborationMetaSchema.parse(
++            document.getMap("serverMeta").toJSON(),
++          );
++          if (meta.freezeState !== "active") throw reconciliationRetry();
++          // Only the guarded service store can persist an active metadata correction.
++          // Load its CAS token and ensure it still represents this exact starting state.
++          stored = await dependencies.storage.loadService(scope);
++          if (!stored) throw reconciliationRetry();
++          durable.destroy();
++          durable = documentFromStored(stored, scope);
++          if (!same(before, Y.encodeStateAsUpdate(durable))) continue;
++          await hooks.store({
++            document,
++            roomName,
++            context: persistenceContext(document),
++          });
++          stored = await dependencies.storage.load(scope);
++          if (!stored) throw reconciliationRetry();
++          durable.destroy();
++          durable = documentFromStored(stored, scope);
++          const corrected = Y.encodeStateAsUpdate(document);
++          if (same(corrected, Y.encodeStateAsUpdate(durable))) return corrected;
++        } finally {
++          durable.destroy();
++        }
++      } finally {
++        document.destroy();
++      }
++    }
++    throw reconciliationRetry();
++  }
++
+   const server = new Server<DrawingRuntimeContext>({
+     port: dependencies.config.port,
+     stopOnSignals: false,
+     quiet: true,
+     debounce: dependencies.config.debounceMs,
+     maxDebounce: dependencies.config.maxDebounceMs,
+     unloadImmediately: false,
+     maxUnauthenticatedQueueSize: 1024 * 1024,
+     maxUnauthenticatedQueueMessages: 100,
+     maxPendingDocuments: 4,
+     async onAuthenticate(payload) {
+       const context = await hooks.authenticate({
+         token: payload.token,
+         origin: payload.requestHeaders.get("origin"),
+         roomName: payload.documentName,
+       });
+       payload.connectionConfig.readOnly = !context.canWrite;
+       return context;
+     },
+     async onTokenSync(payload) {
+       const couldWrite = payload.context.canWrite;
+       const context = await hooks.tokenSync({
+         token: payload.token,
+         origin: payload.requestHeaders.get("origin"),
+         roomName: payload.documentName,
+@@ -1010,71 +1153,60 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
+         connections.delete(payload.connection);
+       });
+     },
+     beforeSync(payload) {
+       return hooks.beforeSync({
+         context: payload.context,
+         document: payload.document,
+         connection: payload.connection,
+         type: payload.type,
+         payload: payload.payload,
+       });
+     },
+     beforeHandleAwareness(payload) {
+       if (!payload.context)
+         throw new Error("Authenticated Awareness context is required.");
+       return hooks.beforeAwareness({
+         context: payload.context,
+         states: payload.states,
+         connection: payload.connection,
+         awareness: payload.awareness,
+         origin: payload.transactionOrigin,
+         document: payload.document,
+       });
+     },
+     async onLoadDocument(payload) {
+-      const scope = payload.context;
+-      const stored = await dependencies.storage.load(scope);
+-      if (stored) {
+-        Y.applyUpdate(
+-          payload.document,
+-          stored.yjsState,
+-          DRAWING_COLLABORATION_SERVER_ORIGIN,
+-        );
+-        ensureDrawingCollections(payload.document);
+-        validateLedgerWithoutAppend(payload.document, payload.documentName);
+-      } else {
+-        if (!dependencies.storage.bootstrap)
+-          throw new Error("Drawing collaboration bootstrap is unavailable.");
+-        await initializeDrawingCollaborationDocument(payload.document, {
+-          projectId: scope.projectId,
+-          revisionId: scope.revisionId,
+-          bootstrap: () => dependencies.storage.bootstrap!(scope),
+-        });
+-      }
+-      await reconcileLoadedDocument(payload.document, payload.documentName);
+-      validateLedgerWithoutAppend(payload.document, payload.documentName);
++      const state = await loadDurableAdmission(
++        payload.context,
++        payload.documentName,
++      );
++      Y.applyUpdate(
++        payload.document,
++        state,
++        DRAWING_COLLABORATION_SERVER_ORIGIN,
++      );
++      ensureDrawingCollections(payload.document);
+       return payload.document;
+     },
+     async onStoreDocument(payload) {
+       if (
+         payload.lastTransactionOrigin === DRAWING_COLLABORATION_SERVER_ORIGIN
+       ) {
+         let meta = DrawingCollaborationMetaSchema.parse(
+           payload.document.getMap("serverMeta").toJSON(),
+         );
+         if (["freezing", "frozen"].includes(meta.freezeState)) {
+           let sharedError: unknown = null;
+           const shared = meta.freezeRequestId
+             ? freezeCoordinator?.shareOwner({
+                 roomName: payload.documentName,
+                 requestId: meta.freezeRequestId,
+               })
+             : null;
+           if (shared)
+             try {
+               await shared;
+             } catch (error) {
+               sharedError = error;
+             }
+           meta = DrawingCollaborationMetaSchema.parse(
+             payload.document.getMap("serverMeta").toJSON(),
+@@ -1087,70 +1219,51 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
+         if (meta.freezeState === "released") return;
+         await hooks.store({
+           document: payload.document,
+           roomName: payload.documentName,
+           context: persistenceContext(payload.document),
+         });
+         return;
+       }
+       await hooks.store({
+         document: payload.document,
+         roomName: payload.documentName,
+         context: payload.lastContext,
+       });
+     },
+   });
+   const hocuspocus = server.hocuspocus;
+ 
+   const verifyFreezeSecret = dependencies.config.freezeSecret
+     ? createDrawingFreezeSecretVerifier(dependencies.config.freezeSecret)
+     : null;
+ 
+   async function loadServiceDocument(roomName: string) {
+     const room = parseDrawingRoomName(roomName);
+     const loaded = hocuspocus.documents.get(roomName);
+     if (loaded) return { document: loaded, detached: false };
+-    const document = new Y.Doc();
+-    const stored = await dependencies.storage.loadService(room);
+-    if (stored) {
+-      Y.applyUpdate(
+-        document,
+-        stored.yjsState,
+-        DRAWING_COLLABORATION_SERVER_ORIGIN,
+-      );
+-      ensureDrawingCollections(document);
+-      validateLedgerWithoutAppend(document, roomName);
+-    } else {
+-      if (!dependencies.storage.bootstrapService)
+-        throw new Error(
+-          "Drawing collaboration service bootstrap is unavailable.",
+-        );
+-      await initializeDrawingCollaborationDocument(document, {
+-        ...room,
+-        bootstrap: () => dependencies.storage.bootstrapService!(room),
+-      });
+-    }
++    const document = await loadCanonicalDocument(room, true);
+     return { document, detached: true };
+   }
+ 
+   async function applyFreezeRequest(
+     body: string,
+     suppliedSecret: string | undefined,
+   ) {
+     if (!verifyFreezeSecret || !freezeCoordinator)
+       throw new OutcomeReceiptAuthenticationError(
+         "Drawing freeze service is unavailable.",
+       );
+     try {
+       verifyFreezeSecret(suppliedSecret);
+     } catch {
+       throw new OutcomeReceiptAuthenticationError(
+         "Drawing freeze authentication failed.",
+       );
+     }
+     const room = z.string().refine((value) => {
+       try {
+         parseDrawingRoomName(value);
+         return true;
+       } catch {
+         return false;
+       }
+@@ -1386,119 +1499,98 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
+     signature: string | undefined,
+   ) {
+     let receipt: ReturnType<typeof verifyReceipt>;
+     try {
+       receipt = verifyReceipt(body, signature);
+     } catch {
+       throw new OutcomeReceiptAuthenticationError(
+         "Outcome receipt authentication failed.",
+       );
+     }
+     const room = parseDrawingRoomName(receipt.roomName);
+     const context: DrawingRuntimeContext = {
+       userId: "00000000-0000-4000-8000-000000000000",
+       email: null,
+       expiresAtMs: Number.POSITIVE_INFINITY,
+       capability: "editor",
+       canWrite: true,
+       revisionStatus: "draft",
+       ...room,
+       roomName: receipt.roomName,
+       displayName: "server",
+       color: "#000000",
+       lastAuthorizedAt: now(),
+       serviceAuthority: true,
+     };
+-    const loadedDocument = hocuspocus.documents.get(receipt.roomName);
+-    const detached = !loadedDocument;
+-    const document: Y.Doc = loadedDocument ?? new Y.Doc();
+-    if (detached) {
+-      const stored = await dependencies.storage.loadService(room);
+-      if (stored) {
+-        Y.applyUpdate(
+-          document,
+-          stored.yjsState,
+-          DRAWING_COLLABORATION_SERVER_ORIGIN,
+-        );
+-        ensureDrawingCollections(document);
+-        validateLedgerWithoutAppend(document, receipt.roomName);
+-      } else {
+-        if (!dependencies.storage.bootstrapService)
+-          throw new Error(
+-            "Drawing collaboration service bootstrap is unavailable.",
+-          );
+-        await initializeDrawingCollaborationDocument(document, {
+-          projectId: room.projectId,
+-          revisionId: room.revisionId,
+-          bootstrap: () => dependencies.storage.bootstrapService!(room),
+-        });
+-      }
++    const { document, detached } = await loadServiceDocument(receipt.roomName);
++    try {
++      const operations = readDrawingCollaborationLedger(document).operations;
++      const statuses = document.getMap("operationStatus");
++      const existing = operations[receipt.operationId];
++      const current = statuses.get(receipt.operationId) as
++        | {
++            status?: string;
++            authoritativeSequence?: number | null;
++            resultVersions?: unknown;
++          }
++        | undefined;
++      if (
++        existing &&
++        !resolveDrawingCollaborationOperation(existing, receipt.operation)
++      )
++        throw new Error("Outcome receipt operation is immutable.");
++      if (
++        current &&
++        (current.status !== receipt.outcome ||
++          !same(current.resultVersions, receipt.resultVersions) ||
++          (receipt.outcome === "acked" &&
++            current.authoritativeSequence !== receipt.authoritativeSequence))
++      )
++        throw new Error("Outcome receipt conflicts with authoritative status.");
++      document.transact(
++        () => {
++          if (!existing) {
++            appendDrawingCollaborationOperation(document, receipt.operation);
++          }
++          if (!current)
++            statuses.set(receipt.operationId, {
++              operationId: receipt.operationId,
++              status: receipt.outcome,
++              authoritativeSequence:
++                receipt.outcome === "acked"
++                  ? receipt.authoritativeSequence!
++                  : null,
++              resultVersions: receipt.resultVersions,
++            });
++        },
++        { source: "local", context },
++      );
++      await hooks.store({ document, roomName: receipt.roomName, context });
++      return receipt;
++    } finally {
++      if (detached) document.destroy();
+     }
+-    const operations = readDrawingCollaborationLedger(document).operations;
+-    const statuses = document.getMap("operationStatus");
+-    const existing = operations[receipt.operationId];
+-    const current = statuses.get(receipt.operationId) as
+-      | {
+-          status?: string;
+-          authoritativeSequence?: number | null;
+-          resultVersions?: unknown;
+-        }
+-      | undefined;
+-    if (
+-      existing &&
+-      !resolveDrawingCollaborationOperation(existing, receipt.operation)
+-    )
+-      throw new Error("Outcome receipt operation is immutable.");
+-    if (
+-      current &&
+-      (current.status !== receipt.outcome ||
+-        !same(current.resultVersions, receipt.resultVersions) ||
+-        (receipt.outcome === "acked" &&
+-          current.authoritativeSequence !== receipt.authoritativeSequence))
+-    )
+-      throw new Error("Outcome receipt conflicts with authoritative status.");
+-    document.transact(
+-      () => {
+-        if (!existing) {
+-          appendDrawingCollaborationOperation(document, receipt.operation);
+-        }
+-        if (!current)
+-          statuses.set(receipt.operationId, {
+-            operationId: receipt.operationId,
+-            status: receipt.outcome,
+-            authoritativeSequence:
+-              receipt.outcome === "acked"
+-                ? receipt.authoritativeSequence!
+-                : null,
+-            resultVersions: receipt.resultVersions,
+-          });
+-      },
+-      { source: "local", context },
+-    );
+-    await hooks.store({ document, roomName: receipt.roomName, context });
+-    if (detached) document.destroy();
+-    return receipt;
+   }
+ 
+   async function health() {
+     if (!live)
+       return {
+         live: false,
+         ready: false,
+         instanceId: dependencies.config.instanceId,
+       };
+     try {
+       return {
+         live: true,
+         ready: authReady && ((await dependencies.storage.health?.()) ?? true),
+         instanceId: dependencies.config.instanceId,
+       };
+     } catch {
+       return {
+         live: true,
+         ready: false,
+         instanceId: dependencies.config.instanceId,
+       };
+     }
+   }
+ 
+   async function start() {
+
+## platform/tests/drawing-collaboration-service.test.mjs
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline/platform/tests/drawing-collaboration-service.test.mjs b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-service.test.mjs
+index e6c274f..cc1e5c3 100644
+--- a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline/platform/tests/drawing-collaboration-service.test.mjs
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-service.test.mjs
+@@ -1,27 +1,32 @@
+ import assert from "node:assert/strict";
+-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
++import {
++  createHash,
++  createHmac,
++  randomUUID,
++  timingSafeEqual,
++} from "node:crypto";
+ import { readFile } from "node:fs/promises";
+ import test from "node:test";
+ 
+ import { exportJWK, generateKeyPair, SignJWT } from "jose";
+ import { HocuspocusProvider } from "@hocuspocus/provider";
+ import {
+   applyAwarenessUpdate,
+   Awareness,
+   encodeAwarenessUpdate,
+ } from "y-protocols/awareness";
+ import * as Y from "yjs";
+ import {
+   IncomingMessage,
+   MessageReceiver,
+   OutgoingMessage,
+ } from "@hocuspocus/server";
+ import CrossWebSocket from "crossws/websocket";
+ 
+ const configModule = await import("../collaboration/src/config.ts").catch(
+   () => null,
+ );
+ const authModule = await import("../collaboration/src/auth.ts").catch(
+   () => null,
+ );
+ const storageModule = await import("../collaboration/src/storage.ts").catch(
+@@ -45,50 +50,86 @@ const ids = {
+   operation: "00000000-0000-4000-8000-000000000404",
+   operation2: "00000000-0000-4000-8000-000000000407",
+   operation3: "00000000-0000-4000-8000-000000000409",
+   layer: "00000000-0000-4000-8000-000000000405",
+   layer2: "00000000-0000-4000-8000-000000000408",
+   layer3: "00000000-0000-4000-8000-000000000410",
+ };
+ const roomName = `drawing:${ids.project}:${ids.revision}`;
+ const supabaseUrl = "https://example.supabase.co";
+ 
+ function requireModules() {
+   assert.ok(configModule, "collaboration config must exist");
+   assert.ok(authModule, "collaboration auth must exist");
+   assert.ok(storageModule, "collaboration storage must exist");
+   assert.ok(serverModule, "collaboration server must exist");
+   assert.ok(protocolModule, "collaboration protocol must exist");
+   return {
+     ...configModule,
+     ...authModule,
+     ...storageModule,
+     ...serverModule,
+     ...protocolModule,
+   };
+ }
+ 
++function storedState(state, generation = 1, baseOperationSequence = 0) {
++  return {
++    yjsState: state,
++    generation,
++    sha256: createHash("sha256").update(state).digest("hex"),
++    baseOperationSequence,
++  };
++}
++
++function durableBootstrapStorage() {
++  let persisted = null;
++  return storageModule.createDrawingCollaborationStorage({
++    validateState: serverModule.validatePersistedDrawingState,
++    database: {
++      load: async () => persisted,
++      initializeState: async (input) =>
++        (persisted ??= storedState(
++          input.state,
++          1,
++          input.baseOperationSequence,
++        )),
++      bootstrap: async () => ({ sha256: "a".repeat(64), operationSequence: 0 }),
++      store: async (input) => {
++        assert.equal(input.expectedGeneration, persisted.generation);
++        assert.equal(input.expectedSha256, persisted.sha256);
++        persisted = storedState(
++          input.state,
++          persisted.generation + 1,
++          input.baseOperationSequence,
++        );
++        return persisted;
++      },
++    },
++  });
++}
++
+ async function signingFixture(algorithm = "RS256") {
+   const pair = await generateKeyPair(algorithm);
+   const publicJwk = await exportJWK(pair.publicKey);
+   return {
+     privateKey: pair.privateKey,
+     jwks: {
+       keys: [{ ...publicJwk, kid: "active", alg: algorithm, use: "sig" }],
+     },
+     async token(overrides = {}, options = {}) {
+       const now = Math.floor(Date.now() / 1000);
+       const claims = {
+         sub: ids.actor,
+         role: "authenticated",
+         aud: "authenticated",
+         is_anonymous: false,
+         email: "editor@example.com",
+         ...overrides,
+       };
+       const builder = new SignJWT(claims)
+         .setProtectedHeader({ alg: algorithm, kid: "active" })
+         .setIssuer(options.issuer ?? `${supabaseUrl}/auth/v1`)
+         .setIssuedAt(now);
+       if (!options.omitExpiration)
+         builder.setExpirationTime(options.expiration ?? now + 60);
+       return builder.sign(pair.privateKey);
+@@ -1250,58 +1291,51 @@ test("real HocuspocusProvider syncs and publishes one bounded cursor state", asy
+       super(url, [], { origin: "https://app.example.com" });
+     }
+   }
+   const runtime = createDrawingCollaborationServer({
+     config: {
+       port: 0,
+       instanceId: "collab-provider-a",
+       supabaseUrl,
+       databaseUrl: "postgres://unused",
+       allowedOrigins: new Set(["https://app.example.com"]),
+       internalSecret: "x".repeat(32),
+       authorizationIntervalMs: 30_000,
+       debounceMs: 10,
+       maxDebounceMs: 20,
+     },
+     verifyToken: async () => ({
+       userId: ids.actor,
+       email: "editor@example.com",
+       expiresAtMs: Date.now() + 120_000,
+     }),
+     authorize: async () => ({
+       capability: "editor",
+       canWrite: true,
+       revisionStatus: "draft",
+     }),
+-    storage: {
+-      load: async () => null,
+-      bootstrap: async () => ({
+-        sha256: "a".repeat(64),
+-        operationSequence: 0,
+-      }),
+-      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+-    },
++    storage: durableBootstrapStorage(),
+   });
+   const server = await runtime.start();
+   let provider;
+   try {
+     let resolveAdmission;
+     const admission = new Promise((resolve) => {
+       resolveAdmission = resolve;
+     });
+     const synced = new Promise((resolve, reject) => {
+       const timeout = setTimeout(
+         () => reject(new Error("provider sync timed out")),
+         2_000,
+       );
+       provider = new HocuspocusProvider({
+         url: server.webSocketURL,
+         name: roomName,
+         token: "test-token",
+         WebSocketPolyfill: OriginWebSocket,
+         onSynced: () => {
+           clearTimeout(timeout);
+           resolve();
+         },
+         onAuthenticationFailed: ({ reason }) => {
+           clearTimeout(timeout);
+           reject(new Error(reason));
+@@ -1449,58 +1483,51 @@ test("production-shaped first boot keeps server metadata authoritative and conve
+     document.getArray("operations").push([operation()]);
+     document.getArray("operationOrder").push([ids.operation]);
+   });
+   const runtime = createDrawingCollaborationServer({
+     config: {
+       port: 0,
+       instanceId: "collab-production-shape-a",
+       supabaseUrl,
+       databaseUrl: "postgres://unused",
+       allowedOrigins: new Set(["https://app.example.com"]),
+       internalSecret: "x".repeat(32),
+       authorizationIntervalMs: 30_000,
+       debounceMs: 10,
+       maxDebounceMs: 20,
+     },
+     verifyToken: async () => ({
+       userId: ids.actor,
+       email: "editor@example.com",
+       expiresAtMs: Date.now() + 120_000,
+     }),
+     authorize: async () => ({
+       capability: "editor",
+       canWrite: true,
+       revisionStatus: "draft",
+     }),
+-    storage: {
+-      load: async () => null,
+-      bootstrap: async () => ({
+-        sha256: "a".repeat(64),
+-        operationSequence: 0,
+-      }),
+-      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+-    },
++    storage: durableBootstrapStorage(),
+   });
+   const server = await runtime.start();
+   let provider;
+   try {
+     await new Promise((resolve, reject) => {
+       const timeout = setTimeout(
+         () => reject(new Error("production-shaped sync timed out")),
+         2_000,
+       );
+       provider = new HocuspocusProvider({
+         url: server.webSocketURL,
+         name: roomName,
+         document,
+         token: "test-token",
+         WebSocketPolyfill: OriginWebSocket,
+         onSynced: () => {
+           clearTimeout(timeout);
+           resolve();
+         },
+         onAuthenticationFailed: ({ reason }) => {
+           clearTimeout(timeout);
+           reject(new Error(reason));
+         },
+       });
+     });
+@@ -1918,51 +1945,56 @@ test("outcome endpoint persists a protocol-valid receipt above the legacy 16 KiB
+     config: {
+       port: 0,
+       supabaseUrl,
+       databaseUrl: "postgres://unused",
+       allowedOrigins: new Set(["https://app.example.com"]),
+       internalSecret: secret,
+       authorizationIntervalMs: 30_000,
+       debounceMs: 10,
+       maxDebounceMs: 20,
+     },
+     verifyToken: async () => ({
+       userId: ids.actor,
+       email: null,
+       expiresAtMs: Date.now() + 60_000,
+     }),
+     authorize: async () => ({
+       capability: "editor",
+       canWrite: true,
+       revisionStatus: "draft",
+     }),
+     storage: {
+       load: async () => null,
+       store: async () => {
+         throw new Error("receipt must use service storage");
+       },
+-      loadService: async () => null,
++      loadService: async () =>
++        persisted ? storedState(persisted, stores + 1) : null,
++      initializeServiceState: async (input) => {
++        persisted ??= input.state;
++        return storedState(persisted, 1, input.baseOperationSequence);
++      },
+       bootstrapService: async () => ({
+         sha256: "a".repeat(64),
+         operationSequence: 0,
+       }),
+       async storeService(input) {
+         stores += 1;
+         persisted = input.state;
+         return {
+           generation: stores,
+           sha256: "a".repeat(64),
+           state: input.state,
+           baseOperationSequence: input.baseOperationSequence,
+         };
+       },
+     },
+     setInterval: () => 1,
+     clearInterval: () => {},
+   });
+   const server = await runtime.start();
+   try {
+     const response = await fetch(`${server.httpURL}/internal/outcomes`, {
+       method: "POST",
+       body,
+       headers: {
+         "x-1hk-signature": createHmac("sha256", secret)
+@@ -2052,69 +2084,75 @@ test("poll reconciliation preserves exact accepted history lineage", async () =>
+   Y.applyUpdate(mismatch, appendUpdate(mismatch, original));
+   Y.applyUpdate(mismatch, appendUpdate(mismatch, undo));
+   await assert.rejects(() =>
+     reconcileAcceptedDrawingOperations(mismatch, async () => [
+       accepted(original, 1),
+       { ...accepted(undo, 2), historyAction: "redo" },
+     ]),
+   );
+   assert.equal(mismatch.getMap("operationStatus").size, 0);
+ });
+ 
+ test("signed outcomes persist before 204 semantics, survive an unloaded room, and replay idempotently", async () => {
+   const { createDrawingCollaborationServer } = requireModules();
+   const secret = "receipt-secret-that-is-long-enough";
+   const receipt = JSON.stringify({
+     receiptId: "00000000-0000-4000-8000-000000000406",
+     roomName,
+     operationId: ids.operation,
+     operation: operation(),
+     outcome: "rejected",
+     resultVersions: {},
+   });
+   const signature = createHmac("sha256", secret).update(receipt).digest("hex");
+   let persisted = null;
+   let stores = 0;
++  let initializations = 0;
+   const storage = {
+     load: async () => {
+       throw Object.assign(new Error("removed actor"), { code: "P3A01" });
+     },
+     store: async () => {
+       throw Object.assign(new Error("removed actor"), { code: "P3A02" });
+     },
+     bootstrap: async () => {
+       throw Object.assign(new Error("removed actor"), { code: "P3A01" });
+     },
+     loadService: async () =>
+       persisted
+         ? {
+             yjsState: persisted,
+-            generation: stores,
+-            sha256: "a".repeat(64),
++            generation: stores + 1,
++            sha256: createHash("sha256").update(persisted).digest("hex"),
+             baseOperationSequence: 0,
+           }
+         : null,
++    initializeServiceState: async (input) => {
++      initializations += 1;
++      persisted ??= input.state;
++      return storedState(persisted, 1, input.baseOperationSequence);
++    },
+     bootstrapService: async () => ({
+       sha256: "a".repeat(64),
+       operationSequence: 0,
+     }),
+     async storeService(input) {
+       stores += 1;
+       assert.equal("userId" in input, false);
+       assert.equal(input.projectId, ids.project);
+       assert.equal(input.revisionId, ids.revision);
+       persisted = input.state;
+       return {
+         generation: stores,
+         sha256: "a".repeat(64),
+         state: input.state,
+         baseOperationSequence: input.baseOperationSequence,
+       };
+     },
+     lookupOperations: async () => [],
+   };
+   const makeRuntime = () =>
+     createDrawingCollaborationServer({
+       config: {
+         port: 0,
+         supabaseUrl,
+         databaseUrl: "postgres://unused",
+@@ -2137,119 +2175,127 @@ test("signed outcomes persist before 204 semantics, survive an unloaded room, an
+       storage,
+       setInterval: () => 1,
+       clearInterval: () => {},
+     });
+ 
+   const first = makeRuntime();
+   assert.equal(first.hocuspocus.documents.has(roomName), false);
+   await first.applyOutcomeReceipt(receipt, signature);
+   await first.stop();
+   assert.ok(persisted);
+   const stored = new Y.Doc();
+   Y.applyUpdate(stored, persisted);
+   assert.equal(
+     stored.getMap("operationStatus").get(ids.operation).status,
+     "rejected",
+   );
+ 
+   const restarted = makeRuntime();
+   await restarted.applyOutcomeReceipt(receipt, signature);
+   await restarted.stop();
+   assert.equal(
+     stores,
+     2,
+     "restart replay performs one idempotent durable store",
+   );
++  assert.equal(initializations, 1);
+ });
+ 
+ test("signed outcome replay accepts only a clock-repaired DB bootstrap operation", async () => {
+   const { createDrawingCollaborationServer } = requireModules();
+   const secret = "receipt-secret-that-is-long-enough";
+   const durable = operation();
+   const resultVersions = { [ids.layer]: 1 };
+   const signedReceipt = (envelope) => {
+     const body = JSON.stringify({
+       receiptId: "00000000-0000-4000-8000-000000000406",
+       roomName,
+       operationId: ids.operation,
+       operation: envelope,
+       outcome: "acked",
+       authoritativeSequence: 1,
+       resultVersions,
+     });
+     return {
+       body,
+       signature: createHmac("sha256", secret).update(body).digest("hex"),
+     };
+   };
+   let stores = 0;
++  let persisted = null;
+   const runtime = createDrawingCollaborationServer({
+     config: {
+       port: 0,
+       supabaseUrl,
+       databaseUrl: "postgres://unused",
+       allowedOrigins: new Set(["https://app.example.com"]),
+       internalSecret: secret,
+       authorizationIntervalMs: 30_000,
+       debounceMs: 10,
+       maxDebounceMs: 20,
+     },
+     verifyToken: async () => ({
+       userId: ids.actor,
+       email: null,
+       expiresAtMs: Date.now() + 60_000,
+     }),
+     authorize: async () => ({
+       capability: "editor",
+       canWrite: true,
+       revisionStatus: "draft",
+     }),
+     storage: {
+       load: async () => null,
+       store: async () => {
+         throw new Error("receipt must not use actor storage");
+       },
+-      loadService: async () => null,
++      loadService: async () =>
++        persisted ? storedState(persisted, stores + 1, 1) : null,
++      initializeServiceState: async (input) => {
++        persisted ??= input.state;
++        return storedState(persisted, 1, input.baseOperationSequence);
++      },
+       bootstrapService: async () => ({
+         sha256: "a".repeat(64),
+         operationSequence: 1,
+         recentOutcomes: [
+           {
+             revisionId: ids.revision,
+             clientOperationId: durable.clientOperationId,
+             actorId: durable.actorId,
+             operationType: durable.type,
+             baseVersions: durable.baseVersions,
+             forward: durable.forward,
+             inverse: durable.inverse,
+             sequence: 1,
+             resultVersions,
+           },
+         ],
+       }),
+       async storeService(input) {
+         stores += 1;
++        persisted = input.state;
+         return {
+           generation: stores,
+           sha256: "a".repeat(64),
+           state: input.state,
+           baseOperationSequence: input.baseOperationSequence,
+         };
+       },
+     },
+     setInterval: () => 1,
+     clearInterval: () => {},
+   });
+ 
+   try {
+     const replay = signedReceipt(durable);
+     await runtime.applyOutcomeReceipt(replay.body, replay.signature);
+     assert.equal(stores, 1);
+ 
+     const tampered = signedReceipt({
+       ...durable,
+       forward: {
+         ...durable.forward,
+         layer: { ...durable.forward.layer, name: "Tampered" },
+       },
+     });
+     await assert.rejects(
+@@ -2613,65 +2659,51 @@ test("token sync strips live locks when refreshed authority becomes read-only",
+ });
+ 
+ test("Hocuspocus v4 decodes a real framed Sync/Update before collaboration validation", async () => {
+   const { createDrawingCollaborationServer } = requireModules();
+   const runtime = createDrawingCollaborationServer({
+     config: {
+       port: 0,
+       supabaseUrl,
+       databaseUrl: "postgres://unused",
+       allowedOrigins: new Set(["https://app.example.com"]),
+       internalSecret: "x".repeat(32),
+       authorizationIntervalMs: 30_000,
+       debounceMs: 10,
+       maxDebounceMs: 20,
+     },
+     verifyToken: async () => ({
+       userId: ids.actor,
+       email: null,
+       expiresAtMs: Date.now() + 60_000,
+     }),
+     authorize: async () => ({
+       capability: "editor",
+       canWrite: true,
+       revisionStatus: "draft",
+     }),
+-    storage: {
+-      load: async () => null,
+-      bootstrap: async () => ({
+-        sha256: "a".repeat(64),
+-        operationSequence: 0,
+-      }),
+-      async store(input) {
+-        return {
+-          generation: 1,
+-          sha256: "a".repeat(64),
+-          state: input.state,
+-          baseOperationSequence: input.baseOperationSequence,
+-        };
+-      },
+-    },
++    storage: durableBootstrapStorage(),
+     setInterval: () => 1,
+     clearInterval: () => {},
+   });
+   const context = await runtime.hooks.authenticate({
+     token: "x",
+     origin: "https://app.example.com",
+     roomName,
+   });
+   const document = await runtime.hocuspocus.createDocument(
+     roomName,
+     new Request("http://localhost"),
+     "frame-test",
+     { readOnly: false, isAuthenticated: true },
+     context,
+   );
+   const update = appendUpdate(document);
+   const frame = new OutgoingMessage(roomName)
+     .createSyncMessage()
+     .writeUpdate(update)
+     .toUint8Array();
+   const message = new IncomingMessage(frame);
+   assert.equal(message.readVarString(), roomName);
+   const connection = {
+     context,
+     readOnly: false,
+@@ -2883,74 +2915,81 @@ test("internal endpoints enforce their distinct bounded request sizes before par
+       method: "POST",
+       body: freezeBody,
+       headers: { "x-1hk-freeze-secret": secret },
+     });
+     assert.equal(freeze.status, 413);
+     assert.equal(serviceLoads, 0);
+     assert.equal(freezeReads, 0);
+   } finally {
+     await runtime.stop();
+   }
+ });
+ 
+ test("outcome endpoint distinguishes invalid signatures from retriable persistence failures", async () => {
+   const { createDrawingCollaborationServer } = requireModules();
+   const secret = "receipt-secret-that-is-long-enough";
+   const body = JSON.stringify({
+     receiptId: "00000000-0000-4000-8000-000000000406",
+     roomName,
+     operationId: ids.operation,
+     operation: operation(),
+     outcome: "rejected",
+     resultVersions: {},
+   });
+   const signature = createHmac("sha256", secret).update(body).digest("hex");
+   let stores = 0;
++  let persisted = null;
+   const runtime = createDrawingCollaborationServer({
+     config: {
+       port: 0,
+       supabaseUrl,
+       databaseUrl: "postgres://unused",
+       allowedOrigins: new Set(["https://app.example.com"]),
+       internalSecret: secret,
+       authorizationIntervalMs: 30_000,
+       debounceMs: 10,
+       maxDebounceMs: 20,
+     },
+     verifyToken: async () => ({
+       userId: ids.actor,
+       email: null,
+       expiresAtMs: Date.now() + 120_000,
+     }),
+     authorize: async () => ({
+       capability: "editor",
+       canWrite: true,
+       revisionStatus: "draft",
+     }),
+     storage: {
+       load: async () => null,
+-      loadService: async () => null,
++      loadService: async () => persisted,
++      initializeServiceState: async (input) =>
++        (persisted ??= storedState(
++          input.state,
++          1,
++          input.baseOperationSequence,
++        )),
+       bootstrap: async () => ({
+         sha256: "a".repeat(64),
+         operationSequence: 0,
+       }),
+       bootstrapService: async () => ({
+         sha256: "a".repeat(64),
+         operationSequence: 0,
+       }),
+       store: async () => {
+         throw new Error("receipt must not use actor storage");
+       },
+       storeService: async () => {
+         stores += 1;
+         if (stores === 1) throw new Error("database unavailable");
+         return { generation: stores, sha256: "a".repeat(64) };
+       },
+     },
+   });
+   const server = await runtime.start();
+   try {
+     const unavailable = await fetch(`${server.httpURL}/internal/outcomes`, {
+       method: "POST",
+       body,
+       headers: { "x-1hk-signature": signature },
+     });
+
+## platform/tests/drawing-collaboration-initialization.test.mjs
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs
+new file mode 100644
+index 0000000..9df64ed
+--- /dev/null
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs
+@@ -0,0 +1,804 @@
++import assert from "node:assert/strict";
++import { createHash, createHmac, randomUUID } from "node:crypto";
++import test from "node:test";
++import * as Y from "yjs";
++import { HocuspocusProvider } from "@hocuspocus/provider";
++import CrossWebSocket from "crossws/websocket";
++import { createDrawingCollaborationStorage } from "../collaboration/src/storage.ts";
++import {
++  createDrawingCollaborationServer,
++  initializeDrawingCollaborationDocument,
++  validateDrawingClientUpdate,
++  validatePersistedDrawingState,
++} from "../collaboration/src/server.ts";
++
++const scope = {
++  userId: randomUUID(),
++  projectId: randomUUID(),
++  revisionId: randomUUID(),
++};
++const roomName = `drawing:${scope.projectId}:${scope.revisionId}`;
++const secret = "initialization-test-secret-32-characters";
++const bootstrap = { sha256: "a".repeat(64), operationSequence: 0 };
++const bytes = (doc) => Y.encodeStateAsUpdate(doc);
++const hash = (state) => createHash("sha256").update(state).digest("hex");
++function row(state, generation = 1, baseOperationSequence = 0) {
++  return {
++    yjsState: state,
++    generation,
++    sha256: hash(state),
++    baseOperationSequence,
++  };
++}
++async function canonical() {
++  const doc = new Y.Doc();
++  await initializeDrawingCollaborationDocument(doc, {
++    ...scope,
++    bootstrap: async () => bootstrap,
++  });
++  return doc;
++}
++function deferred() {
++  let resolve;
++  const promise = new Promise((done) => {
++    resolve = done;
++  });
++  return { promise, resolve };
++}
++function fixture(overrides = {}) {
++  let persisted = null;
++  const calls = {
++    userInitializations: 0,
++    serviceInitializations: 0,
++    stores: 0,
++    bootstraps: 0,
++  };
++  async function initialize(input, service) {
++    calls[service ? "serviceInitializations" : "userInitializations"]++;
++    persisted ??= row(input.state, 1, input.baseOperationSequence);
++    return persisted;
++  }
++  async function store(input) {
++    assert.equal(input.expectedGeneration, persisted?.generation ?? 0);
++    assert.equal(input.expectedSha256, persisted?.sha256 ?? null);
++    calls.stores++;
++    persisted = row(
++      input.state,
++      (persisted?.generation ?? 0) + 1,
++      input.baseOperationSequence,
++    );
++    return persisted;
++  }
++  const database = {
++    load: async () => persisted,
++    loadService: async () => persisted,
++    bootstrap: async () => {
++      calls.bootstraps++;
++      return bootstrap;
++    },
++    bootstrapService: async () => {
++      calls.bootstraps++;
++      return bootstrap;
++    },
++    initializeState: (input) => initialize(input, false),
++    initializeServiceState: (input) => initialize(input, true),
++    store,
++    storeService: store,
++    ...overrides,
++  };
++  const storage = createDrawingCollaborationStorage({
++    database,
++    validateState: validatePersistedDrawingState,
++    sleep: async () => {},
++  });
++  return {
++    database,
++    storage,
++    calls,
++    get persisted() {
++      return persisted;
++    },
++    set persisted(value) {
++      persisted = value;
++    },
++  };
++}
++function runtimeFor(
++  storage,
++  authorization = {
++    capability: "editor",
++    canWrite: true,
++    revisionStatus: "draft",
++  },
++) {
++  return createDrawingCollaborationServer({
++    config: {
++      port: 0,
++      instanceId: "canonical-test",
++      supabaseUrl: "https://example.supabase.co",
++      databaseUrl: "postgres://unused",
++      allowedOrigins: new Set(["https://app.example.com"]),
++      internalSecret: secret,
++      freezeSecret: secret,
++      authorizationIntervalMs: 30_000,
++      debounceMs: 10,
++      maxDebounceMs: 20,
++    },
++    verifyToken: async () => ({
++      userId: scope.userId,
++      email: null,
++      expiresAtMs: Date.now() + 120_000,
++    }),
++    authorize: async () => authorization,
++    storage,
++  });
++}
++function admit(runtime, document = new Y.Doc(), context = scope) {
++  return {
++    document,
++    promise: runtime.hocuspocus.configuration.onLoadDocument({
++      document,
++      documentName: roomName,
++      context,
++    }),
++  };
++}
++
++test("initialization adopts only the durable winner and seeds user and service CAS tokens", async () => {
++  const winner = await canonical();
++  const candidate = await canonical();
++  const winnerRow = row(bytes(winner), 7);
++  const f = fixture({ initializeState: async () => winnerRow });
++  f.persisted = winnerRow;
++  try {
++    const result = await f.storage.initializeState({
++      ...scope,
++      state: bytes(candidate),
++      baseOperationSequence: 0,
++      baseSnapshotSha256: bootstrap.sha256,
++    });
++    assert.deepEqual(result.yjsState, bytes(winner));
++    assert.notDeepEqual(result.yjsState, bytes(candidate));
++    await f.storage.storeService({
++      projectId: scope.projectId,
++      revisionId: scope.revisionId,
++      state: bytes(winner),
++      baseOperationSequence: 0,
++    });
++    // The user token still identifies the returned winner, independently of service writes.
++    f.persisted = winnerRow;
++    await f.storage.store({
++      ...scope,
++      state: bytes(winner),
++      baseOperationSequence: 0,
++    });
++  } finally {
++    winner.destroy();
++    candidate.destroy();
++  }
++});
++
++test("browser admission waits for initialization and discards the losing bootstrap origin", async () => {
++  const winner = await canonical();
++  const gate = deferred();
++  const entered = deferred();
++  const f = fixture({
++    initializeState: async () => {
++      entered.resolve();
++      await gate.promise;
++      f.persisted = row(bytes(winner));
++      return f.persisted;
++    },
++  });
++  const runtime = runtimeFor(f.storage);
++  const loading = admit(runtime);
++  try {
++    await Promise.race([entered.promise, loading.promise]);
++    assert.equal(loading.document.share.size, 0);
++    gate.resolve();
++    await loading.promise;
++    assert.deepEqual(bytes(loading.document), bytes(winner));
++    assert.equal(f.calls.stores, 0);
++    assert.doesNotThrow(() =>
++      validateDrawingClientUpdate(loading.document, bytes(winner), {
++        ...scope,
++        canWrite: true,
++      }),
++    );
++  } finally {
++    gate.resolve();
++    await loading.promise.catch(() => {});
++    loading.document.destroy();
++    winner.destroy();
++    await runtime.stop();
++  }
++});
++
++test("stale graph initialization rebuilds at most three candidates, while other failures propagate", async () => {
++  for (const [code, failures, expectedAttempts] of [
++    ["P3S04", 2, 3],
++    ["P3S04", 3, 3],
++    ["P3A02", 1, 1],
++  ]) {
++    let attempts = 0;
++    const candidates = [];
++    const f = fixture({
++      initializeState: async (input) => {
++        candidates.push(input.state);
++        if (++attempts <= failures)
++          throw Object.assign(new Error("initializer refused"), { code });
++        f.persisted = row(input.state);
++        return f.persisted;
++      },
++    });
++    const runtime = runtimeFor(f.storage);
++    const loading = admit(runtime);
++    try {
++      if (code === "P3S04" && failures === 2) await loading.promise;
++      else {
++        await assert.rejects(loading.promise, { code });
++        assert.equal(loading.document.share.size, 0);
++      }
++      assert.equal(attempts, expectedAttempts);
++      assert.equal(f.calls.bootstraps, expectedAttempts);
++      for (let i = 1; i < candidates.length; i++)
++        assert.notDeepEqual(candidates[i], candidates[i - 1]);
++    } finally {
++      loading.document.destroy();
++      await runtime.stop();
++    }
++  }
++});
++
++test("invalid winners never enter the payload or seed usable CAS tokens", async () => {
++  const wrong = await canonical();
++  wrong.getMap("serverMeta").set("revisionId", randomUUID());
++  let token;
++  const f = fixture({
++    initializeState: async () => row(bytes(wrong), 9),
++    store: async (input) => {
++      token = input.expectedGeneration;
++      return { generation: 1, sha256: "b".repeat(64) };
++    },
++  });
++  const runtime = runtimeFor(f.storage);
++  const loading = admit(runtime);
++  try {
++    await assert.rejects(loading.promise, /scope/);
++    assert.equal(loading.document.share.size, 0);
++    await f.storage.store({
++      ...scope,
++      state: bytes(wrong),
++      baseOperationSequence: 0,
++    });
++    assert.equal(token, 0);
++  } finally {
++    wrong.destroy();
++    loading.document.destroy();
++    await runtime.stop();
++  }
++});
++
++test("active metadata correction is stored with service authority before browser admission", async () => {
++  const stale = await canonical();
++  stale.getMap("serverMeta").set("freezeState", "freezing");
++  stale.getMap("serverMeta").set("freezeRequestId", randomUUID());
++  const f = fixture({
++    freeze: {
++      readFreeze: async () => ({
++        state: "active",
++        requestId: null,
++        revisionStatus: "draft",
++      }),
++    },
++  });
++  f.persisted = row(bytes(stale));
++  const runtime = runtimeFor(f.storage);
++  const loading = admit(runtime);
++  try {
++    await loading.promise;
++    assert.equal(
++      loading.document.getMap("serverMeta").get("freezeState"),
++      "active",
++    );
++    assert.equal(f.calls.stores, 1);
++    assert.deepEqual(bytes(loading.document), f.persisted.yjsState);
++  } finally {
++    stale.destroy();
++    loading.document.destroy();
++    await runtime.stop();
++  }
++});
++
++test("a foreign preparation lease cannot expose an unpersisted fence during first admission", async () => {
++  const f = fixture({
++    freeze: {
++      readFreeze: async () => ({
++        state: "active",
++        requestId: null,
++        revisionStatus: "draft",
++        ownerToken: randomUUID(),
++        ownerRequestId: randomUUID(),
++        leaseExpiresAtMs: Date.now() + 60_000,
++      }),
++    },
++  });
++  const runtime = runtimeFor(f.storage);
++  const loading = admit(runtime);
++  try {
++    await assert.rejects(
++      loading.promise,
++      (error) =>
++        error.code === "DRAWING_RECONCILIATION_RETRY" &&
++        error.retryable === true,
++    );
++    assert.equal(loading.document.share.size, 0);
++    assert.equal(f.calls.stores, 0);
++    assert.ok(
++      f.persisted,
++      "initial origin remains durable despite refused admission",
++    );
++  } finally {
++    loading.document.destroy();
++    await runtime.stop();
++  }
++});
++
++test("detached authority and receipt loaders establish the same canonical origin before mutation", async () => {
++  const winner = await canonical();
++  for (const receipt of [false, true]) {
++    const f = fixture({
++      initializeServiceState: async () => {
++        f.persisted = row(bytes(winner));
++        return f.persisted;
++      },
++      freeze: {
++        readFreeze: async () => ({
++          state: "active",
++          requestId: null,
++          revisionStatus: "draft",
++        }),
++      },
++    });
++    const runtime = runtimeFor(f.storage);
++    try {
++      if (!receipt)
++        await runtime.applyFreezeRequest(
++          JSON.stringify({ action: "authority", roomName }),
++          secret,
++        );
++      else {
++        const operationId = randomUUID();
++        const body = JSON.stringify({
++          receiptId: randomUUID(),
++          roomName,
++          operationId,
++          operation: {
++            clientOperationId: operationId,
++            revisionId: scope.revisionId,
++            actorId: scope.userId,
++            schemaVersion: 1,
++            type: "add_layer",
++            baseVersions: {},
++            forward: {
++              type: "add_layer",
++              layer: {
++                id: randomUUID(),
++                name: "Layer",
++                visible: true,
++                locked: false,
++                version: 1,
++              },
++            },
++            inverse: {},
++            createdAt: "2026-09-06T00:00:00.000Z",
++          },
++          outcome: "rejected",
++          resultVersions: {},
++        });
++        await runtime.applyOutcomeReceipt(
++          body,
++          createHmac("sha256", secret).update(body).digest("hex"),
++        );
++      }
++      assert.ok(f.persisted);
++      const restored = new Y.Doc();
++      try {
++        Y.applyUpdate(restored, f.persisted.yjsState);
++        assert.doesNotThrow(() =>
++          validateDrawingClientUpdate(restored, bytes(winner), {
++            ...scope,
++            canWrite: true,
++          }),
++        );
++      } finally {
++        restored.destroy();
++      }
++      assert.equal(f.calls.bootstraps, 1);
++      assert.equal(f.calls.stores, receipt ? 1 : 0);
++    } finally {
++      await runtime.stop();
++    }
++  }
++  winner.destroy();
++});
++
++test("an approved Viewer initializes through user authority while edits and protected forgeries stay forbidden", async () => {
++  const f = fixture({
++    initializeServiceState: async () => {
++      throw new Error("approved service bootstrap forbidden");
++    },
++  });
++  const runtime = runtimeFor(f.storage, {
++    capability: "viewer",
++    canWrite: false,
++    revisionStatus: "approved",
++  });
++  const context = await runtime.hooks.authenticate({
++    token: "viewer",
++    origin: "https://app.example.com",
++    roomName,
++  });
++  assert.equal(context.canWrite, false);
++  assert.equal(context.revisionStatus, "approved");
++  const loading = admit(runtime, new Y.Doc(), context);
++  try {
++    await loading.promise;
++    assert.equal(f.calls.userInitializations, 1);
++    assert.throws(
++      () =>
++        validateDrawingClientUpdate(loading.document, bytes(loading.document), {
++          ...scope,
++          canWrite: false,
++        }),
++      /read-only/,
++    );
++    const forged = new Y.Doc();
++    try {
++      Y.applyUpdate(forged, bytes(loading.document));
++      forged.getMap("serverMeta").set("baseSnapshotSha256", bootstrap.sha256);
++      assert.throws(
++        () =>
++          validateDrawingClientUpdate(loading.document, bytes(forged), {
++            ...scope,
++            canWrite: true,
++          }),
++        /server-owned|protected|metadata/i,
++      );
++    } finally {
++      forged.destroy();
++    }
++  } finally {
++    loading.document.destroy();
++    await runtime.stop();
++  }
++});
++
++test("missing initializer support fails closed and never publishes a bootstrap candidate", async () => {
++  for (const method of ["initializeState", "initializeServiceState"]) {
++    const f = fixture({
++      [method]: undefined,
++      freeze: {
++        readFreeze: async () => ({
++          state: "active",
++          requestId: null,
++          revisionStatus: "draft",
++        }),
++      },
++    });
++    const runtime = runtimeFor(f.storage);
++    const document = new Y.Doc();
++    try {
++      const load =
++        method === "initializeState"
++          ? admit(runtime, document).promise
++          : runtime.applyFreezeRequest(
++              JSON.stringify({ action: "authority", roomName }),
++              secret,
++            );
++      await assert.rejects(load, /initialization is unavailable/);
++      assert.equal(document.share.size, 0);
++      assert.equal(f.persisted, null);
++    } finally {
++      document.destroy();
++      await runtime.stop();
++    }
++  }
++});
++
++test("local freeze preparation refuses initial admission without projecting its transient identity", async () => {
++  const gate = deferred();
++  const entered = deferred();
++  const f = fixture({
++    loadService: async () => {
++      entered.resolve();
++      await gate.promise;
++      return f.persisted;
++    },
++    freeze: {
++      readFreeze: async () => ({
++        state: "active",
++        requestId: null,
++        revisionStatus: "draft",
++      }),
++      acquireFreezeLease: async () => {},
++      renewFreezeLease: async () => {},
++      releaseFreezeLease: async () => {},
++      beginFreeze: async () => {
++        throw new Error("test freeze completion refused");
++      },
++    },
++  });
++  const runtime = runtimeFor(f.storage);
++  const freezing = runtime.applyFreezeRequest(
++    JSON.stringify({
++      action: "freeze",
++      roomName,
++      freezeRequestId: randomUUID(),
++    }),
++    secret,
++  );
++  const freezeFailure = assert.rejects(
++    freezing,
++    /test freeze completion refused/,
++  );
++  await entered.promise;
++  const loading = admit(runtime);
++  try {
++    await assert.rejects(loading.promise, {
++      code: "DRAWING_RECONCILIATION_RETRY",
++      retryable: true,
++    });
++    assert.equal(loading.document.share.size, 0);
++    assert.equal(f.calls.stores, 0);
++  } finally {
++    gate.resolve();
++    await freezeFailure;
++    loading.document.destroy();
++    await runtime.stop();
++  }
++});
++
++test("malformed persisted bytes always destroy the validation document", () => {
++  const destroy = Y.Doc.prototype.destroy;
++  const destroyed = [];
++  Y.Doc.prototype.destroy = function () {
++    destroyed.push(this);
++    return destroy.call(this);
++  };
++  try {
++    assert.throws(() =>
++      validatePersistedDrawingState(new Uint8Array([255]), scope),
++    );
++    assert.equal(destroyed.length, 1);
++    assert.equal(destroyed[0].isDestroyed, true);
++  } finally {
++    Y.Doc.prototype.destroy = destroy;
++  }
++});
++
++test("detached receipt documents are destroyed after immutable conflicts and persistence failures", async () => {
++  const operationId = randomUUID();
++  const operation = {
++    clientOperationId: operationId,
++    revisionId: scope.revisionId,
++    actorId: scope.userId,
++    schemaVersion: 1,
++    type: "add_layer",
++    baseVersions: {},
++    forward: {
++      type: "add_layer",
++      layer: {
++        id: randomUUID(),
++        name: "Layer",
++        visible: true,
++        locked: false,
++        version: 1,
++      },
++    },
++    inverse: {},
++    createdAt: "2026-09-06T00:00:00.000Z",
++  };
++  const send = (runtime, envelope) => {
++    const body = JSON.stringify({
++      receiptId: randomUUID(),
++      roomName,
++      operationId,
++      operation: envelope,
++      outcome: "rejected",
++      resultVersions: {},
++    });
++    return runtime.applyOutcomeReceipt(
++      body,
++      createHmac("sha256", secret).update(body).digest("hex"),
++    );
++  };
++  const f = fixture();
++  const runtime = runtimeFor(f.storage);
++  await send(runtime, operation);
++  const getMap = Y.Doc.prototype.getMap;
++  const observed = new Set();
++  Y.Doc.prototype.getMap = function (...args) {
++    observed.add(this);
++    return getMap.apply(this, args);
++  };
++  try {
++    await assert.rejects(
++      send(runtime, {
++        ...operation,
++        forward: {
++          ...operation.forward,
++          layer: { ...operation.forward.layer, name: "Forged" },
++        },
++      }),
++      /operation is immutable/,
++    );
++    assert.ok(observed.size > 0);
++    assert.ok(
++      [...observed].every((document) => document.isDestroyed),
++      "immutable conflict must destroy every detached document",
++    );
++    observed.clear();
++    f.database.storeService = async () => {
++      throw new Error("test store unavailable");
++    };
++    await assert.rejects(send(runtime, operation), /test store unavailable/);
++    assert.ok(observed.size > 0);
++    assert.ok(
++      [...observed].every((document) => document.isDestroyed),
++      "failed store must destroy every detached document",
++    );
++  } finally {
++    Y.Doc.prototype.getMap = getMap;
++    await runtime.stop();
++  }
++});
++
++test("initialization retries transient transport failures without changing the candidate", async () => {
++  const candidate = await canonical();
++  try {
++    for (const service of [false, true]) {
++      let attempts = 0;
++      const method = service ? "initializeServiceState" : "initializeState";
++      const f = fixture({
++        [method]: async (input) => {
++          assert.deepEqual(input.state, bytes(candidate));
++          if (++attempts < 3)
++            throw Object.assign(new Error("connection reset"), {
++              code: "ECONNRESET",
++            });
++          return row(input.state);
++        },
++      });
++      const value = await f.storage[method]({
++        ...scope,
++        state: bytes(candidate),
++        baseOperationSequence: 0,
++        baseSnapshotSha256: bootstrap.sha256,
++      });
++      assert.equal(attempts, 3);
++      assert.deepEqual(value.yjsState, bytes(candidate));
++    }
++  } finally {
++    candidate.destroy();
++  }
++});
++
++test("admission reloads concurrent durable movement and fails retryably after three moving snapshots", async () => {
++  for (const keepMoving of [false, true]) {
++    const origins = await Promise.all(
++      Array.from({ length: 7 }, () => canonical()),
++    );
++    let loads = 0;
++    const f = fixture({
++      load: async () => {
++        const index = keepMoving ? Math.min(loads++, 6) : Math.min(loads++, 1);
++        return row(bytes(origins[index]), index + 1);
++      },
++    });
++    const runtime = runtimeFor(f.storage);
++    const loading = admit(runtime);
++    try {
++      if (keepMoving) {
++        await assert.rejects(loading.promise, {
++          code: "DRAWING_RECONCILIATION_RETRY",
++          retryable: true,
++        });
++        assert.equal(loads, 6);
++        assert.equal(loading.document.share.size, 0);
++      } else {
++        await loading.promise;
++        assert.deepEqual(bytes(loading.document), bytes(origins[1]));
++      }
++      assert.equal(f.calls.stores, 0);
++    } finally {
++      origins.forEach((doc) => doc.destroy());
++      loading.document.destroy();
++      await runtime.stop();
++    }
++  }
++});
++
++test("real WebSocket untouched room is durable before sync and replays its exact cached state after restart", async () => {
++  class OriginWebSocket extends CrossWebSocket {
++    constructor(url) {
++      super(url, [], { origin: "https://app.example.com" });
++    }
++  }
++  const f = fixture();
++  const cached = new Y.Doc();
++  const runtime = runtimeFor(f.storage);
++  const firstServer = await runtime.start();
++  let provider;
++  let restarted;
++  const connect = async (url, document) => {
++    await new Promise((resolve, reject) => {
++      const timeout = setTimeout(
++        () => reject(new Error("canonical socket sync timed out")),
++        3000,
++      );
++      provider = new HocuspocusProvider({
++        url,
++        name: roomName,
++        document,
++        token: "test-token",
++        WebSocketPolyfill: OriginWebSocket,
++        onSynced: () => {
++          clearTimeout(timeout);
++          resolve();
++        },
++        onAuthenticationFailed: ({ reason }) => {
++          clearTimeout(timeout);
++          reject(new Error(reason));
++        },
++      });
++    });
++  };
++  try {
++    await connect(firstServer.webSocketURL, cached);
++    assert.ok(
++      f.persisted,
++      "untouched state must be stored before the first sync",
++    );
++    assert.equal(f.calls.userInitializations, 1);
++    assert.equal(
++      f.calls.stores,
++      0,
++      "no dirty operation is needed for initial persistence",
++    );
++    const durableBytes = f.persisted.yjsState;
++    assert.deepEqual(bytes(cached), durableBytes);
++    provider.destroy();
++    provider = null;
++    await runtime.stop();
++    assert.equal(f.calls.stores, 0);
++    assert.equal(runtime.hocuspocus.documents.size, 0);
++    restarted = runtimeFor(
++      createDrawingCollaborationStorage({
++        database: f.database,
++        validateState: validatePersistedDrawingState,
++      }),
++    );
++    const secondServer = await restarted.start();
++    await connect(secondServer.webSocketURL, cached);
++    await new Promise((resolve) => setTimeout(resolve, 50));
++    assert.equal(provider.isSynced, true);
++    const reloaded = restarted.hocuspocus.documents.get(roomName);
++    assert.ok(reloaded, "honest replay must keep the reloaded room admitted");
++    assert.deepEqual(bytes(reloaded), durableBytes);
++    assert.deepEqual(bytes(cached), durableBytes);
++    assert.equal(f.calls.userInitializations, 1);
++    assert.equal(f.calls.stores, 0);
++    assert.doesNotThrow(() =>
++      validateDrawingClientUpdate(reloaded, bytes(cached), {
++        ...scope,
++        canWrite: true,
++      }),
++    );
++  } finally {
++    provider?.destroy();
++    cached.destroy();
++    await runtime.stop();
++    await restarted?.stop();
++  }
++});

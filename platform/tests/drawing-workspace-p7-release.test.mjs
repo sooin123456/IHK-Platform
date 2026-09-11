@@ -20,16 +20,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-const evidenceModule =
-  await import("../scripts/drawing-p7-release-evidence.mjs").catch(() => ({}));
-const runnerModule =
-  await import("../scripts/run-drawing-workspace-p7-release.mjs").catch(
-    () => ({}),
-  );
-const visualModule =
-  await import("../scripts/drawing-p7-visual-evidence.mjs").catch(() => ({}));
-const documentModule =
-  await import("../scripts/drawing-p7-release-documents.mjs").catch(() => ({}));
+const evidenceModule = await import(
+  "../scripts/drawing-p7-release-evidence.mjs"
+).catch(() => ({}));
+const runnerModule = await import(
+  "../scripts/run-drawing-workspace-p7-release.mjs"
+).catch(() => ({}));
+const restoreModule = await import(
+  "../scripts/drawing-p7-restore-evidence.mjs"
+).catch(() => ({}));
+const visualModule = await import(
+  "../scripts/drawing-p7-visual-evidence.mjs"
+).catch(() => ({}));
+const documentModule = await import(
+  "../scripts/drawing-p7-release-documents.mjs"
+).catch(() => ({}));
 
 const hosted = {
   P7_E2E_BASE_URL: "https://drawing.onehk.kr",
@@ -115,6 +120,70 @@ function currentReleaseFixture() {
     requirement.receipt = requirement.receipts.at(-1);
   }
   return evidence;
+}
+
+const restoreCommit = "c".repeat(40);
+const restoreRequestId = "74000000-0000-4000-8000-000000000009";
+
+function restoreSnapshot() {
+  const sha = (digit) => digit.repeat(64);
+  return {
+    systemIdentifier: "7641122334455667788",
+    schema: { count: 40, digest: sha("1") },
+    database: { count: 500, digest: sha("2") },
+    storage: { count: 12, digest: sha("3"), integrity: true },
+    yjs: { count: 7, digest: sha("4") },
+    approvals: { count: 9, digest: sha("5") },
+    lineage: { count: 31, digest: sha("6") },
+  };
+}
+
+async function currentRestoreEvidence({ mismatch = false } = {}) {
+  const authority = {
+    organizationId: "74000000-0000-4000-8000-000000000001",
+    sourceProjectRef: "a".repeat(20),
+    targetProjectRef: "b".repeat(20),
+    backupId: "backup-2026-08-28",
+    managementAccessToken: "management-authority",
+    sourceCommit: restoreCommit,
+    requestId: restoreRequestId,
+    drillStartedAt: "2026-08-28T05:10:00.000Z",
+  };
+  return restoreModule.runManagedRestoreComparison(authority, {
+    async getSourceCommit() {
+      return authority.sourceCommit;
+    },
+    now() {
+      return "2026-08-28T05:30:00.000Z";
+    },
+    async listBackups() {
+      return [
+        {
+          id: authority.backupId,
+          is_physical_backup: true,
+          status: "COMPLETED",
+          inserted_at: "2026-08-28T05:00:00.000Z",
+        },
+      ];
+    },
+    async getProject() {
+      return {
+        id: "provider-project-restore-identity",
+        ref: authority.targetProjectRef,
+        status: "ACTIVE_HEALTHY",
+        created_at: "2026-08-28T05:20:00.000Z",
+      };
+    },
+    async captureDatabase(side) {
+      const snapshot = restoreSnapshot();
+      if (mismatch && side === "target") snapshot.yjs.digest = "9".repeat(64);
+      return snapshot;
+    },
+    async captureStorage() {
+      return restoreSnapshot().storage;
+    },
+    async record() {},
+  });
 }
 
 test("P7 production authority requires hosted current deployment and three real distinct identities", () => {
@@ -319,14 +388,26 @@ test("P7 production Playwright contract uses supplied identities and emits only 
   assert.match(source, /page\.on\("websocket"/);
   assert.doesNotMatch(source, /const revisionOperation/);
   assert.match(source, /download|내보내기/);
+  assert.match(
+    source,
+    /const path = `\/projects\/\$\{authority\.project\}\/workspaces\/\$\{authority\.document\}`/,
+  );
+  assert.match(source, /url\.pathname === path && url\.search === ""/);
+  assert.match(
+    source,
+    /mountedPaths: mounted\.map\(\(\{ mountedPath \}\) => mountedPath\)/,
+  );
+  assert.doesNotMatch(source, /drawings\/\$\{authority\.file\}\/workspace/);
+  assert.doesNotMatch(source, /\?document=\$\{authority\.document\}/);
   assert.doesNotMatch(source, /createUser|example\.test|fixture/i);
 });
 
-test("P7 production receipt accepts only the current runner invocation and zero-loss immutable outcome", () => {
+test("P7 production V2 receipt accepts only the current runner invocation and zero-loss immutable canonical workspace outcome", () => {
   assert.equal(typeof runnerModule.validateP7ProductionReceipt, "function");
+  const canonicalPath = `/projects/${hosted.P7_E2E_PROJECT_ID}/workspaces/${hosted.P7_E2E_DOCUMENT_ID}`;
   const receipt = {
-    schemaVersion: 1,
-    authority: "P7_MOUNTED_PRODUCTION_PLAYWRIGHT_V1",
+    schemaVersion: 2,
+    authority: "P7_MOUNTED_PRODUCTION_PLAYWRIGHT_V2",
     invocationId: "00000000-0000-4000-8000-000000000009",
     runId: hosted.P7_E2E_RUN_ID,
     commit: hosted.P7_E2E_COMMIT,
@@ -344,6 +425,7 @@ test("P7 production receipt accepts only the current runner invocation and zero-
     projectId: hosted.P7_E2E_PROJECT_ID,
     documentId: hosted.P7_E2E_DOCUMENT_ID,
     revisionId: hosted.P7_E2E_REVISION_ID,
+    mountedPaths: [canonicalPath, canonicalPath, canonicalPath],
     sourceBefore: [
       {
         id: "00000000-0000-4000-8000-000000000011",
@@ -387,16 +469,67 @@ test("P7 production receipt accepts only the current runner invocation and zero-
       decision: "approved",
       decidedBy: hosted.P7_E2E_APPROVER_ID,
       authorId: hosted.P7_E2E_AUTHOR_ID,
+      subjectVersion: 7,
+      snapshotSha256: "f".repeat(64),
+    },
+    approvedSnapshot: {
+      operationCheckpoint: 0,
+      sha256: "f".repeat(64),
     },
     export: {
-      requestId: "00000000-0000-4000-8000-000000000014",
+      requestId: "0000000a-0000-4000-8000-000000000014",
       artifactType: "drawing_pdf",
       sha256: "c".repeat(64),
       byteSize: 30,
       auditActorId: hosted.P7_E2E_APPROVER_ID,
     },
+    drawingExports: [
+      {
+        requestId: "0000000a-0000-4000-8000-000000000014",
+        artifactType: "drawing_pdf",
+        sha256: "c".repeat(64),
+        byteSize: 30,
+        actorId: hosted.P7_E2E_APPROVER_ID,
+        workspaceId: hosted.P7_E2E_DOCUMENT_ID,
+        revisionId: hosted.P7_E2E_REVISION_ID,
+        revisionVersion: 7,
+        operationCheckpoint: 0,
+        checkpointSha256: "f".repeat(64),
+        revisionSnapshotSha256: "f".repeat(64),
+      },
+      {
+        requestId: "00000000-0000-4000-8000-000000000015",
+        artifactType: "drawing_png",
+        sha256: "d".repeat(64),
+        byteSize: 31,
+        actorId: hosted.P7_E2E_APPROVER_ID,
+        workspaceId: hosted.P7_E2E_DOCUMENT_ID,
+        revisionId: hosted.P7_E2E_REVISION_ID,
+        revisionVersion: 7,
+        operationCheckpoint: 0,
+        checkpointSha256: "f".repeat(64),
+        revisionSnapshotSha256: "f".repeat(64),
+      },
+      {
+        requestId: "00000000-0000-4000-8000-000000000016",
+        artifactType: "drawing_svg",
+        sha256: "e".repeat(64),
+        byteSize: 32,
+        actorId: hosted.P7_E2E_APPROVER_ID,
+        workspaceId: hosted.P7_E2E_DOCUMENT_ID,
+        revisionId: hosted.P7_E2E_REVISION_ID,
+        revisionVersion: 7,
+        operationCheckpoint: 0,
+        checkpointSha256: "f".repeat(64),
+        revisionSnapshotSha256: "f".repeat(64),
+      },
+    ],
     recordedAt: "2026-08-28T00:00:00.000Z",
   };
+  const drawingExportsWith = (index, patch) =>
+    receipt.drawingExports.map((drawingExport, rowIndex) =>
+      rowIndex === index ? { ...drawingExport, ...patch } : drawingExport,
+    );
   const authority = runnerModule.requireP7ProductionAuthorities(hosted);
   assert.deepEqual(
     runnerModule.validateP7ProductionReceipt(
@@ -407,7 +540,45 @@ test("P7 production receipt accepts only the current runner invocation and zero-
     receipt,
   );
   for (const bad of [
+    {
+      ...receipt,
+      schemaVersion: 1,
+      authority: "P7_MOUNTED_PRODUCTION_PLAYWRIGHT_V1",
+    },
     { ...receipt, invocationId: "00000000-0000-4000-8000-000000000010" },
+    { ...receipt, mountedPaths: undefined },
+    {
+      ...receipt,
+      mountedPaths: [
+        `/projects/${hosted.P7_E2E_PROJECT_ID}/drawings/${hosted.P7_E2E_FILE_ID}/workspace`,
+        canonicalPath,
+        canonicalPath,
+      ],
+    },
+    {
+      ...receipt,
+      mountedPaths: [
+        `${canonicalPath}?document=${hosted.P7_E2E_DOCUMENT_ID}`,
+        canonicalPath,
+        canonicalPath,
+      ],
+    },
+    {
+      ...receipt,
+      mountedPaths: [
+        `/projects/00000000-0000-4000-8000-000000000099/workspaces/${hosted.P7_E2E_DOCUMENT_ID}`,
+        canonicalPath,
+        canonicalPath,
+      ],
+    },
+    {
+      ...receipt,
+      mountedPaths: [
+        `/projects/${hosted.P7_E2E_PROJECT_ID}/workspaces/00000000-0000-4000-8000-000000000099`,
+        canonicalPath,
+        canonicalPath,
+      ],
+    },
     { ...receipt, offlineLoss: 1 },
     { ...receipt, sourceAfter: [] },
     { ...receipt, approvedImmutable: false },
@@ -422,7 +593,114 @@ test("P7 production receipt accepts only the current runner invocation and zero-
       ...receipt,
       approval: { ...receipt.approval, decidedBy: hosted.P7_E2E_AUTHOR_ID },
     },
+    {
+      ...receipt,
+      approval: { ...receipt.approval, subjectVersion: 8 },
+    },
+    {
+      ...receipt,
+      approvedSnapshot: { ...receipt.approvedSnapshot, operationCheckpoint: 1 },
+    },
+    {
+      ...receipt,
+      approvedSnapshot: { ...receipt.approvedSnapshot, sha256: "0".repeat(64) },
+    },
     { ...receipt, export: { ...receipt.export, requestId: "not-a-uuid" } },
+    { ...receipt, drawingExports: receipt.drawingExports.slice(0, 2) },
+    {
+      ...receipt,
+      drawingExports: drawingExportsWith(0, { revisionVersion: 8 }),
+    },
+    {
+      ...receipt,
+      drawingExports: drawingExportsWith(1, { operationCheckpoint: 1 }),
+    },
+    {
+      ...receipt,
+      drawingExports: drawingExportsWith(2, {
+        checkpointSha256: "0".repeat(64),
+        revisionSnapshotSha256: "0".repeat(64),
+      }),
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        receipt.drawingExports[0],
+        receipt.drawingExports[0],
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        receipt.drawingExports[0],
+        {
+          ...receipt.drawingExports[1],
+          requestId: receipt.drawingExports[0].requestId.toUpperCase(),
+        },
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        receipt.drawingExports[1],
+        receipt.drawingExports[0],
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        { ...receipt.drawingExports[0], workspaceId: hosted.P7_E2E_PROJECT_ID },
+        receipt.drawingExports[1],
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        { ...receipt.drawingExports[0], sha256: "C".repeat(64) },
+        receipt.drawingExports[1],
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        { ...receipt.drawingExports[0], checkpointSha256: "0".repeat(64) },
+        receipt.drawingExports[1],
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        { ...receipt.drawingExports[0], revisionVersion: 0.5 },
+        receipt.drawingExports[1],
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        { ...receipt.drawingExports[0], operationCheckpoint: 0.5 },
+        receipt.drawingExports[1],
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      drawingExports: [
+        { ...receipt.drawingExports[0], byteSize: 0.5 },
+        receipt.drawingExports[1],
+        receipt.drawingExports[2],
+      ],
+    },
+    {
+      ...receipt,
+      export: { ...receipt.export, sha256: "0".repeat(64) },
+    },
   ])
     assert.throws(
       () =>
@@ -431,7 +709,7 @@ test("P7 production receipt accepts only the current runner invocation and zero-
           authority,
           receipt.invocationId,
         ),
-      /invocation|offline|source|immutable|role|independent review|independent approval|collaboration|export/i,
+      /authority|invocation|mounted route|offline|source|immutable|role|independent review|independent approval|collaboration|export/i,
     );
 });
 
@@ -759,7 +1037,10 @@ test("actual P3 and P0-P6 browser gates directly bind realtime and regression re
 });
 
 test("release report and matrix are atomically derived from the current authoritative ledger", () => {
-  assert.equal(typeof documentModule.writeDrawingP7ReleaseDocuments, "function");
+  assert.equal(
+    typeof documentModule.writeDrawingP7ReleaseDocuments,
+    "function",
+  );
   const directory = mkdtempSync(join(tmpdir(), "1hk-p7-release-documents-"));
   const reportPath = join(directory, "task-7-report.md");
   const matrixPath = join(directory, "P0_P7_IMPLEMENTATION_MATRIX.md");
@@ -810,8 +1091,14 @@ test("release run invalidation replaces stale PASS documents before any gate exe
   const directory = mkdtempSync(join(tmpdir(), "1hk-p7-release-running-"));
   const reportPath = join(directory, "task-7-report.md");
   const matrixPath = join(directory, "P0_P7_IMPLEMENTATION_MATRIX.md");
-  writeFileSync(reportPath, "Overall: PASS\n48 PASS / 0 NOT_MET / 0 UNEXECUTED\n");
-  writeFileSync(matrixPath, "Overall: PASS\n48 PASS / 0 NOT_MET / 0 UNEXECUTED\n");
+  writeFileSync(
+    reportPath,
+    "Overall: PASS\n48 PASS / 0 NOT_MET / 0 UNEXECUTED\n",
+  );
+  writeFileSync(
+    matrixPath,
+    "Overall: PASS\n48 PASS / 0 NOT_MET / 0 UNEXECUTED\n",
+  );
   try {
     documentModule.invalidateDrawingP7ReleaseDocuments({
       reportPath,
@@ -940,7 +1227,10 @@ test("release document readers reject a mismatched document pair", () => {
         matrixPath,
       }),
     );
-    writeFileSync(matrixPath, readFileSync(matrixPath, "utf8").replace("pair-run", "other-run"));
+    writeFileSync(
+      matrixPath,
+      readFileSync(matrixPath, "utf8").replace("pair-run", "other-run"),
+    );
     assert.throws(
       () =>
         documentModule.validateDrawingP7ReleaseDocumentPair({
@@ -1082,19 +1372,158 @@ test("visual receipt detects tampering anywhere in the client build tree", () =>
   }
 });
 
-test("missing managed provider authority stays UNEXECUTED while an executed miss is NOT_MET", () => {
+test("restore evidence classifier rejects forged PASS and preserves honest semantic outcomes", async () => {
   assert.equal(
-    runnerModule.p7ProductionGateStatus("production.managed_restore", 2, {
-      status: "UNEXECUTED",
-    }),
+    typeof runnerModule.classifyDrawingP7RestoreEvidence,
+    "function",
+  );
+  const legacy = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-5-restore-evidence.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const correlated = await currentRestoreEvidence();
+  const mismatch = await currentRestoreEvidence({ mismatch: true });
+  const expected = {
+    expectedSourceCommit: restoreCommit,
+    expectedRequestId: restoreRequestId,
+  };
+  assert.equal(
+    runnerModule.classifyDrawingP7RestoreEvidence(legacy, expected),
     "UNEXECUTED",
   );
   assert.equal(
-    runnerModule.p7ProductionGateStatus("production.managed_restore", 1, {
-      status: "NOT_MET",
-    }),
+    runnerModule.classifyDrawingP7RestoreEvidence(correlated, expected),
+    "UNEXECUTED",
+  );
+  assert.equal(
+    runnerModule.classifyDrawingP7RestoreEvidence(mismatch, expected),
     "NOT_MET",
   );
+  for (const forged of [
+    { ...legacy, status: "PASS" },
+    { status: "PASS" },
+    { ...correlated, status: "PASS" },
+    { ...correlated, path: "/tmp/consumer-metadata.json" },
+  ])
+    assert.equal(
+      runnerModule.classifyDrawingP7RestoreEvidence(forged, expected),
+      "NOT_MET",
+    );
+  for (const stale of [
+    {
+      ...expected,
+      expectedSourceCommit: "d".repeat(40),
+    },
+    {
+      ...expected,
+      expectedRequestId: "74000000-0000-4000-8000-000000000010",
+    },
+  ])
+    assert.equal(
+      runnerModule.classifyDrawingP7RestoreEvidence(correlated, stale),
+      "NOT_MET",
+    );
+});
+
+test("restore evidence assembly classifies both managed restore rows without receipts", async () => {
+  const currentCommit = evidenceModule.drawingP7ReleaseCommit();
+  const correlated = await currentRestoreEvidence();
+  correlated.sourceCommit = currentCommit;
+  const mismatch = await currentRestoreEvidence({ mismatch: true });
+  mismatch.sourceCommit = currentCommit;
+  let inspections = 0;
+  mismatch.provider = new Proxy(mismatch.provider, {
+    ownKeys(target) {
+      inspections += 1;
+      if (inspections > 1) throw new Error("restore classified more than once");
+      return Reflect.ownKeys(target);
+    },
+  });
+  const legacy = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-5-restore-evidence.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  for (const [restore, requestId, status] of [
+    [correlated, restoreRequestId, "UNEXECUTED"],
+    [mismatch, restoreRequestId, "NOT_MET"],
+    [legacy, undefined, "UNEXECUTED"],
+    [{ ...legacy, status: "PASS" }, undefined, "NOT_MET"],
+    [{ status: "PASS" }, restoreRequestId, "NOT_MET"],
+    [correlated, "74000000-0000-4000-8000-000000000010", "NOT_MET"],
+  ]) {
+    const evidence = runnerModule.buildReleaseEvidenceFromResults(
+      [],
+      {
+        coldCacheMiss: { status: "MET" },
+        gates: { productionRuntime: "UNEXECUTED" },
+        path: new URL(
+          "../../.superpowers/sdd/2026-08-28-drawing-workspace-p7/task-4-performance-evidence.json",
+          import.meta.url,
+        ).pathname,
+      },
+      { ...restore, path: "/tmp/consumer-metadata.json" },
+      "74000000-0000-4000-8000-000000000011",
+      { P7_RESTORE_REQUEST_ID: requestId },
+    );
+    const rows = evidence.requirements.filter(({ id }) =>
+      ["retention.managed_backup_restore", "retention.rpo_rto"].includes(id),
+    );
+    assert.equal(rows.length, 2);
+    assert.deepEqual(
+      rows.map(({ status: rowStatus }) => rowStatus),
+      [status, status],
+    );
+    assert.deepEqual(
+      rows.map(({ receipt }) => receipt),
+      [null, null],
+    );
+  }
+  assert.equal(inspections, 1);
+});
+
+test("managed restore gate requires matching semantic evidence and exit code", async () => {
+  const correlated = await currentRestoreEvidence();
+  const mismatch = await currentRestoreEvidence({ mismatch: true });
+  const expected = {
+    expectedSourceCommit: restoreCommit,
+    expectedRequestId: restoreRequestId,
+  };
+  for (const [exitCode, evidence, status] of [
+    [0, correlated, "NOT_MET"],
+    [1, correlated, "NOT_MET"],
+    [2, correlated, "UNEXECUTED"],
+    [0, mismatch, "NOT_MET"],
+    [1, mismatch, "NOT_MET"],
+    [2, mismatch, "NOT_MET"],
+    [0, { status: "PASS" }, "NOT_MET"],
+    [2, null, "NOT_MET"],
+  ])
+    assert.equal(
+      runnerModule.p7ProductionGateStatus(
+        "production.managed_restore",
+        exitCode,
+        evidence,
+        expected,
+      ),
+      status,
+    );
+  assert.equal(
+    runnerModule.p7ProductionGateStatus("production.real_postgres", 0),
+    "PASS",
+  );
+});
+
+test("an executed non-restore production miss is NOT_MET", () => {
   assert.equal(
     runnerModule.p7ProductionGateStatus("production.real_postgres", 1),
     "NOT_MET",

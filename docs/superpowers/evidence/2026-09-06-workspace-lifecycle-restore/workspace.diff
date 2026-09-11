@@ -1,0 +1,85 @@
+--- /tmp/1hk-r2-restore-x55wft/drawing-workspace.tsx	2026-09-06 17:48:55
++++ platform/app/lukas/components/drawing-workspace.tsx	2026-09-06 18:07:46
+@@ -2152,15 +2152,50 @@
+       awarenessLeaseRef.current = null;
+     },
+   });
+-  const [collaborationPhase, setCollaborationPhase] = useState<
+-    DrawingCollaborationConnection["phase"]
+-  >(
+-    previewMode
+-      ? "connected"
++  const [collaborationConnectionState, setCollaborationConnectionState] =
++    useState<{
++      lifecycleKey: string;
++      generation: number;
++      phase: DrawingCollaborationConnection["phase"];
++    }>({
++      lifecycleKey: persistenceLifecycleKey,
++      generation: 0,
++      phase: previewMode
++        ? "connected"
++        : collaborationEnabled
++          ? "connecting"
++          : "degraded",
++    });
++  // Reset before children commit, including A → B → A. An identity match
++  // alone would revive A's old phase and admit its late async callbacks.
++  if (collaborationConnectionState.lifecycleKey !== persistenceLifecycleKey) {
++    setCollaborationConnectionState({
++      lifecycleKey: persistenceLifecycleKey,
++      generation: collaborationConnectionState.generation + 1,
++      phase: collaborationEnabled ? "connecting" : "degraded",
++    });
++  }
++  const collaborationGeneration = collaborationConnectionState.generation;
++  const setCollaborationPhase = useCallback(
++    (phase: DrawingCollaborationConnection["phase"]) => {
++      setCollaborationConnectionState((current) =>
++        current.lifecycleKey === persistenceLifecycleKey &&
++        current.generation === collaborationGeneration &&
++        current.phase !== phase
++          ? { ...current, phase }
++          : current,
++      );
++    },
++    [persistenceLifecycleKey, collaborationGeneration],
++  );
++  // A previous actor/revision's connection is not evidence for the new room,
++  // including the render before its replacement persistence effect begins.
++  const collaborationPhase =
++    collaborationConnectionState.lifecycleKey === persistenceLifecycleKey
++      ? collaborationConnectionState.phase
+       : collaborationEnabled
+         ? "connecting"
+-        : "degraded",
+-  );
++        : "degraded";
+   const [collaborationEditNotice, setCollaborationEditNotice] = useState<
+     string | null
+   >(null);
+@@ -3679,6 +3714,7 @@
+     nativeDwgImportSendGate,
+     enqueueDrawingMutation,
+     persistenceLifecycleKey,
++    setCollaborationPhase,
+   ]);
+ 
+   useEffect(() => {
+@@ -3708,6 +3744,7 @@
+     collaborationEnabled,
+     firstPaintLifecycleKey,
+     selectedIfcChoice?.id,
++    setCollaborationPhase,
+     surface.background.kind,
+     viewMode,
+   ]);
+@@ -3833,7 +3870,7 @@
+       window.removeEventListener("online", refresh);
+       document.removeEventListener("visibilitychange", visible);
+     };
+-  }, [persistenceLifecycleKey]);
++  }, [persistenceLifecycleKey, setCollaborationPhase]);
+ 
+   const commitApplied = useCallback(
+     async (operationId: string) => {

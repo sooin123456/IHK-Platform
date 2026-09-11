@@ -13,6 +13,7 @@ import {
   reorderDrawingCanvasCommand,
   createDrawingPageCommand,
   deleteDrawingCanvasCommand,
+  drawingStructureDeletionReasons,
   reorderDrawingLayerCommand,
   applyDrawingCommand,
   undoDrawingCommand,
@@ -210,6 +211,56 @@ test("canvas creation and deletion require exact recorded layer actions", () => 
   const restored = applyDrawingStructureActions(deleted.state, deleted.inverse);
   assert.equal(restored.state.layers[ids.modelLayer].id, ids.modelLayer);
   assert.equal(restored.state.layers[ids.modelLayer].sortOrder, 7);
+});
+
+test("page tree derives every deletion reason from one shared occupancy index", () => {
+  const secondPageId = "00000000-0000-4000-8000-000000000011";
+  const secondCanvasId = "00000000-0000-4000-8000-000000000012";
+  const current = state({
+    pages: {
+      ...state().pages,
+      [secondPageId]: {
+        id: secondPageId,
+        revisionId: ids.revision,
+        name: "Page 2",
+        sortOrder: 1,
+        version: 1,
+      },
+    },
+    canvases: {
+      [ids.canvas]: canvas(),
+      [ids.modelCanvas]: canvas({
+        id: ids.modelCanvas,
+        name: "Model",
+        spaceKind: "model",
+        sortOrder: 1,
+      }),
+      [secondCanvasId]: canvas({
+        id: secondCanvasId,
+        pageId: secondPageId,
+        name: "Second paper",
+      }),
+    },
+    objects: { [ids.object]: object() },
+  });
+  const reasons = drawingStructureDeletionReasons({
+    revisionId: ids.revision,
+    layers: current.layers,
+    structure: current,
+  });
+  assert.deepEqual(reasons, {
+    canvases: {
+      [ids.canvas]:
+        "The default paper canvas can only be deleted with its page.",
+      [ids.modelCanvas]: null,
+      [secondCanvasId]:
+        "The default paper canvas can only be deleted with its page.",
+    },
+    pages: {
+      [ids.page]: "Canvas with objects or blocks cannot be deleted.",
+      [secondPageId]: null,
+    },
+  });
 });
 
 test("page and canvas factories record atomic structural creation and deterministic layer reorder", () => {
@@ -698,17 +749,20 @@ test("resolved style merges a referenced definition with finite validated overri
 test("strict structure actions reject duplicate trimmed style definition names", () => {
   const current = state({ canvases: { [ids.canvas]: canvas() } });
   assert.throws(
-    () => applyDrawingStructureActions(current, [{
-      kind: "put_style",
-      entity: {
-        id: "00000000-0000-4000-8000-000000000011",
-        revisionId: ids.revision,
-        name: "Default",
-        value: { stroke: "#000000", strokeWidth: 1, fill: null },
-        version: 1,
-      },
-      baseVersion: null,
-    }]),
+    () =>
+      applyDrawingStructureActions(current, [
+        {
+          kind: "put_style",
+          entity: {
+            id: "00000000-0000-4000-8000-000000000011",
+            revisionId: ids.revision,
+            name: "Default",
+            value: { stroke: "#000000", strokeWidth: 1, fill: null },
+            version: 1,
+          },
+          baseVersion: null,
+        },
+      ]),
     /style.*name.*unique|unique.*style.*name/i,
   );
 });

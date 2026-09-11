@@ -3,6 +3,8 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
+import { readPublicReleaseConfig } from "../app/features/home/lib/release-config.ts";
+
 const root = process.cwd();
 const read = (file) => readFile(path.join(root, file), "utf8");
 
@@ -25,6 +27,10 @@ test("public routes expose news, RSS and free download without payment checkout"
   assert.match(download, /0원/);
   assert.match(download, /결제정보 불필요/);
   assert.match(download, /readPublicReleaseConfig/);
+  assert.match(
+    download,
+    /allowLoopback:\s*import\.meta\.env\.VITE_M1_E2E_ALLOW_LOOPBACK_RELEASE === "1"/,
+  );
   assert.match(download, /href="\/download\/revit-2025"/);
   const redirect = await read("app/features/home/screens/revit-download.ts");
   assert.match(redirect, /lukas_qto_license_entitlements/);
@@ -32,11 +38,57 @@ test("public routes expose news, RSS and free download without payment checkout"
   assert.match(redirect, /Cache-Control/);
 });
 
-test("release download requires HTTPS and a complete SHA-256", async () => {
-  const config = await read("app/features/home/lib/release-config.ts");
-  assert.match(config, /parsed\.protocol === "https:"/);
-  assert.match(config, /\^\[A-F0-9\]\{64\}\$/);
-  assert.match(config, /if \(!url \|\| !validSha\) return \{ ready: false/);
+test("release download requires HTTPS and a complete SHA-256 by default", () => {
+  const sha256 = "a".repeat(64);
+
+  assert.equal(
+    readPublicReleaseConfig({
+      url: "https://downloads.example.com/revit-2025.zip",
+      sha256,
+    }).ready,
+    true,
+  );
+  assert.equal(
+    readPublicReleaseConfig({
+      url: "http://127.0.0.1:12350/revit-2025.zip",
+      sha256,
+    }).ready,
+    false,
+  );
+  assert.equal(
+    readPublicReleaseConfig({
+      url: "https://downloads.example.com/revit-2025.zip",
+      sha256: "not-a-sha",
+    }).ready,
+    false,
+  );
+});
+
+test("release download permits only exact HTTP loopback hosts when the M1 test flag is explicit", () => {
+  const sha256 = "b".repeat(64);
+
+  for (const url of [
+    "http://127.0.0.1:12350/revit-2025.zip",
+    "http://[::1]:12350/revit-2025.zip",
+  ]) {
+    assert.equal(
+      readPublicReleaseConfig({ url, sha256, allowLoopback: true }).ready,
+      true,
+      url,
+    );
+  }
+
+  for (const url of [
+    "http://localhost:12350/revit-2025.zip",
+    "http://127.0.0.2:12350/revit-2025.zip",
+    "http://example.com/revit-2025.zip",
+  ]) {
+    assert.equal(
+      readPublicReleaseConfig({ url, sha256, allowLoopback: true }).ready,
+      false,
+      url,
+    );
+  }
 });
 
 test("customer workflow uses verified email auth and excludes AI and anonymous bypasses", async () => {
@@ -145,6 +197,12 @@ test("material control is a separate authenticated web workflow with append-only
   assert.match(screen, /Revit 설치 프로그램과 별도의 현장 기록 화면입니다/);
   assert.match(screen, /기록되었습니다\. 아래 현황에 새 내용이 반영됐습니다/);
   assert.match(screen, /탄소 정보 입력 \(고급\)/);
+  assert.match(
+    screen,
+    /const fieldId = useId\(\)/,
+    "repeated material forms must not share global label target ids",
+  );
+  assert.match(screen, /<Label htmlFor=\{fieldId\}>\{label\}<\/Label>/);
   assert.doesNotMatch(screen, /payment|checkout|세금계산서 발행/i);
 });
 
@@ -202,11 +260,12 @@ test("returning customers enter a functional drawing-project workspace", async (
 
   assert.match(dashboard, /새 도면 프로젝트/);
   assert.match(dashboard, /프로젝트 만들고 작업공간 열기/);
-  assert.match(dashboard, /프로젝트 또는 도면 검색/);
-  assert.match(dashboard, /검토가 필요한 프로젝트/);
-  assert.match(dashboard, /최근 작업/);
-  assert.match(dashboard, /3D IFC/);
-  assert.match(dashboard, /\/projects\/\$\{project\.id\}\/members/);
+  assert.match(dashboard, /프로젝트 검색/);
+  assert.match(dashboard, /이어서 작업/);
+  assert.match(dashboard, /전체 프로젝트/);
+  assert.match(dashboard, /프로젝트 필터/);
+  assert.match(dashboard, /projectListHref/);
+  assert.match(dashboard, /drawingWorkspacePath/);
   assert.match(dashboard, /1HK Platform/);
   assert.match(workspace, /projectMetrics/);
   assert.match(workspace, /lukas_qto_project_members/);
@@ -216,11 +275,11 @@ test("returning customers enter a functional drawing-project workspace", async (
   assert.match(themeSwitcher, /기기 설정 사용/);
 });
 
-test("workspace cards lead to the drawing collaboration room with honest work counts", async () => {
+test("workspace cards lead to drawing lists and the latest drawing remains resumable", async () => {
   const screen = await read("app/lukas/components/workspace-dashboard.tsx");
   const loader = await read("app/lukas/screens/workspace.tsx");
-  assert.match(screen, /도면 협업실/);
-  assert.match(screen, /미해결/);
-  assert.match(screen, /내 담당/);
+  assert.match(screen, /도면 목록 열기/);
+  assert.match(screen, /이어서 작업/);
+  assert.match(screen, /drawingWorkspacePath/);
   assert.match(loader, /listDrawingIssueMetrics/);
 });

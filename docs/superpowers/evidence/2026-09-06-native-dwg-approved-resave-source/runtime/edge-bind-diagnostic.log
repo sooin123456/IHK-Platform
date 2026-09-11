@@ -1,0 +1,56 @@
+Owned bounded bind-mount diagnostic
+Date: 2026-09-06 Asia/Seoul
+Image: public.ecr.aws/supabase/edge-runtime:v1.74.3
+Digest: sha256:c52405002a890ca9fcf77978671c57f3a988e03174afb277f84ac65bc917013c
+Network: none
+Pull policy: never
+
+Failed Supabase-owned container evidence
+-----------------------------------------
+Container: supabase_edge_runtime_1hk-m1-c419c6f2
+Declared bind source:
+/private/tmp/1hk-r2-r5-runtime.bQ2KdI/platform/node_modules/.cache/1hk-m1-e2e/1hk-m1-supabase-53ga5i/supabase/.temp/start-secrets/supabase_edge_runtime_1hk-m1-c419c6f2/main/index.ts
+Declared bind destination: /root/index.ts
+Declared bind mode: ro,Z
+Host source after startup: regular file, mode -rw-r--r--, size 32182
+Container destination read back with docker cp: directory, mode drwxr-xr-x
+Container exit: 1; OOMKilled=false
+Container log:
+worker boot error: failed to bootstrap runtime: failed to determine entrypoint
+Error: main worker boot error
+
+Caused by:
+    0: worker boot error
+    1: failed to bootstrap runtime
+    2: failed to determine entrypoint
+
+Synthetic /private/tmp probe
+----------------------------
+Command:
+docker run --pull=never --rm --name 1hk-edge-bind-probe-c419c6f2 --network none --mount type=bind,source=/private/tmp/1hk-r2-r5-runtime.bQ2KdI/edge-bind-probe/synthetic-index.ts,target=/root/index.ts,readonly --entrypoint /bin/sh public.ecr.aws/supabase/edge-runtime:v1.74.3 -c 'stat -c "container_type=%F container_mode=%A container_size=%s container_inode=%i" /root/index.ts; test -f /root/index.ts'
+Host source: regular file, size 33
+Result: Docker daemon rejected the bind because the source path does not exist from the daemon's view.
+
+Synthetic /tmp alias probe
+--------------------------
+Command:
+docker run --pull=never --rm --name 1hk-edge-bind-probe-c419c6f2 --network none --mount type=bind,source=/tmp/1hk-r2-r5-runtime.bQ2KdI/edge-bind-probe/synthetic-index.ts,target=/root/index.ts,readonly --entrypoint /bin/sh public.ecr.aws/supabase/edge-runtime:v1.74.3 -c 'stat -c "container_type=%F container_mode=%A container_size=%s container_inode=%i" /root/index.ts; test -f /root/index.ts'
+Host alias and canonical path were the same regular-file inode.
+Result: Docker daemon rejected the bind because the source path does not exist from the daemon's view.
+
+Synthetic /Users shared-root control
+------------------------------------
+Command:
+docker run --pull=never --rm --name 1hk-edge-bind-probe-users-c419c6f2 --network none --mount type=bind,source=/Users/h/Documents/GoAgent/.1hk-edge-bind-probe-c419c6f2/index.ts,target=/root/index.ts,readonly --entrypoint /bin/sh public.ecr.aws/supabase/edge-runtime:v1.74.3 -c 'stat -c "container_type=%F container_mode=%A container_size=%s container_inode=%i" /root/index.ts; test -f /root/index.ts'
+Host source: regular file, mode -rw-r--r--, size 45
+Container destination: regular file, mode -rw-r--r--, size 45
+Exit: 0
+
+Diagnosis
+---------
+This is a general Docker Desktop visibility boundary for this host's /tmp and
+/private/tmp paths, not a missing image and not a function-file defect. The
+Supabase CLI's generated bind used the invisible canonical /private/tmp path;
+the destination became a directory, so Edge Runtime could not select index.ts.
+An owned snapshot under the Docker-shared /Users tree is the confirmed local
+prerequisite for rerunning this harness. No whole-suite retry was attempted.

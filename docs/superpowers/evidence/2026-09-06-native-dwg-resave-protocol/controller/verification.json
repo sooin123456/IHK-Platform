@@ -1,0 +1,125 @@
+{
+  "imageId": "sha256:c921c67ddb37d2a57969d04c7a4983f6d847e0b89901403e3b015ac25bf566ae",
+  "reviewedFiles": [
+    {
+      "path": "platform/tests/drawing-native-dwg-geometry-resave-integration.test.mjs",
+      "sha256": "34f91fc364e56bebd69744990053227ea8cebf907a62206140fff480d1061218"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/Dockerfile.reader",
+      "sha256": "bde84323fe3577a61cedd5e1a0b68e8955beda512ef030cbb751f837579c9e5d"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgReader.cs",
+      "sha256": "967a6687a74df41607632a89d258064cd7e8eff6c290ffde75bc0b215f619a75"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgResaveSelfTests.cs",
+      "sha256": "76dc1cb04fd4c75d7f55b8ddb2dedd0a054778ea5328a241a9fdcc5b3e04aab0"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/NativeDwgResaver.cs",
+      "sha256": "1bc3b3bacfb59992f3026bfc05a43389e03a8abafd16ba3617371232418d3559"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/Program.cs",
+      "sha256": "62ba82cce55f962aac1c78c5366df0c8fcdce684a09725004206a49128832d01"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/QualificationRunner.cs",
+      "sha256": "266d1dff6baf5bd2f73fcb1d525915043870fd028522b2f9863143f5a7879be2"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/README.md",
+      "sha256": "fa8ff6f0a041ecc62292d86c098a0e12a4c3ce8f80843ae3dc5f4c2a4677e127"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/SelectedDwgEdits.cs",
+      "sha256": "ccd12c75330e42786a1107b6793d46e2e077f47a1ef367d69c2ae7e4710dae62"
+    },
+    {
+      "path": "tools/dwg-engine-qualification/SelfTests.cs",
+      "sha256": "a562343f2d8d364ec1726e9060924ed427a40576b9360748f55131751e35c0d3"
+    },
+    {
+      "path": "platform/app/lukas/lib/drawing-native-dwg-resave-protocol.server.ts",
+      "sha256": "54c8e3b032464dbeaf5718f6f849c8f4b4d1d6152d680d89d178ce4fe9e1bc08"
+    },
+    {
+      "path": "platform/app/lukas/lib/drawing-native-dwg-sandbox.server.ts",
+      "sha256": "87e62b6ddea49c0af38cc37a0681d6a587812106f3ecdef4b646bf503153f54c"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-resave-protocol.test.mjs",
+      "sha256": "ec23975ccbb52fa5e8bd358a9e5a4d77722fa855a442e9b6b4c5c6adbf0e53eb"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs",
+      "sha256": "f353fffb15c8f181d3a55482b3643f44afbbd154301be0d400feea7a1eff7497"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-resave-sandbox.test.mjs",
+      "sha256": "3a49aa4dfe29eabca946b3ceb806f2e7ed08da1dcd6ded2743b4c0cf10e53f87"
+    },
+    {
+      "path": "platform/tests/drawing-native-dwg-sandbox.test.mjs",
+      "sha256": "3499141bf9197e04157872241440eae890b9940b4708d4b977abf1885271f043"
+    },
+    {
+      "path": "platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs",
+      "sha256": "d0311521371cde4bf1c098b692b961571c629a8a8a3f445d2671ed97615a1e38"
+    }
+  ],
+  "results": [
+    {
+      "label": "regressions",
+      "command": "/opt/homebrew/Cellar/node/26.5.0/bin/node",
+      "args": [
+        "--test",
+        "tests/drawing-native-dwg-resave-protocol.test.mjs",
+        "tests/drawing-native-dwg-resave-sandbox.test.mjs",
+        "tests/drawing-native-dwg-sandbox.test.mjs",
+        "tests/drawing-native-dwg-reader.test.mjs",
+        "tests/drawing-native-dwg-selected-edits.test.mjs",
+        "tests/drawing-native-dwg-source.test.mjs",
+        "tests/drawing-native-dwg-resave-source.test.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "logSha256": "95f9f837245052cde49843e6b9a4ab0869ab5ff022d1a274c6bdb9ea466e71ed"
+    },
+    {
+      "label": "typecheck",
+      "command": "npm",
+      "args": [
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "logSha256": "30d632d155b5c6ee81c5f42da6918bff2b555f9a92a22715a6f795cdf95d1ec1"
+    },
+    {
+      "label": "actual-resave",
+      "command": "/opt/homebrew/Cellar/node/26.5.0/bin/node",
+      "args": [
+        "--test",
+        "tests/drawing-native-dwg-resave-sandbox-integration.test.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "logSha256": "9763d7ba5cc4a48cd68443e10c7584278cfce75974b27c923ee6981e76790598"
+    },
+    {
+      "label": "actual-reader",
+      "command": "/opt/homebrew/Cellar/node/26.5.0/bin/node",
+      "args": [
+        "--test",
+        "tests/drawing-native-dwg-sandbox-integration.test.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "logSha256": "4fd0968e66f667ec230516da53fa4ae8133dbf32da4a60a6ea3fc075d14633a7"
+    }
+  ]
+}

@@ -13,7 +13,14 @@ const p3ProductionGate =
       argument.includes("drawing-workspace-p3.spec.ts") ||
       argument.includes("drawing-collaboration-service-smoke.spec.ts"),
   );
-if (p3ProductionGate) requireDrawingP3ProductionCredentials(process.env);
+if (p3ProductionGate) {
+  if (process.env.M1_E2E_P3_DISPOSABLE === "1") {
+    if (!process.argv.includes("--config=playwright.m1.config.ts"))
+      throw new Error(
+        "P3 disposable gate requires runner-owned playwright.m1.config.ts",
+      );
+  } else requireDrawingP3ProductionCredentials(process.env);
+}
 
 const PORT = process.env.PORT || 4000;
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;

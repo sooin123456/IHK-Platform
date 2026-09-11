@@ -1,0 +1,294 @@
+diff --git a/platform/supabase/migrations/20260906110304_drawing_native_dwg_resave_control.sql b/platform/supabase/migrations/20260906110304_drawing_native_dwg_resave_control.sql
+new file mode 100644
+index 0000000..0d41b6e
+--- /dev/null
++++ b/platform/supabase/migrations/20260906110304_drawing_native_dwg_resave_control.sql
+@@ -0,0 +1,288 @@
++begin;
++
++create table public.lukas_drawing_native_dwg_resave_jobs (
++  id uuid primary key default extensions.gen_random_uuid(),
++  project_id uuid not null references public.lukas_qto_projects(id) on delete cascade,
++  requested_by uuid not null, request_id uuid not null,
++  scope jsonb not null, source jsonb not null, attestation jsonb not null,
++  resaver_image_id text not null check(resaver_image_id ~ '^sha256:[0-9a-f]{64}$'),
++  status text not null check(status in ('queued','processing','retry_wait','cancel_requested','cancelled','no_changes','failed')),
++  attempt_count integer not null default 0 check(attempt_count between 0 and 3),
++  lease_token uuid, lease_expires_at timestamptz,
++  next_attempt_at timestamptz not null default pg_catalog.clock_timestamp(),
++  failure_code text check(failure_code in ('source_unavailable','source_mismatch','resaver_failed','output_invalid','worker_interrupted','authority_revoked')),
++  created_at timestamptz not null default pg_catalog.clock_timestamp(),
++  unique(requested_by,request_id), unique(id,project_id),
++  check((status='no_changes')=(attestation->'request'='null'::jsonb)),
++  check(status<>'no_changes' or attempt_count=0)
++);
++create table public.lukas_drawing_native_dwg_resave_attempts (
++  job_id uuid not null, project_id uuid not null references public.lukas_qto_projects(id) on delete cascade,
++  attempt_number integer not null check(attempt_number between 1 and 3),
++  lease_token uuid not null unique, started_at timestamptz not null, lease_expires_at timestamptz not null,
++  outcome text check(outcome in ('retry_wait','failed','expired','cancelled')), finished_at timestamptz,
++  failure_code text check(failure_code in ('source_unavailable','source_mismatch','resaver_failed','output_invalid','worker_interrupted','authority_revoked')),
++  primary key(job_id,attempt_number),
++  foreign key(job_id,project_id) references public.lukas_drawing_native_dwg_resave_jobs(id,project_id) on delete cascade,
++  check((outcome is null)=(finished_at is null))
++);
++create index drawing_resave_claim_idx on public.lukas_drawing_native_dwg_resave_jobs(resaver_image_id,created_at,id)
++  where status in ('queued','retry_wait','processing','cancel_requested');
++create index drawing_resave_project_idx on public.lukas_drawing_native_dwg_resave_jobs(project_id,status);
++create index drawing_resave_attempt_project_idx on public.lukas_drawing_native_dwg_resave_attempts(project_id);
++create index drawing_resave_attempt_job_project_idx on public.lukas_drawing_native_dwg_resave_attempts(job_id,project_id);
++alter table public.lukas_drawing_native_dwg_resave_jobs enable row level security;
++alter table public.lukas_drawing_native_dwg_resave_jobs force row level security;
++alter table public.lukas_drawing_native_dwg_resave_attempts enable row level security;
++alter table public.lukas_drawing_native_dwg_resave_attempts force row level security;
++revoke all on public.lukas_drawing_native_dwg_resave_jobs,public.lukas_drawing_native_dwg_resave_attempts from public,anon,authenticated,service_role,lukas_drawing_collaboration;
++
++create function private.lukas_drawing_native_dwg_resave_context(p_actor_id uuid,p_scope jsonb)
++returns jsonb language plpgsql stable security definer set search_path='' as $$
++declare payload jsonb; src jsonb;
++begin
++  payload:=private.lukas_drawing_native_dwg_resave_source_for_actor(p_actor_id,p_scope);
++  if payload is null then return null; end if;
++  -- The actor resolver already verified this exact immutable import source.
++  select source into src from public.lukas_drawing_native_dwg_import_jobs
++    where id=(payload#>>'{analysis,result,receipt,jobId}')::uuid;
++  if src is null then return null; end if;
++  return pg_catalog.jsonb_build_object('payload',payload,'source',src);
++end;
++$$;
++
++create function private.lukas_drawing_native_dwg_resave_attestation_valid(p_scope jsonb,a jsonb,context jsonb)
++returns boolean language plpgsql immutable security invoker set search_path='' as $$
++declare envelope jsonb; expected jsonb; snapshot jsonb; bindings jsonb; request jsonb; handles jsonb; part jsonb;
++begin
++  if context is null or a is null or pg_catalog.jsonb_typeof(a)<>'object'
++    or not a?&array['resaverImageId','request','authority'] or a-array['resaverImageId','request','authority']<>'{}'::jsonb
++    or pg_catalog.jsonb_typeof(a->'resaverImageId')<>'string' or a->>'resaverImageId'!~'^sha256:[0-9a-f]{64}$'
++  then return false; end if;
++  part:=a->'authority';
++  if pg_catalog.jsonb_typeof(part)<>'object' or not part?&array['text','sha256','byteSize'] or part-array['text','sha256','byteSize']<>'{}'::jsonb
++    or pg_catalog.jsonb_typeof(part->'text')<>'string' or pg_catalog.jsonb_typeof(part->'sha256')<>'string' or pg_catalog.jsonb_typeof(part->'byteSize')<>'number'
++    or pg_catalog.octet_length(pg_catalog.convert_to(part->>'text','UTF8')) not between 1 and 67108864
++    or (part->>'byteSize')::bigint<>pg_catalog.octet_length(pg_catalog.convert_to(part->>'text','UTF8'))
++    or part->>'sha256' is distinct from pg_catalog.encode(extensions.digest(pg_catalog.convert_to(part->>'text','UTF8'),'sha256'),'hex')
++  then return false; end if;
++  envelope:=(part->>'text')::jsonb;
++  snapshot:=(context#>>'{payload,approved,snapshot,canonicalJsonText}')::jsonb;
++  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('objectId',s->>'objectId','handle',s->>'handle') order by pg_catalog.length(s->>'handle'),s->>'handle'),'[]'::jsonb)
++    into bindings from pg_catalog.jsonb_array_elements(snapshot->'sources') s;
++  part:=a->'request';
++  if part<>'null'::jsonb then
++    if pg_catalog.jsonb_typeof(part)<>'object' or not part?&array['text','sha256','byteSize','handles'] or part-array['text','sha256','byteSize','handles']<>'{}'::jsonb
++      or pg_catalog.jsonb_typeof(part->'text')<>'string' or pg_catalog.jsonb_typeof(part->'sha256')<>'string' or pg_catalog.jsonb_typeof(part->'byteSize')<>'number'
++      or pg_catalog.octet_length(pg_catalog.convert_to(part->>'text','UTF8')) not between 1 and 2097152
++      or (part->>'byteSize')::bigint<>pg_catalog.octet_length(pg_catalog.convert_to(part->>'text','UTF8'))
++      or part->>'sha256' is distinct from pg_catalog.encode(extensions.digest(pg_catalog.convert_to(part->>'text','UTF8'),'sha256'),'hex')
++    then return false; end if;
++    request:=(part->>'text')::jsonb;
++    if pg_catalog.jsonb_typeof(request)<>'object' or not request?&array['schemaVersion','sourceSha256','coordinateSystem','edits']
++      or request-array['schemaVersion','sourceSha256','coordinateSystem','edits']<>'{}'::jsonb
++      or request->>'schemaVersion' is distinct from '1hk-dwg-edits/2'
++      or request->>'coordinateSystem' is distinct from 'WCS_NATIVE_UNITS'
++      or request->>'sourceSha256' is distinct from context#>>'{source,sha256}'
++      or pg_catalog.jsonb_array_length(request->'edits') not between 1 and 10000
++      or exists(select 1 from pg_catalog.jsonb_array_elements(request->'edits') e where pg_catalog.jsonb_typeof(e->'handle') is distinct from 'string'
++        or e->>'handle'!~'^[1-9A-F][0-9A-F]{0,15}$' or e->>'type' not in ('LINE','LWPOLYLINE','CIRCLE','ARC','TEXT')
++        or not exists(select 1 from pg_catalog.jsonb_array_elements(bindings) b where b->>'handle'=e->>'handle'))
++    then return false; end if;
++    select pg_catalog.jsonb_agg(e->'handle' order by n) into handles from pg_catalog.jsonb_array_elements(request->'edits') with ordinality x(e,n);
++    if handles is distinct from part->'handles'
++      or handles is distinct from (select pg_catalog.jsonb_agg(h order by pg_catalog.length(h#>>'{}'),h#>>'{}') from (select distinct value h from pg_catalog.jsonb_array_elements(handles)) x)
++    then return false; end if;
++  end if;
++  expected:=pg_catalog.jsonb_build_object('schemaVersion','1hk-dwg-resave-authority/1','scope',p_scope,
++    'approved',pg_catalog.jsonb_build_object('revisionId',p_scope->'revisionId','revisionVersion',p_scope->'revisionVersion','snapshotSha256',p_scope->'snapshotSha256','operationSequence',context#>'{payload,approved,snapshot,operationSequence}'),
++    'analysis',pg_catalog.jsonb_build_object('scope',context#>'{payload,analysis,scope}','receipt',context#>'{payload,analysis,result,receipt}'),
++    'bindings',bindings,'request',case when part='null'::jsonb then 'null'::jsonb else part-'text' end,
++    'resaverImageId',a->'resaverImageId','snapshotCanonicalJsonText',context#>'{payload,approved,snapshot,canonicalJsonText}','qualification','experimental-unqualified');
++  return envelope=expected;
++exception when others then return false;
++end;
++$$;
++
++create function private.lukas_drawing_native_dwg_resave_guard()
++returns trigger language plpgsql security invoker set search_path='' as $$
++begin
++  if tg_op='DELETE' then
++    if private.lukas_drawing_native_dwg_delete_allowed(old.project_id,tg_relid) then return old; end if;
++    raise exception using errcode='PNR11',message='Native DWG resave is unavailable';
++  end if;
++  if tg_table_name='lukas_drawing_native_dwg_resave_jobs' then
++    if (pg_catalog.to_jsonb(new)-array['status','attempt_count','lease_token','lease_expires_at','next_attempt_at','failure_code']) is distinct from
++      (pg_catalog.to_jsonb(old)-array['status','attempt_count','lease_token','lease_expires_at','next_attempt_at','failure_code'])
++      or (old.status in ('no_changes','cancelled','failed') and new is distinct from old)
++    then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  elsif (pg_catalog.to_jsonb(new)-array['outcome','finished_at','failure_code']) is distinct from (pg_catalog.to_jsonb(old)-array['outcome','finished_at','failure_code'])
++    or (old.outcome is not null and new is distinct from old)
++  then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  return new;
++end;
++$$;
++create trigger drawing_resave_jobs_guard before update or delete on public.lukas_drawing_native_dwg_resave_jobs for each row execute function private.lukas_drawing_native_dwg_resave_guard();
++create trigger drawing_resave_attempts_guard before update or delete on public.lukas_drawing_native_dwg_resave_attempts for each row execute function private.lukas_drawing_native_dwg_resave_guard();
++
++create function private.lukas_drawing_native_dwg_resave_locked_job(p_job_id uuid)
++returns public.lukas_drawing_native_dwg_resave_jobs language plpgsql security definer set search_path='' as $$
++declare p uuid; j public.lukas_drawing_native_dwg_resave_jobs%rowtype;
++begin
++  select project_id into p from public.lukas_drawing_native_dwg_resave_jobs where id=p_job_id;
++  perform 1 from public.lukas_qto_projects where id=p for update;
++  select * into j from public.lukas_drawing_native_dwg_resave_jobs where id=p_job_id for update;
++  return j;
++end;
++$$;
++
++create function public.lukas_drawing_admit_native_dwg_resave(p_actor_id uuid,p_scope jsonb,p_request_id uuid,p_attestation jsonb)
++returns jsonb language plpgsql security definer set search_path='' as $$
++declare q record; s jsonb; context jsonb; j public.lukas_drawing_native_dwg_resave_jobs%rowtype;
++begin
++  if not private.lukas_drawing_native_dwg_import_service() or p_actor_id is null or p_request_id is null then
++    raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  select * into q from private.lukas_drawing_native_dwg_scope(p_scope);
++  if not found then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  s:=pg_catalog.jsonb_build_object('projectId',q.project_id,'documentId',q.document_id,'revisionId',q.revision_id,'revisionVersion',q.revision_version,'canvasId',q.canvas_id,'snapshotSha256',q.snapshot_sha256);
++  perform 1 from public.lukas_qto_projects where id=q.project_id for update;
++  context:=private.lukas_drawing_native_dwg_resave_context(p_actor_id,s);
++  if context is null then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('resave:'||p_actor_id::text||p_request_id::text,0));
++  select * into j from public.lukas_drawing_native_dwg_resave_jobs where requested_by=p_actor_id and request_id=p_request_id for update;
++  if found then
++    if j.scope is distinct from s or j.attestation is distinct from p_attestation then raise exception using errcode='PNR12',message='Native DWG resave request conflicts'; end if;
++    if j.source is distinct from context->'source' then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++    return pg_catalog.jsonb_build_object('jobId',j.id,'requestId',j.request_id,'hasChanges',j.attestation->'request'<>'null'::jsonb);
++  end if;
++  if private.lukas_drawing_native_dwg_resave_attestation_valid(s,p_attestation,context) is not true then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  if p_attestation->'request'<>'null'::jsonb and (select pg_catalog.count(*) from public.lukas_drawing_native_dwg_resave_jobs where project_id=q.project_id and status in ('queued','processing','retry_wait','cancel_requested'))>=5
++  then raise exception using errcode='PNR15',message='Native DWG resave capacity is unavailable'; end if;
++  insert into public.lukas_drawing_native_dwg_resave_jobs(project_id,requested_by,request_id,scope,source,attestation,resaver_image_id,status)
++    values(q.project_id,p_actor_id,p_request_id,s,context->'source',p_attestation,p_attestation->>'resaverImageId',case when p_attestation->'request'='null'::jsonb then 'no_changes' else 'queued' end) returning * into j;
++  return pg_catalog.jsonb_build_object('jobId',j.id,'requestId',j.request_id,'hasChanges',j.attestation->'request'<>'null'::jsonb);
++end;
++$$;
++
++create function public.lukas_drawing_native_dwg_resave_status(p_scope jsonb,p_job_id uuid)
++returns jsonb language plpgsql security definer set search_path='' as $$
++declare j public.lukas_drawing_native_dwg_resave_jobs%rowtype;
++begin
++  if private.lukas_qto_verified_session() is not true or private.lukas_drawing_native_dwg_resave_source_for_actor((select auth.uid()),p_scope) is null
++  then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  select * into j from public.lukas_drawing_native_dwg_resave_jobs where id=p_job_id and scope=p_scope;
++  if not found then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  return pg_catalog.jsonb_build_object('jobId',j.id,'requestId',j.request_id,'status',j.status,'attemptCount',j.attempt_count,'failureCode',j.failure_code,'hasChanges',j.attestation->'request'<>'null'::jsonb);
++end;
++$$;
++
++create function public.lukas_drawing_cancel_native_dwg_resave(p_scope jsonb,p_job_id uuid)
++returns jsonb language plpgsql security definer set search_path='' as $$
++declare j public.lukas_drawing_native_dwg_resave_jobs%rowtype;
++begin
++  if private.lukas_qto_verified_session() is not true then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  j:=private.lukas_drawing_native_dwg_resave_locked_job(p_job_id);
++  if j.id is null or j.scope is distinct from p_scope or private.lukas_drawing_native_dwg_resave_source_for_actor((select auth.uid()),p_scope) is null
++    or ((select auth.uid())<>j.requested_by and private.lukas_drawing_collaboration_capability_for_user((select auth.uid()),j.project_id) is distinct from 'admin')
++  then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  if j.status in ('queued','retry_wait','processing') then
++    update public.lukas_drawing_native_dwg_resave_jobs set status=case when j.status='processing' then 'cancel_requested' else 'cancelled' end where id=j.id;
++  end if;
++  return public.lukas_drawing_native_dwg_resave_status(p_scope,p_job_id);
++end;
++$$;
++
++create function public.lukas_drawing_claim_native_dwg_resave(p_resaver_image_id text,p_lease_seconds integer default 300)
++returns jsonb language plpgsql security definer set search_path='' as $$
++declare candidate record; j public.lukas_drawing_native_dwg_resave_jobs%rowtype; context jsonb; t timestamptz; token uuid; expires timestamptz;
++begin
++  if not private.lukas_drawing_native_dwg_import_service() or p_resaver_image_id is null or p_resaver_image_id!~'^sha256:[0-9a-f]{64}$' or p_lease_seconds is null or p_lease_seconds not between 180 and 900
++  then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  for candidate in select id,project_id from public.lukas_drawing_native_dwg_resave_jobs where resaver_image_id=p_resaver_image_id
++    and ((status in ('queued','retry_wait') and next_attempt_at<=pg_catalog.clock_timestamp()) or (status in ('processing','cancel_requested') and lease_expires_at<=pg_catalog.clock_timestamp())) order by created_at,id
++  loop
++    perform 1 from public.lukas_qto_projects where id=candidate.project_id for update skip locked;
++    if not found then continue; end if;
++    select * into j from public.lukas_drawing_native_dwg_resave_jobs where id=candidate.id for update skip locked;
++    if not found then continue; end if;
++    t:=pg_catalog.clock_timestamp();
++    if j.resaver_image_id<>p_resaver_image_id or not ((j.status in ('queued','retry_wait') and j.next_attempt_at<=t) or (j.status in ('processing','cancel_requested') and j.lease_expires_at<=t)) then continue; end if;
++    if j.status='cancel_requested' then
++      update public.lukas_drawing_native_dwg_resave_attempts set outcome='cancelled',finished_at=t where job_id=j.id and attempt_number=j.attempt_count and outcome is null;
++      update public.lukas_drawing_native_dwg_resave_jobs set status='cancelled' where id=j.id;
++      continue;
++    end if;
++    if j.status='processing' then
++      update public.lukas_drawing_native_dwg_resave_attempts set outcome='expired',finished_at=t,failure_code='worker_interrupted' where job_id=j.id and attempt_number=j.attempt_count and outcome is null;
++    end if;
++    context:=private.lukas_drawing_native_dwg_resave_context(j.requested_by,j.scope);
++    if context->'source' is distinct from j.source or private.lukas_drawing_native_dwg_resave_attestation_valid(j.scope,j.attestation,context) is not true or j.attempt_count>=3 then
++      update public.lukas_drawing_native_dwg_resave_jobs set status='failed',failure_code=case when j.attempt_count>=3 then 'worker_interrupted' else 'authority_revoked' end where id=j.id;
++      continue;
++    end if;
++    token:=extensions.gen_random_uuid(); expires:=t+p_lease_seconds*interval '1 second';
++    insert into public.lukas_drawing_native_dwg_resave_attempts(job_id,project_id,attempt_number,lease_token,started_at,lease_expires_at) values(j.id,j.project_id,j.attempt_count+1,token,t,expires);
++    update public.lukas_drawing_native_dwg_resave_jobs set status='processing',attempt_count=j.attempt_count+1,lease_token=token,lease_expires_at=expires,failure_code=null where id=j.id;
++    return pg_catalog.jsonb_build_object('jobId',j.id,'attemptNumber',j.attempt_count+1,'leaseToken',token,'leaseExpiresAt',expires,'actorId',j.requested_by,'scope',j.scope,'source',j.source,'attestation',j.attestation,'payload',context->'payload');
++  end loop;
++  return null;
++end;
++$$;
++
++create function public.lukas_drawing_native_dwg_resave_control(p_job_id uuid,p_attempt_number integer,p_lease_token uuid)
++returns jsonb language plpgsql security definer set search_path='' as $$
++declare j public.lukas_drawing_native_dwg_resave_jobs%rowtype; context jsonb; action text:='continue'; reason text;
++begin
++  if not private.lukas_drawing_native_dwg_import_service() then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  j:=private.lukas_drawing_native_dwg_resave_locked_job(p_job_id);
++  if j.id is null or p_attempt_number is null or p_lease_token is null or p_attempt_number is distinct from j.attempt_count or p_lease_token is distinct from j.lease_token
++    or j.status not in ('processing','cancel_requested') then raise exception using errcode='PNR13',message='Native DWG resave lease is stale'; end if;
++  if j.status='cancel_requested' then action:='cancel'; reason:='cancel_requested';
++  elsif j.lease_expires_at<=pg_catalog.clock_timestamp() then action:='stop'; reason:='lease_expired';
++  else
++    context:=private.lukas_drawing_native_dwg_resave_context(j.requested_by,j.scope);
++    if context->'source' is distinct from j.source or private.lukas_drawing_native_dwg_resave_attestation_valid(j.scope,j.attestation,context) is not true then action:='stop'; reason:='authority_revoked';
++    elsif j.lease_expires_at<=pg_catalog.clock_timestamp() then action:='stop'; reason:='lease_expired'; end if;
++  end if;
++  return pg_catalog.jsonb_build_object('jobId',j.id,'attemptNumber',j.attempt_count,'leaseToken',j.lease_token,'action',action,'reason',reason);
++end;
++$$;
++
++create function public.lukas_drawing_fail_native_dwg_resave(p_job_id uuid,p_attempt_number integer,p_lease_token uuid,p_failure_code text,p_retryable boolean)
++returns jsonb language plpgsql security definer set search_path='' as $$
++declare j public.lukas_drawing_native_dwg_resave_jobs%rowtype; context jsonb; state text; code text:=p_failure_code; t timestamptz;
++begin
++  if not private.lukas_drawing_native_dwg_import_service() or p_retryable is null or p_failure_code is null or p_failure_code not in ('source_unavailable','source_mismatch','resaver_failed','output_invalid','worker_interrupted','authority_revoked') then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  j:=private.lukas_drawing_native_dwg_resave_locked_job(p_job_id);
++  if j.id is null or j.status<>'processing' or p_attempt_number is distinct from j.attempt_count or p_lease_token is distinct from j.lease_token or j.lease_expires_at<=pg_catalog.clock_timestamp() then raise exception using errcode='PNR13',message='Native DWG resave lease is stale'; end if;
++  context:=private.lukas_drawing_native_dwg_resave_context(j.requested_by,j.scope);
++  state:=case when p_retryable and p_failure_code in ('source_unavailable','resaver_failed','worker_interrupted') and j.attempt_count<3 then 'retry_wait' else 'failed' end;
++  if context->'source' is distinct from j.source or private.lukas_drawing_native_dwg_resave_attestation_valid(j.scope,j.attestation,context) is not true then state:='failed'; code:='authority_revoked'; end if;
++  t:=pg_catalog.clock_timestamp();
++  if j.lease_expires_at<=t then raise exception using errcode='PNR13',message='Native DWG resave lease is stale'; end if;
++  update public.lukas_drawing_native_dwg_resave_attempts set outcome=state,finished_at=t,failure_code=code where job_id=j.id and attempt_number=j.attempt_count;
++  update public.lukas_drawing_native_dwg_resave_jobs set status=state,failure_code=code,next_attempt_at=t+j.attempt_count*interval '30 seconds' where id=j.id;
++  return pg_catalog.jsonb_build_object('jobId',j.id,'attemptNumber',j.attempt_count,'leaseToken',j.lease_token,'status',state);
++end;
++$$;
++
++create function public.lukas_drawing_ack_native_dwg_resave_cancel(p_job_id uuid,p_attempt_number integer,p_lease_token uuid)
++returns jsonb language plpgsql security definer set search_path='' as $$
++declare j public.lukas_drawing_native_dwg_resave_jobs%rowtype;
++begin
++  if not private.lukas_drawing_native_dwg_import_service() then raise exception using errcode='PNR11',message='Native DWG resave is unavailable'; end if;
++  j:=private.lukas_drawing_native_dwg_resave_locked_job(p_job_id);
++  if j.id is null or p_attempt_number is null or p_lease_token is null or p_attempt_number is distinct from j.attempt_count or p_lease_token is distinct from j.lease_token or j.status not in ('cancel_requested','cancelled') then raise exception using errcode='PNR13',message='Native DWG resave lease is stale'; end if;
++  if j.status='cancel_requested' then
++    update public.lukas_drawing_native_dwg_resave_attempts set outcome='cancelled',finished_at=pg_catalog.clock_timestamp() where job_id=j.id and attempt_number=j.attempt_count;
++    update public.lukas_drawing_native_dwg_resave_jobs set status='cancelled' where id=j.id;
++  end if;
++  return pg_catalog.jsonb_build_object('jobId',j.id,'attemptNumber',j.attempt_count,'leaseToken',j.lease_token,'status','cancelled');
++end;
++$$;
++
++revoke all on function private.lukas_drawing_native_dwg_resave_context(uuid,jsonb),private.lukas_drawing_native_dwg_resave_attestation_valid(jsonb,jsonb,jsonb),private.lukas_drawing_native_dwg_resave_guard(),private.lukas_drawing_native_dwg_resave_locked_job(uuid) from public,anon,authenticated,service_role,lukas_drawing_collaboration;
++revoke all on function public.lukas_drawing_admit_native_dwg_resave(uuid,jsonb,uuid,jsonb),public.lukas_drawing_native_dwg_resave_status(jsonb,uuid),public.lukas_drawing_cancel_native_dwg_resave(jsonb,uuid),public.lukas_drawing_claim_native_dwg_resave(text,integer),public.lukas_drawing_native_dwg_resave_control(uuid,integer,uuid),public.lukas_drawing_fail_native_dwg_resave(uuid,integer,uuid,text,boolean),public.lukas_drawing_ack_native_dwg_resave_cancel(uuid,integer,uuid) from public,anon,authenticated,service_role,lukas_drawing_collaboration;
++grant execute on function public.lukas_drawing_native_dwg_resave_status(jsonb,uuid),public.lukas_drawing_cancel_native_dwg_resave(jsonb,uuid) to authenticated;
++grant execute on function public.lukas_drawing_admit_native_dwg_resave(uuid,jsonb,uuid,jsonb),public.lukas_drawing_claim_native_dwg_resave(text,integer),public.lukas_drawing_native_dwg_resave_control(uuid,integer,uuid),public.lukas_drawing_fail_native_dwg_resave(uuid,integer,uuid,text,boolean),public.lukas_drawing_ack_native_dwg_resave_cancel(uuid,integer,uuid) to service_role;
++commit;

@@ -1,0 +1,279 @@
+{
+  "qualification": "experimental-unqualified",
+  "status": "passed-internal-semantic-comparison",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "canonicalSourceValidation": "producer-required",
+  "engine": {
+    "package": "ACadSharp",
+    "pinnedVersion": "3.7.1",
+    "assemblyVersion": "3.7.1.0",
+    "framework": ".NET 8.0"
+  },
+  "tolerances": {
+    "geometryAbsoluteMillimeters": 1E-07,
+    "angularRadians": 1E-10
+  },
+  "input": {
+    "fileName": "edge-cases.cad.json",
+    "sha256": "a0eff634a3a3914e6205cb32e7bd28122dd9ac8f1756e47545fdf1f7535ca1dd",
+    "bytes": 8546,
+    "scope": {
+      "projectId": "90000000-0000-4000-8000-000000000001",
+      "documentId": "90000000-0000-4000-8000-000000000002",
+      "revisionId": "10000000-0000-4000-8100-000000000001",
+      "operationSequence": 0,
+      "structureSha256": "c6ffac35f45e51cbdac954efdc394af8dae5fd6dd014860127d6c1ca3e54832a"
+    },
+    "originalBytesPreserved": true
+  },
+  "outputs": {
+    "dwg": {
+      "fileName": "native.dwg",
+      "sha256": "703c87ecec6ba4af0fcbafa30a9c0e8fde6ea621917b818a12bef64468a54fe2"
+    },
+    "sourceManifest": {
+      "fileName": "source-manifest.json",
+      "sha256": "a0eff634a3a3914e6205cb32e7bd28122dd9ac8f1756e47545fdf1f7535ca1dd"
+    },
+    "report": "native-report.json"
+  },
+  "outputProfile": {
+    "paper": "A3",
+    "orientation": "landscape",
+    "width": 420,
+    "height": 297,
+    "scaleDenominator": 50
+  },
+  "verification": {
+    "failures": [],
+    "entities": [
+      {
+        "id": "object/90000000-0000-4000-8000-000000000064/0",
+        "handle": "4B",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "solid=True;associative=False;paths=1;transparency=49"
+      },
+      {
+        "id": "object/90000000-0000-4000-8000-000000000064/1",
+        "handle": "4C",
+        "owner": "*Model_Space",
+        "type": "CIRCLE",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "center=200,-300,0;radius=50"
+      },
+      {
+        "id": "object/90000000-0000-4000-8000-000000000065/2",
+        "handle": "4D",
+        "owner": "*Model_Space",
+        "type": "ARC",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "center=10,-20,0;radius=100;start=-2.0943951023931953;end=-0.5235987755982987"
+      },
+      {
+        "id": "object/90000000-0000-4000-8000-000000000066/3",
+        "handle": "4F",
+        "owner": "*Model_Space",
+        "type": "DIMENSION",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "first=0,0,0;second=6000,0,0;definition=6000,-500,0;measurement=6000;text=6000.0 mm"
+      },
+      {
+        "id": "object/90000000-0000-4000-8000-000000000067/4",
+        "handle": "5F",
+        "owner": "*Model_Space",
+        "type": "DIMENSION",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "first=0,0,0;second=3000,-4000,0;definition=3400,-3700,0;measurement=5000;text=5000.0 mm"
+      },
+      {
+        "id": "object/90000000-0000-4000-8000-000000000068/5",
+        "handle": "6D",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "origin=20,-30,0;height=125;width=2000;rotation=-0.5235987755982988;text=\uD55C\uAE00\\{\uC6D0\uBB38}\\P\n\uB2E4\uC74C \uC904 \uD83D\uDE00 50%"
+      }
+    ],
+    "layers": [
+      {
+        "id": "10000000-0000-4000-8100-000000000004",
+        "cadName": "L_10000000000040008100000000000004",
+        "sourceName": "\uC791\uC5C5",
+        "handle": "48",
+        "visible": false,
+        "locked": true
+      },
+      {
+        "id": "10000000-0000-4000-8100-000000000007",
+        "cadName": "L_10000000000040008100000000000007",
+        "sourceName": "\uCE58\uC218",
+        "handle": "49",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "blocks": [],
+    "layouts": [
+      {
+        "name": "NATIVE_A3",
+        "paperWidth": 420,
+        "paperHeight": 297,
+        "paperUnits": "Millimeters",
+        "viewports": [
+          {
+            "handle": "47",
+            "id": 1,
+            "representsPaper": true,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 0,
+              "y": 0
+            },
+            "viewHeight": 0,
+            "scaleFactor": null
+          },
+          {
+            "handle": "6E",
+            "id": 2,
+            "representsPaper": false,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 10500,
+              "y": -7425
+            },
+            "viewHeight": 14850,
+            "scaleFactor": 0.02
+          }
+        ]
+      }
+    ],
+    "quantizations": [
+      {
+        "entityId": "object/90000000-0000-4000-8000-000000000064/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/90000000-0000-4000-8000-000000000064/0",
+        "kind": "opacity",
+        "requested": 0.5019607843137255,
+        "stored": 0.5098039215686274,
+        "nativeValue": "transparency=49;packedAlpha=130"
+      },
+      {
+        "entityId": "object/90000000-0000-4000-8000-000000000064/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/90000000-0000-4000-8000-000000000065/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/90000000-0000-4000-8000-000000000066/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/90000000-0000-4000-8000-000000000067/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/90000000-0000-4000-8000-000000000068/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      }
+    ],
+    "dimensionChildHandles": {
+      "object/90000000-0000-4000-8000-000000000066/3": [
+        "53",
+        "55",
+        "56",
+        "57",
+        "58",
+        "59",
+        "5A",
+        "5B",
+        "5C",
+        "5D"
+      ],
+      "object/90000000-0000-4000-8000-000000000067/4": [
+        "63",
+        "64",
+        "65",
+        "66",
+        "67",
+        "68",
+        "69",
+        "6A",
+        "6B",
+        "6C"
+      ]
+    },
+    "actualInventory": {
+      "version": "AC1024",
+      "units": "Millimeters",
+      "modelEntityCount": 6,
+      "allBlockEntityCount": 28,
+      "layerCount": 4,
+      "blockRecordCount": 4,
+      "layoutCount": 2,
+      "textStyles": [
+        {
+          "handle": "2D",
+          "name": "Standard",
+          "fontFile": ""
+        },
+        {
+          "handle": "4A",
+          "name": "NATIVE_NOTO_SANS_KR",
+          "fontFile": "NotoSansKR-Regular.ttf"
+        }
+      ]
+    }
+  },
+  "diagnostics": {
+    "writer": [],
+    "reader": [
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle"
+    ]
+  },
+  "failures": [],
+  "warnings": [
+    "Canonical source validation and authority remain producer-required.",
+    "NotoSansKR-Regular.ttf is named but is not read, embedded, redistributed, or visually qualified.",
+    "MTEXT automatic font-dependent wrapping and recipient rendering are not qualified.",
+    "Independent CAD open/save/print verification was not performed.",
+    "This output does not qualify production DWG delivery or existing-DWG preservation."
+  ]
+}

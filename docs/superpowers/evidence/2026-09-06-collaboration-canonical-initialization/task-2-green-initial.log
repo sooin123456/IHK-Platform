@@ -1,0 +1,39 @@
+✔ initialization adopts only the durable winner and seeds user and service CAS tokens (6.749542ms)
+✔ browser admission waits for initialization and discards the losing bootstrap origin (3.72725ms)
+✔ stale graph initialization rebuilds at most three candidates, while other failures propagate (4.538375ms)
+✔ invalid winners never enter the payload or seed usable CAS tokens (1.031125ms)
+✔ active metadata correction is stored with service authority before browser admission (2.032834ms)
+✖ a foreign preparation lease cannot expose an unpersisted fence during first admission (1.646209ms)
+✖ detached authority and receipt loaders establish the same canonical origin before mutation (2.1795ms)
+✔ an approved Viewer initializes through user authority while edits and protected forgeries stay forbidden (1.291208ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 6
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 172.947833
+
+✖ failing tests:
+
+test at tests/drawing-collaboration-initialization.test.mjs:157:1
+✖ a foreign preparation lease cannot expose an unpersisted fence during first admission (1.646209ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:162:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-initialization.test.mjs:169:1
+✖ detached authority and receipt loaders establish the same canonical origin before mutation (2.1795ms)
+  Error: Outcome receipt authentication failed.
+      at Object.applyOutcomeReceipt (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/collaboration/src/server.ts:1457:13)
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:179:23)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)

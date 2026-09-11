@@ -271,16 +271,26 @@ test("offline unlink and undo survive reopen, acknowledge, and remain denied to 
           request.onerror = () => reject(request.error);
         });
         const transaction = database.transaction("operations", "readonly");
-        const countRequest = transaction.objectStore("operations").count();
-        const count = await new Promise<number>((resolve, reject) => {
-          countRequest.onsuccess = () => resolve(countRequest.result);
-          countRequest.onerror = () => reject(countRequest.error);
-        });
+        const entriesRequest = transaction.objectStore("operations").getAll();
+        const entries = await new Promise<Array<{ status?: string }>>(
+          (resolve, reject) => {
+            entriesRequest.onsuccess = () => resolve(entriesRequest.result);
+            entriesRequest.onerror = () => reject(entriesRequest.error);
+          },
+        );
+        const counts = entries.reduce(
+          (result, entry) => {
+            if (entry.status === "acked") result.acknowledged += 1;
+            else result.pending += 1;
+            return result;
+          },
+          { acknowledged: 0, pending: 0 },
+        );
         database.close();
-        return count;
+        return counts;
       }),
     )
-    .toBe(0);
+    .toEqual({ acknowledged: 2, pending: 0 });
   await expect(
     page.getByRole("status", { name: "저장 상태: 저장됨" }),
   ).toBeVisible({ timeout: 30_000 });

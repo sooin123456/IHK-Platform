@@ -4,7 +4,9 @@ import { Bell, Check, ExternalLink } from "lucide-react";
 import { Form, Link, data, redirect } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { authMagicLinkPath } from "~/features/auth/lib/auth-link.server";
 
 type NotificationRow = {
   id: string;
@@ -27,7 +29,7 @@ async function authenticatedClient(request: Request) {
   const [client, headers] = makeServerClient(request);
   const { data: auth, error } = await client.auth.getUser();
   if (error || !auth.user || auth.user.is_anonymous)
-    throw redirect("/auth/magic-link", { headers });
+    throw redirect(authMagicLinkPath(request.url), { headers });
   return { client, headers, user: auth.user };
 }
 
@@ -40,7 +42,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(100);
-  if (error) throw new Error(`알림을 불러오지 못했습니다: ${error.message}`);
+  if (error)
+    throw mergeResponseHeaders(
+      new Response(`알림을 불러오지 못했습니다: ${error.message}`, {
+        status: 500,
+      }),
+      headers,
+    );
   const rows = (notifications ?? []) as NotificationRow[];
   const issueIds = [...new Set(rows.map((row) => row.issue_id))];
   const eventIds = [...new Set(rows.map((row) => row.event_id))];
@@ -69,7 +77,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const relatedError =
     issuesResult.error ?? eventsResult.error ?? anchorsResult.error;
   if (relatedError)
-    throw new Error(`알림 상세를 불러오지 못했습니다: ${relatedError.message}`);
+    throw mergeResponseHeaders(
+      new Response(`알림 상세를 불러오지 못했습니다: ${relatedError.message}`, {
+        status: 500,
+      }),
+      headers,
+    );
   const issues = new Map(
     ((issuesResult.data ?? []) as IssueRow[]).map((row) => [row.id, row]),
   );

@@ -1,0 +1,35 @@
+
+Running 27 tests using 1 worker
+
+(node:42616) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:169:1 › manual P5 PDF preview serves current and opt-in predecessor bytes without interception
+[2/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:200:1 › active PDF page compares only its exact predecessor with transient non-listening markers and Viewer denial
+[3/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:413:1 › a non-current PDF mode queues one fresh capability while cancellation is pending
+[4/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:529:1 › a failed PDF capability settles until a new user selection retries
+[5/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:598:1 › disabling PDF compare cancels pending predecessor work and clears transient resources
+[6/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:636:1 › mounted PDF inspector uses operation commands for exact link and unlink
+[7/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:692:1 › mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries cached GLB without refetch
+[8/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:783:1 › cold split paints the fitted IFC model without a manual fit
+[9/27] [chromium] › e2e/drawing-workspace-p6.spec.ts:26:1 › P6 preview smoke keeps exact 10k/2k immutable evidence and split focus
+[10/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:55:1 › compact desktop keeps the top bar single-row without hiding primary actions
+[11/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:113:1 › desktop split preview keeps every dock keyboard recoverable
+[12/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:258:1 › tablet keeps one drawer beside a mounted canvas and restores canvas focus when it closes
+[13/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:374:1 › tablet entry keeps an awareness inspector exclusive with the tools drawer
+[14/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:393:1 › tablet toolbar respects inline safe areas, scrolls overflow, and keeps its menu on-screen
+[15/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:448:1 › local preview keeps its realtime indicator connected without a Supabase request
+[16/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:478:1 › distinct Awareness collaborators render object and block collaboration safely
+[17/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:574:1 › collaboration initialization retry cleans partial resources and restores editing
+[18/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:612:1 › transactional read-only bootstrap blocks stale draft editing before initialization
+[19/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:624:1 › review freeze immediately remounts read-only and a failed transition safely releases it
+[20/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:676:1 › preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes
+[21/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:715:1 › user replacement never borrows the previous room's connected status while admission is pending
+[22/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:753:1 › local preview click selects the Style tab and reveals its panel
+[23/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:779:1 › local preview Arrow, Home, and End keys select and focus their target tabs
+[24/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:820:1 › hydrated export dialog explains background availability and cancels one gated run
+[25/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:854:1 › 1280px structure panel keeps disabled explanations readable below controls
+[26/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 1440px
+[27/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px
+  27 passed (40.0s)

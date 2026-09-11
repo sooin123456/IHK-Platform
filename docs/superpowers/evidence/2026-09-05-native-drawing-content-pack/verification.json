@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1hk-native-pack-verification/1",
+  "status": "local-development-unit-verified",
+  "wholeProductComplete": false,
+  "productionDeployed": false,
+  "productionDwgQualified": false,
+  "publicRedistributionLicensed": false,
+  "recordedAt": "2026-09-05 09:01:41 UTC",
+  "tests": {
+    "focused": {
+      "passed": 204,
+      "failed": 0,
+      "skipped": 0,
+      "durationMilliseconds": 1911.278875
+    },
+    "m1Browser": {
+      "passed": 22,
+      "failed": 0,
+      "runnerExitCode": 0,
+      "durationApproximateMinutes": 2.5
+    },
+    "realPostgres": {
+      "m1Passed": 1,
+      "pdfAttachPassed": 1,
+      "storagePassed": 3,
+      "missingConfigurationGuardsSkipped": 2
+    },
+    "responsiveBrowser": {
+      "passed": 4,
+      "failed": 0,
+      "durationSeconds": 15.3
+    },
+    "preview": {
+      "httpStatus": 200,
+      "consoleErrors": [],
+      "errorOverlays": 0,
+      "horizontalOverflow": false
+    }
+  },
+  "sourceReview": {
+    "taskGates": "approved",
+    "finalReview": "approved-after-one-fix-wave"
+  },
+  "outputs": {
+    "nativeDefinitions": 28,
+    "svgPreviews": 28,
+    "templateVisualChecks": 4,
+    "units": "mm",
+    "profile": "A3 landscape 1:50",
+    "manifest": "manifest.json"
+  },
+  "remaining": [
+    "Authenticated atomic/idempotent native catalog/import and ID remapping",
+    "Persisted display/output-profile controls",
+    "License review before public redistribution",
+    "Production DWG qualification and recipient acceptance",
+    "Real user acceptance"
+  ],
+  "warnings": [
+    "Pre-existing theme-cookie signing warning",
+    "Node localStorage/color environment warnings",
+    "Vite chunk and React Router future notices",
+    "Migration notices; protected collaboration rewrite rejection and share404 diagnostics recorded",
+    "Separate wider suite failure report not represented as whole-repo green"
+  ],
+  "sourceSha256": {
+    "platform/app/lukas/lib/drawing-native-assets.ts": "cb9ebb80091df43e907405444f4851235d90fb6a5bd6810062099037afa75b31",
+    "platform/app/lukas/lib/drawing-native-symbols.ts": "84408d4e2b57a71dc2bcfc223bf25a786aa0d04c495bd820ef75bad7b4c004c2",
+    "platform/app/lukas/lib/drawing-native-templates.ts": "7d4778b603e8e2e93c1b0218b7f022634d13b68b3a0b9d828c534f1c87b19911",
+    "platform/scripts/verify-native-drawing-content.mjs": "94d3652d23e30f68ee1fe0ca65174d0cd4061e1a03fd1e6aa9c31c116c765b02",
+    "platform/tests/drawing-native-symbols.test.mjs": "c2366ec9651a66ffb9ce198127922c8401eca90871d6210277e99895ff24bc42",
+    "platform/tests/drawing-native-templates.test.mjs": "84e6c9498f0896bf34cf5ce4e7e9386faf521ec7b115f2868d7a1ea88583fa3b",
+    "platform/tests/drawing-native-content-export.test.mjs": "904a82dae5bec3f300905c7de89557fc0bb443bdf33518244e6f4ebe4d1a6991",
+    "platform/tests/drawing-native-annotations.test.mjs": "1808209861e2fcda2e2bbec297facf2e96e18cb0befb16547405bdaec1b80017",
+    "platform/app/lukas/lib/drawing-layout.ts": "2193833971674cac84e928445b814796528cb8a8bd9084e85927179fe8b7391e",
+    "platform/app/lukas/lib/drawing-blocks.ts": "0d0d9ac390bba5958171bb90fba8b0ef4a934bcdfc64e165b03b4bf99c9f89ef",
+    "platform/app/lukas/lib/drawing-geometry.ts": "23f0de55487b5b9878d83ee5185f6847ddee3f8a45a3c4005db92b33bab0e8e2",
+    "platform/app/lukas/lib/drawing-export.ts": "8a7b7be9407b913f7a698c406f86bf2febd41061726427ea72a950ae653700c2",
+    "platform/app/lukas/components/drawing-canvas.client.tsx": "daee10cb1be4f5f9a3043112a714baa23f31e8421dfe1ebd15f7f2ffa371a907",
+    "platform/app/lukas/components/drawing-workspace.tsx": "a4a42fd92e795bca80b86528fdcbcf0afb8bd88333d6c2233d900d0d08e61f7a",
+    "platform/app/lukas/components/shared-drawing-viewer.client.tsx": "db37a5a46df8df4b1a9e29621d8cfcdcd1d11dacd944153caa5dc1208d930d6c",
+    "platform/tests/drawing-workspace-blocks.test.mjs": "334b04d8725dc38e36f7de925bd8142a1d5ddf88f500c3605ce6e86400bdfcd2",
+    "platform/tests/drawing-workspace-export.test.mjs": "75880dcd0b6cbc345c4fe6ca872ff41758ab3658c18ae52995dc0b6ed9be9364"
+  }
+}

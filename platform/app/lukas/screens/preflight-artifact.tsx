@@ -1,10 +1,12 @@
 import type { Route } from "./+types/preflight-artifact";
 
 import { ArrowLeft, ClipboardCheck, Download, ShieldCheck } from "lucide-react";
-import { Link, redirect } from "react-router";
+import { Link, data, redirect } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 import { verifyPreflightBundle } from "~/lukas/lib/preflight-artifact.server";
 
 const maxDisplayRows = 1000;
@@ -17,179 +19,190 @@ export const meta: Route.MetaFunction = ({ data }) => [
 ];
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const [client] = makeServerClient(request);
+  const [client, headers] = makeServerClient(request);
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user) throw redirect("/login");
-  const { data: project } = await client
-    .from("lukas_qto_projects")
-    .select("id, name")
-    .eq("id", params.projectId)
-    .single();
-  if (!project)
-    throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
-  const { data: artifact } = await client
-    .from("lukas_qto_preflight_artifacts")
-    .select(
-      "id, format_version, ruleset_version, scope_id, report_file_id, manifest_file_id, report_sha256, manifest_sha256, quantity_tolerance, krw_tolerance, row_count, status_counts, created_at",
-    )
-    .eq("id", params.artifactId)
-    .eq("project_id", project.id)
-    .single();
-  if (!artifact)
-    throw new Response("사전검토 artifact를 찾을 수 없습니다.", {
-      status: 404,
-    });
-  const { data: links, error: linksError } = await client
-    .from("lukas_qto_preflight_inputs")
-    .select("input_role, file_id, source_sha256, source_id")
-    .eq("artifact_id", artifact.id);
-  if (linksError || !links || links.length < 4 || links.length > 5)
-    throw new Response("사전검토 입력 연결이 완전하지 않습니다.", {
-      status: 409,
-    });
-  const ids = [
-    ...new Set([
-      artifact.report_file_id,
-      artifact.manifest_file_id,
-      ...links.map((link) => link.file_id),
-    ]),
-  ];
-  const { data: files, error: filesError } = await client
-    .from("lukas_qto_files")
-    .select("id, kind, original_filename, storage_path, sha256, byte_size")
-    .eq("project_id", project.id)
-    .in("id", ids);
-  if (
-    filesError ||
-    !files ||
-    ids.some((id) => !files.some((file) => file.id === id))
-  )
-    throw new Response("사전검토 원본 파일을 찾을 수 없습니다.", {
-      status: 409,
-    });
-  const reportFile = files.find((file) => file.id === artifact.report_file_id);
-  const manifestFile = files.find(
-    (file) => file.id === artifact.manifest_file_id,
-  );
-  if (
-    !reportFile ||
-    !manifestFile ||
-    reportFile.byte_size > 20 * 1024 * 1024 ||
-    manifestFile.byte_size > 20 * 1024 * 1024
-  )
-    throw new Response(
-      "사전검토 bundle 파일 연결 또는 크기가 올바르지 않습니다.",
-      { status: 409 },
-    );
-  const [
-    { data: reportBlob, error: reportError },
-    { data: manifestBlob, error: manifestError },
-  ] = await Promise.all([
-    client.storage.from("lukas-qto").download(reportFile.storage_path),
-    client.storage.from("lukas-qto").download(manifestFile.storage_path),
-  ]);
-  if (reportError || manifestError || !reportBlob || !manifestBlob)
-    throw new Response("사전검토 bundle을 다시 읽지 못했습니다.", {
-      status: 500,
-    });
-  let verified: ReturnType<typeof verifyPreflightBundle>;
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   try {
-    verified = verifyPreflightBundle(
-      new Uint8Array(await reportBlob.arrayBuffer()),
-      reportFile.original_filename,
-      new Uint8Array(await manifestBlob.arrayBuffer()),
+    const { data: project } = await client
+      .from("lukas_qto_projects")
+      .select("id, name")
+      .eq("id", params.projectId)
+      .single();
+    if (!project)
+      throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+    const { data: artifact } = await client
+      .from("lukas_qto_preflight_artifacts")
+      .select(
+        "id, format_version, ruleset_version, scope_id, report_file_id, manifest_file_id, report_sha256, manifest_sha256, quantity_tolerance, krw_tolerance, row_count, status_counts, created_at",
+      )
+      .eq("id", params.artifactId)
+      .eq("project_id", project.id)
+      .single();
+    if (!artifact)
+      throw new Response("사전검토 artifact를 찾을 수 없습니다.", {
+        status: 404,
+      });
+    const { data: links, error: linksError } = await client
+      .from("lukas_qto_preflight_inputs")
+      .select("input_role, file_id, source_sha256, source_id")
+      .eq("artifact_id", artifact.id);
+    if (linksError || !links || links.length < 4 || links.length > 5)
+      throw new Response("사전검토 입력 연결이 완전하지 않습니다.", {
+        status: 409,
+      });
+    const ids = [
+      ...new Set([
+        artifact.report_file_id,
+        artifact.manifest_file_id,
+        ...links.map((link) => link.file_id),
+      ]),
+    ];
+    const { data: files, error: filesError } = await client
+      .from("lukas_qto_files")
+      .select("id, kind, original_filename, storage_path, sha256, byte_size")
+      .eq("project_id", project.id)
+      .in("id", ids);
+    if (
+      filesError ||
+      !files ||
+      ids.some((id) => !files.some((file) => file.id === id))
+    )
+      throw new Response("사전검토 원본 파일을 찾을 수 없습니다.", {
+        status: 409,
+      });
+    const reportFile = files.find(
+      (file) => file.id === artifact.report_file_id,
+    );
+    const manifestFile = files.find(
+      (file) => file.id === artifact.manifest_file_id,
+    );
+    if (
+      !reportFile ||
+      !manifestFile ||
+      reportFile.byte_size > 20 * 1024 * 1024 ||
+      manifestFile.byte_size > 20 * 1024 * 1024
+    )
+      throw new Response(
+        "사전검토 bundle 파일 연결 또는 크기가 올바르지 않습니다.",
+        { status: 409 },
+      );
+    const [
+      { data: reportBlob, error: reportError },
+      { data: manifestBlob, error: manifestError },
+    ] = await Promise.all([
+      client.storage.from("lukas-qto").download(reportFile.storage_path),
+      client.storage.from("lukas-qto").download(manifestFile.storage_path),
+    ]);
+    if (reportError || manifestError || !reportBlob || !manifestBlob)
+      throw new Response("사전검토 bundle을 다시 읽지 못했습니다.", {
+        status: 500,
+      });
+    let verified: ReturnType<typeof verifyPreflightBundle>;
+    try {
+      verified = verifyPreflightBundle(
+        new Uint8Array(await reportBlob.arrayBuffer()),
+        reportFile.original_filename,
+        new Uint8Array(await manifestBlob.arrayBuffer()),
+      );
+    } catch (error) {
+      throw new Response(
+        error instanceof Error
+          ? `사전검토 파일 변경 확인 실패: ${error.message}`
+          : "사전검토 파일이 등록 당시 상태와 같은지 확인하지 못했습니다.",
+        { status: 409 },
+      );
+    }
+    if (
+      verified.reportSha256 !== artifact.report_sha256 ||
+      verified.manifestSha256 !== artifact.manifest_sha256 ||
+      verified.reportSha256 !== reportFile.sha256 ||
+      verified.manifestSha256 !== manifestFile.sha256 ||
+      verified.rowCount !== artifact.row_count ||
+      verified.rulesetVersion !== artifact.ruleset_version ||
+      verified.scopeId !== artifact.scope_id ||
+      verified.quantityTolerance !== artifact.quantity_tolerance ||
+      verified.krwTolerance !== artifact.krw_tolerance ||
+      canonical(verified.statusCounts) !== canonical(artifact.status_counts)
+    )
+      throw new Response(
+        "등록 메타데이터와 다시 검증한 사전검토 결과가 일치하지 않습니다.",
+        { status: 409 },
+      );
+    const inputEvidence = links
+      .map((link) => {
+        const file = files.find((candidate) => candidate.id === link.file_id);
+        const input = verified.inputs[link.input_role];
+        if (
+          !file ||
+          !input ||
+          file.sha256 !== link.source_sha256 ||
+          input.sha256 !== link.source_sha256 ||
+          input.sourceId !== link.source_id ||
+          input.filename !== file.original_filename
+        )
+          throw new Response(
+            "사전검토 입력 파일과 등록된 산출 근거가 일치하지 않습니다.",
+            { status: 409 },
+          );
+        return {
+          role: link.input_role,
+          filename: file.original_filename,
+          kind: file.kind,
+          sha256: file.sha256,
+          sourceId: link.source_id,
+        };
+      })
+      .sort((left, right) => left.role.localeCompare(right.role));
+    if (Object.keys(verified.inputs).length !== inputEvidence.length)
+      throw new Response(
+        "사전검토 산출 근거 기록과 등록된 입력 파일 수가 다릅니다.",
+        {
+          status: 409,
+        },
+      );
+    const [
+      { data: reportLink },
+      { data: manifestLink },
+      { data: approvals, error: approvalsError },
+    ] = await Promise.all([
+      client.storage
+        .from("lukas-qto")
+        .createSignedUrl(reportFile.storage_path, 300),
+      client.storage
+        .from("lukas-qto")
+        .createSignedUrl(manifestFile.storage_path, 300),
+      client
+        .from("lukas_qto_preflight_approvals")
+        .select("id, decision, note, created_at")
+        .eq("artifact_id", artifact.id)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true }),
+    ]);
+    if (approvalsError)
+      throw new Response("사전검토 승인 이력을 불러오지 못했습니다.", {
+        status: 500,
+      });
+    return data(
+      {
+        project,
+        artifact,
+        inputEvidence,
+        approvals: approvals ?? [],
+        rows: verified.rows.slice(0, maxDisplayRows),
+        totalRows: verified.rowCount,
+        statusCounts: verified.statusCounts,
+        reportUrl: reportLink?.signedUrl ?? null,
+        manifestUrl: manifestLink?.signedUrl ?? null,
+      },
+      { headers },
     );
   } catch (error) {
-    throw new Response(
-      error instanceof Error
-        ? `사전검토 파일 변경 확인 실패: ${error.message}`
-        : "사전검토 파일이 등록 당시 상태와 같은지 확인하지 못했습니다.",
-      { status: 409 },
-    );
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
   }
-  if (
-    verified.reportSha256 !== artifact.report_sha256 ||
-    verified.manifestSha256 !== artifact.manifest_sha256 ||
-    verified.reportSha256 !== reportFile.sha256 ||
-    verified.manifestSha256 !== manifestFile.sha256 ||
-    verified.rowCount !== artifact.row_count ||
-    verified.rulesetVersion !== artifact.ruleset_version ||
-    verified.scopeId !== artifact.scope_id ||
-    verified.quantityTolerance !== artifact.quantity_tolerance ||
-    verified.krwTolerance !== artifact.krw_tolerance ||
-    canonical(verified.statusCounts) !== canonical(artifact.status_counts)
-  )
-    throw new Response(
-      "등록 메타데이터와 다시 검증한 사전검토 결과가 일치하지 않습니다.",
-      { status: 409 },
-    );
-  const inputEvidence = links
-    .map((link) => {
-      const file = files.find((candidate) => candidate.id === link.file_id);
-      const input = verified.inputs[link.input_role];
-      if (
-        !file ||
-        !input ||
-        file.sha256 !== link.source_sha256 ||
-        input.sha256 !== link.source_sha256 ||
-        input.sourceId !== link.source_id ||
-        input.filename !== file.original_filename
-      )
-        throw new Response(
-          "사전검토 입력 파일과 등록된 산출 근거가 일치하지 않습니다.",
-          { status: 409 },
-        );
-      return {
-        role: link.input_role,
-        filename: file.original_filename,
-        kind: file.kind,
-        sha256: file.sha256,
-        sourceId: link.source_id,
-      };
-    })
-    .sort((left, right) => left.role.localeCompare(right.role));
-  if (Object.keys(verified.inputs).length !== inputEvidence.length)
-    throw new Response(
-      "사전검토 산출 근거 기록과 등록된 입력 파일 수가 다릅니다.",
-      {
-        status: 409,
-      },
-    );
-  const [
-    { data: reportLink },
-    { data: manifestLink },
-    { data: approvals, error: approvalsError },
-  ] = await Promise.all([
-    client.storage
-      .from("lukas-qto")
-      .createSignedUrl(reportFile.storage_path, 300),
-    client.storage
-      .from("lukas-qto")
-      .createSignedUrl(manifestFile.storage_path, 300),
-    client
-      .from("lukas_qto_preflight_approvals")
-      .select("id, decision, note, created_at")
-      .eq("artifact_id", artifact.id)
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true }),
-  ]);
-  if (approvalsError)
-    throw new Response("사전검토 승인 이력을 불러오지 못했습니다.", {
-      status: 500,
-    });
-  return {
-    project,
-    artifact,
-    inputEvidence,
-    approvals: approvals ?? [],
-    rows: verified.rows.slice(0, maxDisplayRows),
-    totalRows: verified.rowCount,
-    statusCounts: verified.statusCounts,
-    reportUrl: reportLink?.signedUrl ?? null,
-    manifestUrl: manifestLink?.signedUrl ?? null,
-  };
 }
 
 function canonical(value: unknown) {

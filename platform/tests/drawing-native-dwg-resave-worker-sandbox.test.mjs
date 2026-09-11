@@ -1,0 +1,397 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rmdir,
+  writeFile,
+} from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+import { createServer } from "vite";
+import { buildNativeDrawingDwgImportPlan } from "../app/lukas/lib/drawing-native-dwg-import-plan.server.ts";
+import { fixture, uuid } from "./fixtures/drawing-native-dwg-resave-source.mjs";
+
+const enabled = process.env.NATIVE_DWG_RESAVE_WORKER_SANDBOX === "1";
+const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const pinned =
+  "sha256:c921c67ddb37d2a57969d04c7a4983f6d847e0b89901403e3b015ac25bf566ae";
+
+// Explicit opt-in, cached image + public fixture only; service replies are finite
+// in-memory control, not a database/Auth/Storage or publication acceptance test.
+test(
+  "actual execution bridge prepares synthetic native bytes and cancels a running owned resaver before acknowledgement",
+  { skip: !enabled, timeout: 90000 },
+  async (t) => {
+    const root = process.env.NATIVE_DWG_RESAVE_WORKER_EVIDENCE_DIRECTORY;
+    assert.ok(root && isAbsolute(root));
+    await mkdir(root); // caller must choose a fresh, owned child
+    const config = await mkdtemp(join(root, "empty-config-"));
+    const dockerPath =
+      process.env.NATIVE_DWG_DOCKER_PATH || "/opt/homebrew/bin/docker";
+    const dockerHost =
+      process.env.NATIVE_DWG_DOCKER_HOST ||
+      "unix:///Users/h/.colima/default/docker.sock";
+    const sourcePath = fileURLToPath(
+      new URL(
+        "../../docs/superpowers/evidence/2026-09-06-native-dwg-resave-protocol/controller/actual/source/synthetic-input.dwg",
+        import.meta.url,
+      ),
+    );
+    const sourceBytes = await readFile(sourcePath);
+    assert.equal(
+      sha(sourceBytes),
+      "bcc54d3c768444c9ade41a23e4ef2b9f5b5668d9972522ee4a4adbc98c670434",
+    );
+    const expectedSource = {
+      sha256: sha(sourceBytes),
+      byteSize: sourceBytes.length,
+      headerVersion: "AC1024",
+    };
+    const docker = (args) => {
+      const value = spawnSync(
+        dockerPath,
+        ["--config", config, "--host", dockerHost, ...args],
+        { encoding: "utf8", timeout: 10000, maxBuffer: 1024 * 1024 },
+      );
+      assert.equal(value.status, 0, value.stderr || value.error?.message);
+      return value.stdout.trim();
+    };
+    const save = (name, value) =>
+      writeFile(join(root, name), JSON.stringify(value, null, 2) + "\n", {
+        flag: "wx",
+      });
+    const image = JSON.parse(docker(["image", "inspect", pinned]))[0];
+    assert.equal(image.Id, pinned);
+    assert.equal(
+      image.Config.Labels["org.1hk.native-dwg-reader.protocol"],
+      "1hk-dwg-import/1",
+    );
+    assert.equal(
+      image.Config.Labels["org.1hk.native-dwg-resaver.protocol"],
+      "1hk-dwg-resave/1",
+    );
+    await save("image.json", image);
+    const vite = await createServer({
+      appType: "custom",
+      configFile: false,
+      logLevel: "silent",
+      resolve: {
+        alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+      },
+      server: { middlewareMode: true },
+    });
+    t.after(async () => {
+      await vite.close();
+      await rmdir(config);
+    });
+    const sandbox = await vite.ssrLoadModule(
+      "/app/lukas/lib/drawing-native-dwg-sandbox.server.ts",
+    );
+    const { buildNativeDrawingDwgResaveAttestation: build } =
+      await vite.ssrLoadModule(
+        "/app/lukas/lib/drawing-native-dwg-resave-attestation.server.ts",
+      );
+    const { runNativeDrawingDwgResaveAttempt: run } = await vite.ssrLoadModule(
+      "/app/lukas/lib/drawing-native-dwg-resave-worker.server.ts",
+    );
+    const native = {
+      dockerPath,
+      dockerHost,
+      imageId: pinned,
+      sourceBytes,
+      expectedSource,
+      timeoutMilliseconds: 30000,
+    };
+    const original = await sandbox.runIsolatedNativeDrawingDwgReader(native);
+    const f = fixture(),
+      result = f.payload.analysis.result;
+    result.reportText = JSON.stringify(original);
+    Object.assign(result.receipt, {
+      readerImageId: pinned,
+      reportSha256: sha(result.reportText),
+      reportByteSize: Buffer.byteLength(result.reportText),
+      source: { verificationId: uuid(11), fileId: uuid(9), ...expectedSource },
+    });
+    Object.assign(f.payload.analysis.scope, {
+      documentId: f.scope.documentId,
+      revisionId: f.scope.revisionId,
+      canvasId: f.scope.canvasId,
+      sourceSha256: expectedSource.sha256,
+    });
+    const plan = buildNativeDrawingDwgImportPlan({
+      report: original,
+      expectedSource,
+      revisionId: f.scope.revisionId,
+      canvasId: f.scope.canvasId,
+      sourceFileId: uuid(9),
+      analysisJobId: uuid(10),
+      reportSha256: result.receipt.reportSha256,
+    });
+    f.canonical.layers = plan.layers.map((layer) => ({
+      ...layer,
+      pageId: uuid(4),
+    }));
+    f.canonical.objects = plan.objects.map((object, index) => ({
+      ...object,
+      lineageId: uuid(30 + index),
+      pageId: uuid(4),
+      type: object.geometry.type,
+    }));
+    f.canonical.sources = structuredClone(plan.sources);
+    const line = f.canonical.objects.find(
+      (object) => object.geometry.type === "line",
+    );
+    line.geometry.start = { x: 10, y: 11 };
+    line.geometry.end = { x: 120, y: 21 };
+    f.rehash();
+    const attestation = await build(f.scope, f.payload, pinned);
+    assert.deepEqual(JSON.parse(attestation.request.text).edits, [
+      { handle: "4A", type: "LINE", start: [10, 11, 0], end: [120, 21, 0] },
+    ]);
+    const claim = {
+      jobId: uuid(90),
+      attemptNumber: 1,
+      leaseToken: uuid(91),
+      leaseExpiresAt: new Date(Date.now() + 300000).toISOString(),
+      actorId: uuid(80),
+      scope: f.scope,
+      source: {
+        ...result.receipt.source,
+        bucket: "lukas-qto",
+        path: "owned/synthetic-input.dwg",
+      },
+      attestation,
+      payload: f.payload,
+    };
+    const identity = {
+      jobId: claim.jobId,
+      attemptNumber: claim.attemptNumber,
+      leaseToken: claim.leaseToken,
+    };
+    let action = "continue",
+      runningId,
+      executionSignal,
+      acknowledged = false,
+      controlCount = 0;
+    const calls = [];
+    const log = join(root, "cancel-docker.jsonl"),
+      marker = join(root, "running-container-id"),
+      shim = join(root, "docker-forward.mjs");
+    const logs = async () =>
+      (await readFile(log, "utf8").catch(() => ""))
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map(JSON.parse);
+    const absent = (id) =>
+      assert.equal(
+        docker([
+          "ps",
+          "--all",
+          "--no-trunc",
+          "--filter",
+          `id=${id}`,
+          "--format",
+          "{{.ID}}",
+        ]),
+        "",
+      );
+    const client = {
+      rpc(name, args) {
+        return {
+          async abortSignal(signal) {
+            assert.equal(signal.aborted, false);
+            calls.push({ name, args });
+            assert.deepEqual(args, {
+              p_job_id: claim.jobId,
+              p_attempt_number: 1,
+              p_lease_token: claim.leaseToken,
+            });
+            if (name === "lukas_drawing_native_dwg_resave_control") {
+              controlCount++;
+              return {
+                data: {
+                  ...identity,
+                  action,
+                  reason: action === "continue" ? null : "cancel_requested",
+                },
+                error: null,
+              };
+            }
+            assert.equal(name, "lukas_drawing_ack_native_dwg_resave_cancel");
+            assert.equal(executionSignal.aborted, true);
+            assert.ok(runningId);
+            absent(runningId);
+            for (const entry of await logs())
+              await assert.rejects(access(entry.args[1]), { code: "ENOENT" });
+            acknowledged = true;
+            return { data: { ...identity, status: "cancelled" }, error: null };
+          },
+        };
+      },
+    };
+    const options = {
+      claim,
+      serviceClient: client,
+      imageId: pinned,
+      dockerPath,
+      dockerHost,
+      async downloadSource({ source, signal }) {
+        assert.deepEqual(source, claim.source);
+        assert.equal(signal.aborted, false);
+        return sourceBytes;
+      },
+    };
+    const prepared = await run(options);
+    assert.equal(prepared.outcome, "prepared");
+    assert.equal(
+      prepared.result.report.request.sha256,
+      attestation.request.sha256,
+    );
+    assert.equal(
+      prepared.result.report.output.sha256,
+      sha(prepared.result.dwgBytes),
+    );
+    assert.equal(prepared.result.report.persistenceAuthority, "not-issued");
+    const readback = await sandbox.runIsolatedNativeDrawingDwgReader({
+      ...native,
+      sourceBytes: prepared.result.dwgBytes,
+      expectedSource: prepared.result.report.output,
+    });
+    assert.deepEqual(
+      readback.entities.find((e) => e.handle === "4A").geometry,
+      { start: [10, 11, 0], end: [120, 21, 0] },
+    );
+    assert.deepEqual(readback.layers, original.layers);
+    assert.deepEqual(
+      readback.entities.filter((e) => e.handle !== "4A"),
+      original.entities.filter((e) => e.handle !== "4A"),
+    );
+    await writeFile(
+      join(root, "prepared-report.json"),
+      prepared.result.reportBytes,
+      { flag: "wx" },
+    );
+    await writeFile(join(root, "request.json"), attestation.request.text, {
+      flag: "wx",
+    });
+    // Forward every command to the real daemon. On start, leave the native
+    // executable waiting for framed input until the bridge's poll cancels it.
+    await writeFile(
+      shim,
+      `#!${process.execPath}
+import {spawnSync} from 'node:child_process';
+import fs from 'node:fs';
+const args=process.argv.slice(2),actual=${JSON.stringify(dockerPath)},common=args.slice(0,4);
+fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({args})+'\\n');
+if(args[4]==='start'){
+ const started=spawnSync(actual,[...common,'start',args.at(-1)],{stdio:'pipe',timeout:10000});
+ if(started.status!==0)process.exit(71);
+ fs.writeFileSync(${JSON.stringify(marker)},args.at(-1),{flag:'wx'});
+ await new Promise(resolve=>setTimeout(resolve,15000));
+ const attached=spawnSync(actual,[...common,'attach',args.at(-1)],{stdio:'inherit',timeout:15000});process.exit(attached.status??72);
+}
+const value=spawnSync(actual,args,{stdio:'inherit',timeout:10000});process.exit(value.status??73);
+`,
+      { flag: "wx" },
+    );
+    await chmod(shim, 0o700);
+    // On an assertion failure only, recover any exact owned container remaining.
+    t.after(async () => {
+      for (const entry of await logs())
+        if (entry.args[4] === "create") {
+          const name = entry.args[entry.args.indexOf("--name") + 1];
+          const ids = docker([
+            "ps",
+            "--all",
+            "--no-trunc",
+            "--filter",
+            `name=^/${name}$`,
+            "--format",
+            "{{.ID}}",
+          ]);
+          if (ids) {
+            assert.match(ids, /^[0-9a-f]{64}$/);
+            const receipt = JSON.parse(
+              docker(["container", "inspect", ids]),
+            )[0];
+            assert.equal(receipt.Name, "/" + name);
+            assert.equal(receipt.Image, pinned);
+            assert.equal(
+              receipt.Config.Labels["org.1hk.native-dwg-resaver.attempt"],
+              name.slice("1hk-dwg-resave-".length),
+            );
+            assert.equal(docker(["rm", "--force", ids]), ids);
+          }
+        }
+    });
+    let settled = false;
+    const pending = run({
+      ...options,
+      dockerPath: shim,
+      resave(input) {
+        executionSignal = input.signal;
+        return sandbox.runIsolatedNativeDrawingDwgResaver(input);
+      },
+    }).then((value) => {
+      settled = true;
+      return value;
+    });
+    const deadline = Date.now() + 15000;
+    while (
+      !(await access(marker).then(
+        () => true,
+        () => false,
+      ))
+    ) {
+      assert.ok(Date.now() < deadline);
+      assert.equal(settled, false);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    runningId = await readFile(marker, "utf8");
+    assert.match(runningId, /^[0-9a-f]{64}$/);
+    const running = JSON.parse(docker(["container", "inspect", runningId]))[0];
+    assert.equal(running.State.Running, true);
+    assert.equal(running.Config.Cmd.at(-1), "resave-native-stdio");
+    assert.equal(running.Image, pinned);
+    await save("running-container.json", running);
+    const pollsBeforeCancel = controlCount;
+    action = "cancel";
+    const cancelled = await pending;
+    assert.equal(cancelled.outcome, "cancelled");
+    assert.equal(acknowledged, true);
+    assert.ok(controlCount > pollsBeforeCancel);
+    absent(runningId);
+    assert.equal(sha(await readFile(sourcePath)), expectedSource.sha256);
+    const summary = {
+      imageId: pinned,
+      source: expectedSource,
+      requestSha256: attestation.request.sha256,
+      authoritySha256: attestation.authority.sha256,
+      reportSha256: sha(prepared.result.reportBytes),
+      output: prepared.result.report.output,
+      literalGeometryReadback: true,
+      otherProjectedEntitiesUnchanged: true,
+      cancelledContainerId: runningId,
+      independentlyRunningBeforeCancel: true,
+      executionSignalAborted: executionSignal.aborted,
+      ownedContainerAndConfigAbsentBeforeAck: true,
+      controlBoundary:
+        "finite in-memory service RPC; no real database/Auth/Storage",
+      nativeBoundary: "actual cached reader and resaver image",
+      sourceUnchanged: true,
+      qualification: "experimental-unqualified",
+      persistenceAuthority: "not-issued",
+      publicationCalls: 0,
+      calls,
+    };
+    await save("summary.json", summary);
+    t.diagnostic(JSON.stringify(summary));
+  },
+);

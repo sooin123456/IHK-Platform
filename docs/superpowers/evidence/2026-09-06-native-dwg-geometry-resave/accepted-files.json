@@ -1,0 +1,42 @@
+[
+  {
+    "path": "platform/app/lukas/lib/drawing-native-dwg-selected-edits.server.ts",
+    "sha256": "7c9d08e9bade1ba5133edb1ab6d3a1feed9db71ad0a96c9a555150b8f7ddc449"
+  },
+  {
+    "path": "platform/tests/drawing-native-dwg-selected-edits.test.mjs",
+    "sha256": "4674241325503f69f607969aa8e776733c0c8d7855c3020b1a558ac0d11fc3bd"
+  },
+  {
+    "path": "platform/tests/drawing-native-dwg-geometry-resave-integration.test.mjs",
+    "sha256": "f35697481acceba1db50ea46d37772c39e02e0a4ebc4ec18e3af298771dce7d2"
+  },
+  {
+    "path": "tools/dwg-engine-qualification/SelectedDwgEdits.cs",
+    "sha256": "c9c7549d0b22884abb294118dbb53cd44e062e88be2618f4d2955b2b66f66166"
+  },
+  {
+    "path": "tools/dwg-engine-qualification/SelectedDwgEditSelfTests.cs",
+    "sha256": "1c6c4c6acf9b199285575bc2f87d8f013e80d25197e501e9633768aadaadd4ba"
+  },
+  {
+    "path": "tools/dwg-engine-qualification/SelectedDwgGeometrySelfTests.cs",
+    "sha256": "2b98ea852a9e230be773ed86a4d2b92acb2ada79c545828707fd1fade5eb2fab"
+  },
+  {
+    "path": "tools/dwg-engine-qualification/NativeDwgReader.cs",
+    "sha256": "21a472b313e0e3dd7e2585a72e79a6910bbfb8469257e1fcddf471e8079eb2f8"
+  },
+  {
+    "path": "tools/dwg-engine-qualification/QualificationRunner.cs",
+    "sha256": "83e792e08ea71390d80eca9f354412979feeee24317af65c3916ce91080a2fd4"
+  },
+  {
+    "path": "tools/dwg-engine-qualification/SelfTests.cs",
+    "sha256": "2b7293591de4e59605389377ce51dd7a13f98163e337f1d0042d7cc4b483c3ee"
+  },
+  {
+    "path": "tools/dwg-engine-qualification/README.md",
+    "sha256": "1e65b02d3fdbfc24c23085d9993d595a79804909134a0f659bf8d1f7059f8eeb"
+  }
+]

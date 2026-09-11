@@ -1,0 +1,76 @@
+✖ actual resaver 2GiB cgroup enforces no mounts/network/capabilities and deadline (0.213333ms)
+✖ actual compiler edits five literal geometries through isolated resave and readback with untouched inventory (0.02625ms)
+✖ actual invalid geometry, raw invalid stream, source mismatch, cancellation and deadline clean owned attempts and preserve foreign container (0.022125ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 0
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 155.157833
+
+✖ failing tests:
+
+test at tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:84:1
+✖ actual resaver 2GiB cgroup enforces no mounts/network/capabilities and deadline (0.213333ms)
+  AssertionError [ERR_ASSERTION]: Required actual resave prerequisite unavailable: NATIVE_DWG_DOCKER_PATH
+      at required (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:18:35)
+      at before.timeout (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:70:14)
+      at TestHook.runInAsyncScope (node:async_hooks:226:14)
+      at TestHook.run (node:internal/test_runner/test:1382:25)
+      at TestHook.run (node:internal/test_runner/test:1726:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1103:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:69:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:569:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:102:1
+✖ actual compiler edits five literal geometries through isolated resave and readback with untouched inventory (0.02625ms)
+  AssertionError [ERR_ASSERTION]: Required actual resave prerequisite unavailable: NATIVE_DWG_DOCKER_PATH
+      at required (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:18:35)
+      at before.timeout (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:70:14)
+      at TestHook.runInAsyncScope (node:async_hooks:226:14)
+      at TestHook.run (node:internal/test_runner/test:1382:25)
+      at TestHook.run (node:internal/test_runner/test:1726:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1103:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:69:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:569:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:149:1
+✖ actual invalid geometry, raw invalid stream, source mismatch, cancellation and deadline clean owned attempts and preserve foreign container (0.022125ms)
+  AssertionError [ERR_ASSERTION]: Required actual resave prerequisite unavailable: NATIVE_DWG_DOCKER_PATH
+      at required (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:18:35)
+      at before.timeout (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:70:14)
+      at TestHook.runInAsyncScope (node:async_hooks:226:14)
+      at TestHook.run (node:internal/test_runner/test:1382:25)
+      at TestHook.run (node:internal/test_runner/test:1726:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1103:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs:69:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:569:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

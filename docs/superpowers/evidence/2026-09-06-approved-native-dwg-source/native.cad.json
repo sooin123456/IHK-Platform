@@ -1,0 +1,1427 @@
+{
+  "schemaVersion": "1hk-native-cad/1",
+  "qualification": "experimental-unqualified",
+  "units": "mm",
+  "coordinateSystem": "WCS_X_RIGHT_Y_UP",
+  "targetVersion": "AC1024",
+  "scope": {
+    "projectId": "3bc600cc-5d94-44c2-bc6a-eab20fa2cd38",
+    "documentId": "f890c9ca-ec0e-4f16-91f9-45d1e89b364c",
+    "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+    "operationSequence": 0,
+    "structureSha256": "ffa54a46fcdc82a6bbb61db4938f3545119bb48e2031c765872ba5624fcf7f4a"
+  },
+  "canvas": {
+    "id": "31f40122-c118-4dc5-9617-965e64af08e2",
+    "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+    "name": "A3 1:50 작업 캔버스",
+    "modelWidthMillimeters": 21000,
+    "modelHeightMillimeters": 14850,
+    "outputProfile": {
+      "paper": "A3",
+      "orientation": "landscape",
+      "widthMillimeters": 420,
+      "heightMillimeters": 297,
+      "scaleDenominator": 50
+    },
+    "viewport": {
+      "paperCenter": {
+        "x": 210,
+        "y": 148.5
+      },
+      "viewCenter": {
+        "x": 10500,
+        "y": -7425
+      },
+      "viewHeight": 14850,
+      "scale": 0.02
+    }
+  },
+  "layers": [
+    {
+      "id": "1984c2f2-aae4-4ed6-9f79-22d110b1dd01",
+      "name": "치수",
+      "visible": true,
+      "locked": false,
+      "systemKind": "custom",
+      "canvasId": "31f40122-c118-4dc5-9617-965e64af08e2",
+      "sortOrder": 1,
+      "version": 1,
+      "cadName": "L_1984c2f2aae44ed69f7922d110b1dd01"
+    },
+    {
+      "id": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "name": "작업",
+      "visible": true,
+      "locked": false,
+      "systemKind": "work",
+      "canvasId": "31f40122-c118-4dc5-9617-965e64af08e2",
+      "sortOrder": 0,
+      "version": 1,
+      "cadName": "L_67bda529cc4746259e7a66361fa2692e"
+    }
+  ],
+  "blocks": [
+    {
+      "id": "0ed67910-38c5-460b-833b-694aee554b80",
+      "name": "Single door 900 mm",
+      "version": 1,
+      "cadName": "B_0ed6791038c5460b833b694aee554b80",
+      "primitives": [
+        {
+          "localId": "jamb-left",
+          "name": "Left jamb",
+          "entityIds": [
+            "block/0ed67910-38c5-460b-833b-694aee554b80/jamb-left/0"
+          ]
+        },
+        {
+          "localId": "jamb-right",
+          "name": "Right jamb",
+          "entityIds": [
+            "block/0ed67910-38c5-460b-833b-694aee554b80/jamb-right/1"
+          ]
+        },
+        {
+          "localId": "leaf",
+          "name": "Door leaf",
+          "entityIds": [
+            "block/0ed67910-38c5-460b-833b-694aee554b80/leaf/2"
+          ]
+        },
+        {
+          "localId": "swing",
+          "name": "Door swing",
+          "entityIds": [
+            "block/0ed67910-38c5-460b-833b-694aee554b80/swing/3"
+          ]
+        }
+      ],
+      "entities": [
+        {
+          "id": "block/0ed67910-38c5-460b-833b-694aee554b80/jamb-left/0",
+          "layerId": null,
+          "style": {
+            "stroke": "#1f2937",
+            "strokeWidth": 10,
+            "fill": null,
+            "kind": "resolved",
+            "requestedPaperLineweightMillimeters": 0.2
+          },
+          "geometry": {
+            "type": "line",
+            "start": {
+              "x": 0,
+              "y": 0
+            },
+            "end": {
+              "x": 0,
+              "y": -100
+            }
+          }
+        },
+        {
+          "id": "block/0ed67910-38c5-460b-833b-694aee554b80/jamb-right/1",
+          "layerId": null,
+          "style": {
+            "stroke": "#1f2937",
+            "strokeWidth": 10,
+            "fill": null,
+            "kind": "resolved",
+            "requestedPaperLineweightMillimeters": 0.2
+          },
+          "geometry": {
+            "type": "line",
+            "start": {
+              "x": 900,
+              "y": 0
+            },
+            "end": {
+              "x": 900,
+              "y": -100
+            }
+          }
+        },
+        {
+          "id": "block/0ed67910-38c5-460b-833b-694aee554b80/leaf/2",
+          "layerId": null,
+          "style": {
+            "stroke": "#1f2937",
+            "strokeWidth": 10,
+            "fill": null,
+            "kind": "resolved",
+            "requestedPaperLineweightMillimeters": 0.2
+          },
+          "geometry": {
+            "type": "line",
+            "start": {
+              "x": 0,
+              "y": 0
+            },
+            "end": {
+              "x": 0,
+              "y": -900
+            }
+          }
+        },
+        {
+          "id": "block/0ed67910-38c5-460b-833b-694aee554b80/swing/3",
+          "layerId": null,
+          "style": {
+            "stroke": "#1f2937",
+            "strokeWidth": 10,
+            "fill": null,
+            "kind": "resolved",
+            "requestedPaperLineweightMillimeters": 0.2
+          },
+          "geometry": {
+            "type": "polyline",
+            "points": [
+              {
+                "x": 900,
+                "y": 0
+              },
+              {
+                "x": 869.3334,
+                "y": -232.9371
+              },
+              {
+                "x": 779.4225,
+                "y": -450
+              },
+              {
+                "x": 636.3963,
+                "y": -636.3963
+              },
+              {
+                "x": 450,
+                "y": -779.4225
+              },
+              {
+                "x": 232.9371,
+                "y": -869.3334
+              },
+              {
+                "x": 0,
+                "y": -900
+              }
+            ],
+            "closed": false
+          }
+        }
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "id": "object/1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88/0",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "hatch",
+        "boundary": [
+          {
+            "x": 8425,
+            "y": -2925
+          },
+          {
+            "x": 8425,
+            "y": -7075
+          },
+          {
+            "x": 8575,
+            "y": -7075
+          },
+          {
+            "x": 8575,
+            "y": -2925
+          }
+        ],
+        "color": "#27313a",
+        "opacity": 1
+      }
+    },
+    {
+      "id": "object/1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88/1",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "polyline",
+        "points": [
+          {
+            "x": 8425,
+            "y": -2925
+          },
+          {
+            "x": 8425,
+            "y": -7075
+          },
+          {
+            "x": 8575,
+            "y": -7075
+          },
+          {
+            "x": 8575,
+            "y": -2925
+          }
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "object/3d4bda54-d737-4d77-97dc-9df2bdcdc69d/2",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "hatch",
+        "boundary": [
+          {
+            "x": 2425,
+            "y": -3075
+          },
+          {
+            "x": 4350,
+            "y": -3075
+          },
+          {
+            "x": 4350,
+            "y": -2925
+          },
+          {
+            "x": 2425,
+            "y": -2925
+          }
+        ],
+        "color": "#27313a",
+        "opacity": 1
+      }
+    },
+    {
+      "id": "object/3d4bda54-d737-4d77-97dc-9df2bdcdc69d/3",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "polyline",
+        "points": [
+          {
+            "x": 2425,
+            "y": -3075
+          },
+          {
+            "x": 4350,
+            "y": -3075
+          },
+          {
+            "x": 4350,
+            "y": -2925
+          },
+          {
+            "x": 2425,
+            "y": -2925
+          }
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "object/3d4bda54-d737-4d77-97dc-9df2bdcdc69d/4",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "hatch",
+        "boundary": [
+          {
+            "x": 5250,
+            "y": -3075
+          },
+          {
+            "x": 8575,
+            "y": -3075
+          },
+          {
+            "x": 8575,
+            "y": -2925
+          },
+          {
+            "x": 5250,
+            "y": -2925
+          }
+        ],
+        "color": "#27313a",
+        "opacity": 1
+      }
+    },
+    {
+      "id": "object/3d4bda54-d737-4d77-97dc-9df2bdcdc69d/5",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "polyline",
+        "points": [
+          {
+            "x": 5250,
+            "y": -3075
+          },
+          {
+            "x": 8575,
+            "y": -3075
+          },
+          {
+            "x": 8575,
+            "y": -2925
+          },
+          {
+            "x": 5250,
+            "y": -2925
+          }
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "object/7828eac3-c54e-41a1-b211-43fbd193b164/6",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": "#f4f7fa",
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "hatch",
+        "boundary": [
+          {
+            "x": 2500,
+            "y": -3000
+          },
+          {
+            "x": 8500,
+            "y": -3000
+          },
+          {
+            "x": 8500,
+            "y": -7000
+          },
+          {
+            "x": 2500,
+            "y": -7000
+          }
+        ],
+        "color": "#f4f7fa",
+        "opacity": 1
+      }
+    },
+    {
+      "id": "object/7828eac3-c54e-41a1-b211-43fbd193b164/7",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": "#f4f7fa",
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "polyline",
+        "points": [
+          {
+            "x": 2500,
+            "y": -3000
+          },
+          {
+            "x": 8500,
+            "y": -3000
+          },
+          {
+            "x": 8500,
+            "y": -7000
+          },
+          {
+            "x": 2500,
+            "y": -7000
+          }
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "object/7828eac3-c54e-41a1-b211-43fbd193b164/8",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": "#f4f7fa",
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "text",
+        "origin": {
+          "x": 4600,
+          "y": -4930
+        },
+        "text": "E-01 · 예제실 24㎡",
+        "width": 1800,
+        "fontSize": 140,
+        "lineHeight": 1.2,
+        "attachment": "top-left",
+        "wrapping": "authored-newlines-only",
+        "rotationDegrees": 0
+      }
+    },
+    {
+      "id": "instance/8868d027-4fe5-45b5-b003-eddc9a0d27cb",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "kind": "block-defined"
+      },
+      "geometry": {
+        "type": "insert",
+        "blockId": "0ed67910-38c5-460b-833b-694aee554b80",
+        "origin": {
+          "x": 4350,
+          "y": -3000
+        },
+        "rotationDegrees": 0,
+        "scaleX": 1,
+        "scaleY": 1
+      }
+    },
+    {
+      "id": "object/96c76818-99e0-41a0-bbb0-ded08549694f/10",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#285c88",
+        "strokeWidth": 18,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.36
+      },
+      "geometry": {
+        "type": "text",
+        "origin": {
+          "x": 1500,
+          "y": -900
+        },
+        "text": "치수 평면 예제\n예제·가정값 — 현장 확인 필요",
+        "width": 12000,
+        "fontSize": 140,
+        "lineHeight": 1.2,
+        "attachment": "top-left",
+        "wrapping": "authored-newlines-only",
+        "rotationDegrees": 0
+      }
+    },
+    {
+      "id": "object/dae8472d-f825-4664-9947-29b76dc18412/11",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "hatch",
+        "boundary": [
+          {
+            "x": 2575,
+            "y": -7075
+          },
+          {
+            "x": 2575,
+            "y": -2925
+          },
+          {
+            "x": 2425,
+            "y": -2925
+          },
+          {
+            "x": 2425,
+            "y": -7075
+          }
+        ],
+        "color": "#27313a",
+        "opacity": 1
+      }
+    },
+    {
+      "id": "object/dae8472d-f825-4664-9947-29b76dc18412/12",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "polyline",
+        "points": [
+          {
+            "x": 2575,
+            "y": -7075
+          },
+          {
+            "x": 2575,
+            "y": -2925
+          },
+          {
+            "x": 2425,
+            "y": -2925
+          },
+          {
+            "x": 2425,
+            "y": -7075
+          }
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "object/db7684f5-30f7-4f93-8c2c-a48ad2dd76ff/13",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 10,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.2
+      },
+      "geometry": {
+        "type": "line",
+        "start": {
+          "x": 4350,
+          "y": -3000
+        },
+        "end": {
+          "x": 5250,
+          "y": -3000
+        }
+      }
+    },
+    {
+      "id": "object/db7684f5-30f7-4f93-8c2c-a48ad2dd76ff/14",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 6,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.12
+      },
+      "geometry": {
+        "type": "line",
+        "start": {
+          "x": 4350,
+          "y": -3000
+        },
+        "end": {
+          "x": 4350,
+          "y": -3087.5
+        }
+      }
+    },
+    {
+      "id": "object/eb7613cd-e48d-453d-a5a3-875e3e9cfe9d/15",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "hatch",
+        "boundary": [
+          {
+            "x": 8575,
+            "y": -6925
+          },
+          {
+            "x": 2425,
+            "y": -6925
+          },
+          {
+            "x": 2425,
+            "y": -7075
+          },
+          {
+            "x": 8575,
+            "y": -7075
+          }
+        ],
+        "color": "#27313a",
+        "opacity": 1
+      }
+    },
+    {
+      "id": "object/eb7613cd-e48d-453d-a5a3-875e3e9cfe9d/16",
+      "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+      "style": {
+        "stroke": "#27313a",
+        "strokeWidth": 25,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.5
+      },
+      "geometry": {
+        "type": "polyline",
+        "points": [
+          {
+            "x": 8575,
+            "y": -6925
+          },
+          {
+            "x": 2425,
+            "y": -6925
+          },
+          {
+            "x": 2425,
+            "y": -7075
+          },
+          {
+            "x": 8575,
+            "y": -7075
+          }
+        ],
+        "closed": true
+      }
+    },
+    {
+      "id": "object/6dea2dff-2cac-4a59-aa69-2fd8c45cf399/17",
+      "layerId": "1984c2f2-aae4-4ed6-9f79-22d110b1dd01",
+      "style": {
+        "stroke": "#285c88",
+        "strokeWidth": 18,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.36
+      },
+      "geometry": {
+        "type": "dimension",
+        "start": {
+          "x": 2500,
+          "y": -3000
+        },
+        "end": {
+          "x": 8500,
+          "y": -3000
+        },
+        "dimensionLinePoint": {
+          "x": 8500,
+          "y": -2400
+        },
+        "textPosition": {
+          "x": 5500,
+          "y": -2400
+        },
+        "fontSize": 140,
+        "precision": 1,
+        "suffix": " mm",
+        "measurementMillimeters": 6000
+      }
+    },
+    {
+      "id": "object/7ae5398a-426b-43b4-9cf7-3b24df876825/18",
+      "layerId": "1984c2f2-aae4-4ed6-9f79-22d110b1dd01",
+      "style": {
+        "stroke": "#285c88",
+        "strokeWidth": 18,
+        "fill": null,
+        "fontSize": 140,
+        "kind": "resolved",
+        "requestedPaperLineweightMillimeters": 0.36
+      },
+      "geometry": {
+        "type": "dimension",
+        "start": {
+          "x": 2500,
+          "y": -3000
+        },
+        "end": {
+          "x": 2500,
+          "y": -7000
+        },
+        "dimensionLinePoint": {
+          "x": 3100,
+          "y": -7000
+        },
+        "textPosition": {
+          "x": 3100,
+          "y": -5000
+        },
+        "fontSize": 140,
+        "precision": 1,
+        "suffix": " mm",
+        "measurementMillimeters": 4000
+      }
+    }
+  ],
+  "lineage": [
+    {
+      "id": "1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88",
+      "kind": "object",
+      "name": "동측 벽",
+      "version": 1,
+      "entityIds": [
+        "object/1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88/0",
+        "object/1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88/1"
+      ]
+    },
+    {
+      "id": "3d4bda54-d737-4d77-97dc-9df2bdcdc69d",
+      "kind": "object",
+      "name": "남측 벽",
+      "version": 1,
+      "entityIds": [
+        "object/3d4bda54-d737-4d77-97dc-9df2bdcdc69d/2",
+        "object/3d4bda54-d737-4d77-97dc-9df2bdcdc69d/3",
+        "object/3d4bda54-d737-4d77-97dc-9df2bdcdc69d/4",
+        "object/3d4bda54-d737-4d77-97dc-9df2bdcdc69d/5"
+      ]
+    },
+    {
+      "id": "7828eac3-c54e-41a1-b211-43fbd193b164",
+      "kind": "object",
+      "name": "예제실 24㎡",
+      "version": 1,
+      "entityIds": [
+        "object/7828eac3-c54e-41a1-b211-43fbd193b164/6",
+        "object/7828eac3-c54e-41a1-b211-43fbd193b164/7",
+        "object/7828eac3-c54e-41a1-b211-43fbd193b164/8"
+      ]
+    },
+    {
+      "id": "8868d027-4fe5-45b5-b003-eddc9a0d27cb",
+      "kind": "block_instance",
+      "name": "900 문 여닫이 도식",
+      "version": 1,
+      "entityIds": [
+        "instance/8868d027-4fe5-45b5-b003-eddc9a0d27cb"
+      ]
+    },
+    {
+      "id": "96c76818-99e0-41a0-bbb0-ded08549694f",
+      "kind": "object",
+      "name": "예제 안내",
+      "version": 1,
+      "entityIds": [
+        "object/96c76818-99e0-41a0-bbb0-ded08549694f/10"
+      ]
+    },
+    {
+      "id": "dae8472d-f825-4664-9947-29b76dc18412",
+      "kind": "object",
+      "name": "서측 벽",
+      "version": 1,
+      "entityIds": [
+        "object/dae8472d-f825-4664-9947-29b76dc18412/11",
+        "object/dae8472d-f825-4664-9947-29b76dc18412/12"
+      ]
+    },
+    {
+      "id": "db7684f5-30f7-4f93-8c2c-a48ad2dd76ff",
+      "kind": "object",
+      "name": "출입문 개구부",
+      "version": 1,
+      "entityIds": [
+        "object/db7684f5-30f7-4f93-8c2c-a48ad2dd76ff/13",
+        "object/db7684f5-30f7-4f93-8c2c-a48ad2dd76ff/14"
+      ]
+    },
+    {
+      "id": "eb7613cd-e48d-453d-a5a3-875e3e9cfe9d",
+      "kind": "object",
+      "name": "북측 벽",
+      "version": 1,
+      "entityIds": [
+        "object/eb7613cd-e48d-453d-a5a3-875e3e9cfe9d/15",
+        "object/eb7613cd-e48d-453d-a5a3-875e3e9cfe9d/16"
+      ]
+    },
+    {
+      "id": "6dea2dff-2cac-4a59-aa69-2fd8c45cf399",
+      "kind": "object",
+      "name": "가로 6000 예제 치수",
+      "version": 1,
+      "entityIds": [
+        "object/6dea2dff-2cac-4a59-aa69-2fd8c45cf399/17"
+      ]
+    },
+    {
+      "id": "7ae5398a-426b-43b4-9cf7-3b24df876825",
+      "kind": "object",
+      "name": "세로 4000 예제 치수",
+      "version": 1,
+      "entityIds": [
+        "object/7ae5398a-426b-43b4-9cf7-3b24df876825/18"
+      ]
+    }
+  ],
+  "metadata": {
+    "structure": {
+      "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+      "pages": {
+        "e4f07394-6403-435a-9531-323cd40b6fc3": {
+          "id": "e4f07394-6403-435a-9531-323cd40b6fc3",
+          "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+          "name": "치수 평면 예제",
+          "sortOrder": 0,
+          "version": 1
+        }
+      },
+      "canvases": {
+        "31f40122-c118-4dc5-9617-965e64af08e2": {
+          "id": "31f40122-c118-4dc5-9617-965e64af08e2",
+          "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+          "name": "A3 1:50 작업 캔버스",
+          "spaceKind": "paper",
+          "widthMillimeters": 21000,
+          "heightMillimeters": 14850,
+          "background": null,
+          "outputProfile": {
+            "paper": "A3",
+            "orientation": "landscape",
+            "widthMillimeters": 420,
+            "heightMillimeters": 297,
+            "scaleDenominator": 50
+          },
+          "sortOrder": 0,
+          "version": 1
+        }
+      },
+      "layers": {
+        "1984c2f2-aae4-4ed6-9f79-22d110b1dd01": {
+          "id": "1984c2f2-aae4-4ed6-9f79-22d110b1dd01",
+          "name": "치수",
+          "visible": true,
+          "locked": false,
+          "systemKind": "custom",
+          "canvasId": "31f40122-c118-4dc5-9617-965e64af08e2",
+          "sortOrder": 1,
+          "version": 1
+        },
+        "67bda529-cc47-4625-9e7a-66361fa2692e": {
+          "id": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "name": "작업",
+          "visible": true,
+          "locked": false,
+          "systemKind": "work",
+          "canvasId": "31f40122-c118-4dc5-9617-965e64af08e2",
+          "sortOrder": 0,
+          "version": 1
+        }
+      },
+      "objects": {
+        "1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88": {
+          "id": "1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88",
+          "name": "동측 벽",
+          "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "geometry": {
+            "type": "wall",
+            "semanticVersion": 1,
+            "start": {
+              "x": 8500,
+              "y": 3000
+            },
+            "end": {
+              "x": 8500,
+              "y": 7000
+            },
+            "thicknessMillimeters": 150,
+            "heightMillimeters": 2700
+          },
+          "styleId": "8ce93087-9887-4711-a1b0-cb9a6561247d",
+          "style": {},
+          "version": 1
+        },
+        "3d4bda54-d737-4d77-97dc-9df2bdcdc69d": {
+          "id": "3d4bda54-d737-4d77-97dc-9df2bdcdc69d",
+          "name": "남측 벽",
+          "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "geometry": {
+            "type": "wall",
+            "semanticVersion": 1,
+            "start": {
+              "x": 2500,
+              "y": 3000
+            },
+            "end": {
+              "x": 8500,
+              "y": 3000
+            },
+            "thicknessMillimeters": 150,
+            "heightMillimeters": 2700
+          },
+          "styleId": "8ce93087-9887-4711-a1b0-cb9a6561247d",
+          "style": {},
+          "version": 1
+        },
+        "6dea2dff-2cac-4a59-aa69-2fd8c45cf399": {
+          "id": "6dea2dff-2cac-4a59-aa69-2fd8c45cf399",
+          "name": "가로 6000 예제 치수",
+          "layerId": "1984c2f2-aae4-4ed6-9f79-22d110b1dd01",
+          "geometry": {
+            "type": "dimension",
+            "start": {
+              "x": 2500,
+              "y": 3000
+            },
+            "end": {
+              "x": 8500,
+              "y": 3000
+            },
+            "offset": -600,
+            "calibrationId": null
+          },
+          "styleId": "8b272e12-1d95-4b60-ad80-bf6d5a06e121",
+          "style": {},
+          "version": 1
+        },
+        "7828eac3-c54e-41a1-b211-43fbd193b164": {
+          "id": "7828eac3-c54e-41a1-b211-43fbd193b164",
+          "name": "예제실 24㎡",
+          "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "geometry": {
+            "type": "space",
+            "semanticVersion": 1,
+            "boundary": [
+              {
+                "x": 2500,
+                "y": 3000
+              },
+              {
+                "x": 8500,
+                "y": 3000
+              },
+              {
+                "x": 8500,
+                "y": 7000
+              },
+              {
+                "x": 2500,
+                "y": 7000
+              }
+            ],
+            "number": "E-01",
+            "finishes": {
+              "floor": "예제 마감",
+              "wall": "예제 마감",
+              "ceiling": "예제 마감"
+            }
+          },
+          "styleId": "8ce93087-9887-4711-a1b0-cb9a6561247d",
+          "style": {
+            "fill": "#f4f7fa"
+          },
+          "version": 1
+        },
+        "7ae5398a-426b-43b4-9cf7-3b24df876825": {
+          "id": "7ae5398a-426b-43b4-9cf7-3b24df876825",
+          "name": "세로 4000 예제 치수",
+          "layerId": "1984c2f2-aae4-4ed6-9f79-22d110b1dd01",
+          "geometry": {
+            "type": "dimension",
+            "start": {
+              "x": 2500,
+              "y": 3000
+            },
+            "end": {
+              "x": 2500,
+              "y": 7000
+            },
+            "offset": -600,
+            "calibrationId": null
+          },
+          "styleId": "8b272e12-1d95-4b60-ad80-bf6d5a06e121",
+          "style": {},
+          "version": 1
+        },
+        "96c76818-99e0-41a0-bbb0-ded08549694f": {
+          "id": "96c76818-99e0-41a0-bbb0-ded08549694f",
+          "name": "예제 안내",
+          "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "geometry": {
+            "type": "text",
+            "origin": {
+              "x": 1500,
+              "y": 900
+            },
+            "width": 12000,
+            "text": "치수 평면 예제\n예제·가정값 — 현장 확인 필요"
+          },
+          "styleId": "8b272e12-1d95-4b60-ad80-bf6d5a06e121",
+          "style": {},
+          "version": 1
+        },
+        "dae8472d-f825-4664-9947-29b76dc18412": {
+          "id": "dae8472d-f825-4664-9947-29b76dc18412",
+          "name": "서측 벽",
+          "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "geometry": {
+            "type": "wall",
+            "semanticVersion": 1,
+            "start": {
+              "x": 2500,
+              "y": 7000
+            },
+            "end": {
+              "x": 2500,
+              "y": 3000
+            },
+            "thicknessMillimeters": 150,
+            "heightMillimeters": 2700
+          },
+          "styleId": "8ce93087-9887-4711-a1b0-cb9a6561247d",
+          "style": {},
+          "version": 1
+        },
+        "db7684f5-30f7-4f93-8c2c-a48ad2dd76ff": {
+          "id": "db7684f5-30f7-4f93-8c2c-a48ad2dd76ff",
+          "name": "출입문 개구부",
+          "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "geometry": {
+            "type": "opening",
+            "semanticVersion": 1,
+            "hostWallId": "3d4bda54-d737-4d77-97dc-9df2bdcdc69d",
+            "offsetMillimeters": 2300,
+            "widthMillimeters": 900,
+            "heightMillimeters": 2100,
+            "sillHeightMillimeters": 0,
+            "openingKind": "door"
+          },
+          "styleId": "8ce93087-9887-4711-a1b0-cb9a6561247d",
+          "style": {},
+          "version": 1
+        },
+        "eb7613cd-e48d-453d-a5a3-875e3e9cfe9d": {
+          "id": "eb7613cd-e48d-453d-a5a3-875e3e9cfe9d",
+          "name": "북측 벽",
+          "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "geometry": {
+            "type": "wall",
+            "semanticVersion": 1,
+            "start": {
+              "x": 8500,
+              "y": 7000
+            },
+            "end": {
+              "x": 2500,
+              "y": 7000
+            },
+            "thicknessMillimeters": 150,
+            "heightMillimeters": 2700
+          },
+          "styleId": "8ce93087-9887-4711-a1b0-cb9a6561247d",
+          "style": {},
+          "version": 1
+        }
+      },
+      "sources": {},
+      "styles": {
+        "8b272e12-1d95-4b60-ad80-bf6d5a06e121": {
+          "id": "8b272e12-1d95-4b60-ad80-bf6d5a06e121",
+          "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+          "name": "치수와 주석",
+          "value": {
+            "stroke": "#285c88",
+            "strokeWidth": 18,
+            "fill": null,
+            "fontSize": 140
+          },
+          "version": 1
+        },
+        "8ce93087-9887-4711-a1b0-cb9a6561247d": {
+          "id": "8ce93087-9887-4711-a1b0-cb9a6561247d",
+          "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+          "name": "기본 선",
+          "value": {
+            "stroke": "#27313a",
+            "strokeWidth": 25,
+            "fill": null,
+            "fontSize": 140
+          },
+          "version": 1
+        }
+      },
+      "blocks": {
+        "0ed67910-38c5-460b-833b-694aee554b80": {
+          "id": "0ed67910-38c5-460b-833b-694aee554b80",
+          "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+          "name": "Single door 900 mm",
+          "primitives": [
+            {
+              "localId": "jamb-left",
+              "name": "Left jamb",
+              "geometry": {
+                "type": "line",
+                "start": {
+                  "x": 0,
+                  "y": 0
+                },
+                "end": {
+                  "x": 0,
+                  "y": 100
+                }
+              },
+              "styleId": null,
+              "style": {
+                "stroke": "#1f2937",
+                "strokeWidth": 10,
+                "fill": null
+              }
+            },
+            {
+              "localId": "jamb-right",
+              "name": "Right jamb",
+              "geometry": {
+                "type": "line",
+                "start": {
+                  "x": 900,
+                  "y": 0
+                },
+                "end": {
+                  "x": 900,
+                  "y": 100
+                }
+              },
+              "styleId": null,
+              "style": {
+                "stroke": "#1f2937",
+                "strokeWidth": 10,
+                "fill": null
+              }
+            },
+            {
+              "localId": "leaf",
+              "name": "Door leaf",
+              "geometry": {
+                "type": "line",
+                "start": {
+                  "x": 0,
+                  "y": 0
+                },
+                "end": {
+                  "x": 0,
+                  "y": 900
+                }
+              },
+              "styleId": null,
+              "style": {
+                "stroke": "#1f2937",
+                "strokeWidth": 10,
+                "fill": null
+              }
+            },
+            {
+              "localId": "swing",
+              "name": "Door swing",
+              "geometry": {
+                "type": "polyline",
+                "points": [
+                  {
+                    "x": 900,
+                    "y": 0
+                  },
+                  {
+                    "x": 869.3334,
+                    "y": 232.9371
+                  },
+                  {
+                    "x": 779.4225,
+                    "y": 450
+                  },
+                  {
+                    "x": 636.3963,
+                    "y": 636.3963
+                  },
+                  {
+                    "x": 450,
+                    "y": 779.4225
+                  },
+                  {
+                    "x": 232.9371,
+                    "y": 869.3334
+                  },
+                  {
+                    "x": 0,
+                    "y": 900
+                  }
+                ],
+                "closed": false
+              },
+              "styleId": null,
+              "style": {
+                "stroke": "#1f2937",
+                "strokeWidth": 10,
+                "fill": null
+              }
+            }
+          ],
+          "version": 1
+        }
+      },
+      "blockInstances": {
+        "8868d027-4fe5-45b5-b003-eddc9a0d27cb": {
+          "id": "8868d027-4fe5-45b5-b003-eddc9a0d27cb",
+          "lineageId": "8868d027-4fe5-45b5-b003-eddc9a0d27cb",
+          "blockId": "0ed67910-38c5-460b-833b-694aee554b80",
+          "layerId": "67bda529-cc47-4625-9e7a-66361fa2692e",
+          "name": "900 문 여닫이 도식",
+          "origin": {
+            "x": 4350,
+            "y": 3000
+          },
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "version": 1
+        }
+      },
+      "propertySchemas": {
+        "4b027daf-24de-4a5c-9468-d16058092d58": {
+          "id": "4b027daf-24de-4a5c-9468-d16058092d58",
+          "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+          "name": "예제 상태",
+          "valueType": "text",
+          "enumOptions": [],
+          "appliesTo": [
+            "space"
+          ],
+          "required": true,
+          "version": 1
+        }
+      },
+      "propertyValues": {
+        "7b146930-65eb-425f-8ea4-76eb522b13d8": {
+          "id": "7b146930-65eb-425f-8ea4-76eb522b13d8",
+          "schemaId": "4b027daf-24de-4a5c-9468-d16058092d58",
+          "objectId": "7828eac3-c54e-41a1-b211-43fbd193b164",
+          "blockInstanceId": null,
+          "value": "예제·가정값 — 현장 확인 필요",
+          "version": 1
+        }
+      },
+      "tables": {
+        "53fe3846-d185-4f6c-880a-d606889b4170": {
+          "id": "53fe3846-d185-4f6c-880a-d606889b4170",
+          "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+          "name": "예제 면적표",
+          "columns": [
+            {
+              "id": "b36127c2-6127-480b-8102-112dfdebc29b",
+              "name": "대상",
+              "kind": "object_name",
+              "propertySchemaId": null
+            },
+            {
+              "id": "4c4338f2-6599-4aed-b1e1-84e6afc837aa",
+              "name": "상태",
+              "kind": "property",
+              "propertySchemaId": "4b027daf-24de-4a5c-9468-d16058092d58"
+            },
+            {
+              "id": "c9edd17d-4027-402b-b533-d72451bf6259",
+              "name": "예제 수량",
+              "kind": "number",
+              "propertySchemaId": null
+            },
+            {
+              "id": "b80bc11b-a962-42ea-9913-991d329b35fe",
+              "name": "단위",
+              "kind": "text",
+              "propertySchemaId": null
+            },
+            {
+              "id": "cf2eb1fc-b21a-443b-a129-14ef650ae68b",
+              "name": "주의",
+              "kind": "text",
+              "propertySchemaId": null
+            }
+          ],
+          "rows": [
+            {
+              "id": "d1f4801b-48f3-4221-91e1-bad4023d29fb",
+              "objectId": "7828eac3-c54e-41a1-b211-43fbd193b164",
+              "blockInstanceId": null,
+              "cells": {
+                "b80bc11b-a962-42ea-9913-991d329b35fe": "m²",
+                "c9edd17d-4027-402b-b533-d72451bf6259": 24,
+                "cf2eb1fc-b21a-443b-a129-14ef650ae68b": "예제·가정값 — 현장 확인 필요"
+              }
+            }
+          ],
+          "version": 1
+        }
+      }
+    },
+    "schedulePlacement": "not-authored"
+  },
+  "policies": {
+    "fontFile": "NotoSansKR-Regular.ttf",
+    "fontStatus": "not-verified",
+    "fontRedistributed": false,
+    "text": "literal-authored-newlines-only",
+    "plot": "direct-rgb-lineweights",
+    "plotStyleFile": null,
+    "lineweight": "requested-paper-mm-not-quantized",
+    "dimensionGraphics": "verify-generated-child-font-style"
+  }
+}

@@ -173,6 +173,41 @@ const p6CanonicalSnapshot = Object.freeze({
   revisionId: p6Ids.revision,
   revisionVersion: 7,
   operationSequence: 12,
+  pages: [
+    {
+      id: p6Ids.page,
+      revisionId: p6Ids.revision,
+      name: "A-101",
+      sortOrder: 0,
+      version: 1,
+    },
+  ],
+  canvases: [
+    {
+      id: p6Ids.canvas,
+      pageId: p6Ids.page,
+      name: "Paper",
+      spaceKind: "paper",
+      widthMillimeters: 420,
+      heightMillimeters: 297,
+      background: null,
+      sortOrder: 0,
+      version: 1,
+    },
+  ],
+  layers: [
+    {
+      id: p6Ids.layer,
+      pageId: p6Ids.page,
+      canvasId: p6Ids.canvas,
+      name: "Work",
+      sortOrder: 1,
+      visible: true,
+      locked: false,
+      systemKind: "work",
+      version: 1,
+    },
+  ],
   objects: [
     snapshotObject(p6Ids.wall, p6Ids.wall, "W-01", "wall", wallGeometry),
     snapshotObject(
@@ -191,6 +226,41 @@ const p6OtherCanonicalSnapshot = Object.freeze({
   revisionId: p6Ids.otherRevision,
   revisionVersion: 3,
   operationSequence: 4,
+  pages: [
+    {
+      id: p6Ids.otherPage,
+      revisionId: p6Ids.otherRevision,
+      name: "OA-101",
+      sortOrder: 0,
+      version: 1,
+    },
+  ],
+  canvases: [
+    {
+      id: p6Ids.otherCanvas,
+      pageId: p6Ids.otherPage,
+      name: "Other paper",
+      spaceKind: "paper",
+      widthMillimeters: 420,
+      heightMillimeters: 297,
+      background: null,
+      sortOrder: 0,
+      version: 1,
+    },
+  ],
+  layers: [
+    {
+      id: p6Ids.otherLayer,
+      pageId: p6Ids.otherPage,
+      canvasId: p6Ids.otherCanvas,
+      name: "Other work",
+      sortOrder: 1,
+      visible: true,
+      locked: false,
+      systemKind: "work",
+      version: 1,
+    },
+  ],
   objects: [
     {
       id: p6Ids.otherWall,
@@ -511,7 +581,17 @@ export async function readP6Migration() {
     names[0] !== "20260827210000_drawing_workspace_p6_lineage.sql"
   )
     throw new Error(`Unexpected P6 migration set: ${names.join(",")}`);
-  return readFile(new URL(names[0], p6MigrationDirectory), "utf8");
+  const [authority, primitiveParity] = await Promise.all([
+    readFile(new URL(names[0], p6MigrationDirectory), "utf8"),
+    readFile(
+      new URL(
+        "20260902002000_drawing_p6_primitive_measurement_parity.sql",
+        p6MigrationDirectory,
+      ),
+      "utf8",
+    ),
+  ]);
+  return `${authority}\n${primitiveParity}`;
 }
 
 export async function readRelevantMigrations() {

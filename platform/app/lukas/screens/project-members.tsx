@@ -7,7 +7,9 @@ import { z } from "zod";
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 
 const assignableRoles = [
   "estimator",
@@ -32,14 +34,18 @@ async function context(request: Request, projectId: string) {
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   const { data: project } = await client
     .from("lukas_qto_projects")
     .select("id,name,owner_id,organization_id")
     .eq("id", projectId)
     .single();
   if (!project)
-    throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+    throw mergeResponseHeaders(
+      new Response("프로젝트를 찾을 수 없습니다.", { status: 404 }),
+      headers,
+    );
   const [{ data: organization }, { data: organizationMembership }] =
     await Promise.all([
       client
@@ -61,11 +67,12 @@ async function context(request: Request, projectId: string) {
     organizationMembership?.role === "admin" ||
     user.app_metadata.role === "hangil_staff";
   if (!mayManage)
-    throw new Response(
-      "프로젝트 소유자 또는 회사 관리자만 구성원을 관리할 수 있습니다.",
-      {
-        status: 403,
-      },
+    throw mergeResponseHeaders(
+      new Response(
+        "프로젝트 소유자 또는 회사 관리자만 구성원을 관리할 수 있습니다.",
+        { status: 403 },
+      ),
+      headers,
     );
   return { client: client as any, headers, project };
 }
@@ -83,38 +90,43 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.projectId!,
   );
-  const cursor = z
-    .string()
-    .uuid()
-    .nullable()
-    .safeParse(new URL(request.url).searchParams.get("after"));
-  if (!cursor.success)
-    throw new Response("구성원 페이지 위치가 올바르지 않습니다.", {
-      status: 400,
-    });
-  const result: { data: any[] | null; error: { message: string } | null } =
-    await client.rpc("lukas_qto_list_project_members", {
-      p_project_id: project.id,
-      p_after_user_id: cursor.data,
-      p_page_size: 100,
-    });
-  if (result.error)
-    throw new Response("구성원을 불러오지 못했습니다.", { status: 500 });
-  const members = result.data ?? [];
-  return data(
-    {
-      project,
-      members,
-      next: members.length === 100 ? members.at(-1).user_id : null,
-      requestIds: {
-        add: crypto.randomUUID(),
-        remove: Object.fromEntries(
-          members.map((member) => [member.user_id, crypto.randomUUID()]),
-        ),
+  try {
+    const cursor = z
+      .string()
+      .uuid()
+      .nullable()
+      .safeParse(new URL(request.url).searchParams.get("after"));
+    if (!cursor.success)
+      throw new Response("구성원 페이지 위치가 올바르지 않습니다.", {
+        status: 400,
+      });
+    const result: { data: any[] | null; error: { message: string } | null } =
+      await client.rpc("lukas_qto_list_project_members", {
+        p_project_id: project.id,
+        p_after_user_id: cursor.data,
+        p_page_size: 100,
+      });
+    if (result.error)
+      throw new Response("구성원을 불러오지 못했습니다.", { status: 500 });
+    const members = result.data ?? [];
+    return data(
+      {
+        project,
+        members,
+        next: members.length === 100 ? members.at(-1).user_id : null,
+        requestIds: {
+          add: crypto.randomUUID(),
+          remove: Object.fromEntries(
+            members.map((member) => [member.user_id, crypto.randomUUID()]),
+          ),
+        },
       },
-    },
-    { headers },
-  );
+      { headers },
+    );
+  } catch (error) {
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
+  }
 }
 
 export async function action({ request, params }: Route.ActionArgs) {

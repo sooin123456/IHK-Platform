@@ -1,0 +1,514 @@
+^D✖ a foreign persisted lease fences a second coordinator before the owner reads (14.990833ms)
+✔ an expired persisted lease permits one takeover and denies stale completion (2.59525ms)
+✔ the active owner heartbeat renews the persisted cross-instance fence (3.416375ms)
+✔ a detached-load preparation heartbeat persists until cancel (0.552834ms)
+✔ same-request preparations share acquisition and only the last cancel releases (0.264834ms)
+✔ an owner failure cannot release a same-request handoff preparation (0.956833ms)
+✔ freeze manifest compares only immutable business fields and authoritative outcome (1.051208ms)
+✔ freeze manifest preserves an authoritative deleted result (0.411625ms)
+✔ pending and conflicted ledgers cannot freeze (0.707541ms)
+✔ freeze persists freezing before frozen and is idempotent across a lost response (1.180417ms)
+✖ a detached active owner fences a separately loaded document before begin commits (1.567333ms)
+✖ the server owns a room before deferred detached storage load (3.653458ms)
+✖ a committed freezing snapshot reconciles without mutating its identity (0.984834ms)
+✖ freeze metadata reconciliation changes only the differing field (0.257416ms)
+✔ a live Hocuspocus freeze persists only through the freeze transaction (26.288833ms)
+✔ a persisted preparation lease rejects foreign live updates during detached load (1.68875ms)
+✔ a same-request server retry shares the active owner before detached load (1.214542ms)
+✔ an active freeze owner fences periodic recovery until review commits (1.017916ms)
+✔ a completed owner lease expires deterministically and recovers once (0.84075ms)
+✔ validation failure releases the matching request but committed review never releases (1.169625ms)
+✔ a review commit racing release leaves the live document frozen (0.419167ms)
+✔ a fresh server resolves interrupted and rejected freezes before admission (1.429833ms)
+✔ fresh servers replay exact committed freezes without acquiring a draft lease (2.809916ms)
+✔ rejection authority immediately releases an already-loaded live room (0.561459ms)
+✔ freeze authentication uses a separate constant-time bounded secret (0.1815ms)
+✔ application server freezes before the DB transition and releases the same request on validation failure (0.663667ms)
+✔ application server reconciles the same freeze request after its response is lost (0.328125ms)
+✔ a definitively rejected DB transition safely releases the draft freeze (0.303833ms)
+✔ internal freeze handler rejects browser credentials and returns a persisted manifest (0.731625ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 24
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 243.137958
+
+✖ failing tests:
+
+test at tests/drawing-review-freeze.test.mjs:293:1
+✖ a foreign persisted lease fences a second coordinator before the owner reads (14.990833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+  
+  + Uint8Array(1101) [
+  - Uint8Array(1067) [
+      1,
+  +   16,
+  -   12,
+      172,
+      203,
+      166,
+      139,
+      11,
+  ...
+      1,
+  +   161,
+  -   168,
+      172,
+      203,
+      166,
+      139,
+      11,
+      5,
+      1,
+  +   161,
+  +   172,
+  +   203,
+  +   166,
+  +   139,
+  +   11,
+  +   6,
+  +   1,
+  +   161,
+  +   172,
+  +   203,
+  +   166,
+  +   139,
+  +   11,
+  +   10,
+  +   1,
+  +   161,
+  +   172,
+  +   203,
+  +   166,
+  +   139,
+  +   11,
+  +   11,
+  +   1,
+  +   168,
+  +   172,
+  +   203,
+  +   166,
+  +   139,
+  +   11,
+  +   12,
+  +   1,
+      119,
+      8,
+      102,
+      114,
+      101,
+  ...
+      11,
+  +   13,
+  -   6,
+      1,
+      119,
+      36,
+      98,
+      55,
+  ...
+      11,
+  +   2,
+  -   1,
+      5,
+      2,
+  +   10,
+  +   4
+    ]
+  
+      at assertIdentityStable (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:93:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:344:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Uint8Array(1101) [
+        1,  16, 172, 203, 166, 139,  11,   0,  40,   1,  10, 115,
+      101, 114, 118, 101, 114,  77, 101, 116,  97,  13, 115,  99,
+      104, 101, 109,  97,  86, 101, 114, 115, 105, 111, 110,   1,
+      125,   1,  40,   1,  10, 115, 101, 114, 118, 101, 114,  77,
+      101, 116,  97,   9, 112, 114, 111, 106, 101,  99, 116,  73,
+      100,   1, 119,  36,  48,  48,  48,  48,  48,  48,  48,  48,
+       45,  48,  48,  48,  48,  45,  52,  48,  48,  48,  45,  56,
+       48,  48,  48,  45,  48,  48,  48,  48,  48,  48,  48,  48,
+       48,  57,  48,  49,
+      ... 1001 more items
+    ],
+    expected: Uint8Array(1067) [
+        1,  12, 172, 203, 166, 139,  11,   0,  40,   1,  10, 115,
+      101, 114, 118, 101, 114,  77, 101, 116,  97,  13, 115,  99,
+      104, 101, 109,  97,  86, 101, 114, 115, 105, 111, 110,   1,
+      125,   1,  40,   1,  10, 115, 101, 114, 118, 101, 114,  77,
+      101, 116,  97,   9, 112, 114, 111, 106, 101,  99, 116,  73,
+      100,   1, 119,  36,  48,  48,  48,  48,  48,  48,  48,  48,
+       45,  48,  48,  48,  48,  45,  52,  48,  48,  48,  45,  56,
+       48,  48,  48,  45,  48,  48,  48,  48,  48,  48,  48,  48,
+       48,  57,  48,  49,
+      ... 967 more items
+    ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-review-freeze.test.mjs:710:1
+✖ a detached active owner fences a separately loaded document before begin commits (1.567333ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+  
+  + Uint8Array(1101) [
+  - Uint8Array(1067) [
+      1,
+  +   16,
+  -   12,
+      174,
+      201,
+      144,
+      157,
+      15,
+  ...
+      1,
+  +   161,
+  -   168,
+      174,
+      201,
+      144,
+      157,
+      15,
+      5,
+      1,
+  +   161,
+  +   174,
+  +   201,
+  +   144,
+  +   157,
+  +   15,
+  +   6,
+  +   1,
+  +   161,
+  +   174,
+  +   201,
+  +   144,
+  +   157,
+  +   15,
+  +   10,
+  +   1,
+  +   161,
+  +   174,
+  +   201,
+  +   144,
+  +   157,
+  +   15,
+  +   11,
+  +   1,
+  +   168,
+  +   174,
+  +   201,
+  +   144,
+  +   157,
+  +   15,
+  +   12,
+  +   1,
+      119,
+      8,
+      102,
+      114,
+      101,
+  ...
+      15,
+  +   13,
+  -   6,
+      1,
+      119,
+      36,
+      57,
+      56,
+  ...
+      15,
+  +   2,
+  -   1,
+      5,
+      2,
+  +   10,
+  +   4
+    ]
+  
+      at assertIdentityStable (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:93:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:782:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Uint8Array(1101) [
+        1,  16, 174, 201, 144, 157,  15,   0,  40,   1,  10, 115,
+      101, 114, 118, 101, 114,  77, 101, 116,  97,  13, 115,  99,
+      104, 101, 109,  97,  86, 101, 114, 115, 105, 111, 110,   1,
+      125,   1,  40,   1,  10, 115, 101, 114, 118, 101, 114,  77,
+      101, 116,  97,   9, 112, 114, 111, 106, 101,  99, 116,  73,
+      100,   1, 119,  36,  48,  48,  48,  48,  48,  48,  48,  48,
+       45,  48,  48,  48,  48,  45,  52,  48,  48,  48,  45,  56,
+       48,  48,  48,  45,  48,  48,  48,  48,  48,  48,  48,  48,
+       48,  57,  48,  49,
+      ... 1001 more items
+    ],
+    expected: Uint8Array(1067) [
+        1,  12, 174, 201, 144, 157,  15,   0,  40,   1,  10, 115,
+      101, 114, 118, 101, 114,  77, 101, 116,  97,  13, 115,  99,
+      104, 101, 109,  97,  86, 101, 114, 115, 105, 111, 110,   1,
+      125,   1,  40,   1,  10, 115, 101, 114, 118, 101, 114,  77,
+      101, 116,  97,   9, 112, 114, 111, 106, 101,  99, 116,  73,
+      100,   1, 119,  36,  48,  48,  48,  48,  48,  48,  48,  48,
+       45,  48,  48,  48,  48,  45,  52,  48,  48,  48,  45,  56,
+       48,  48,  48,  45,  48,  48,  48,  48,  48,  48,  48,  48,
+       48,  57,  48,  49,
+      ... 967 more items
+    ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-review-freeze.test.mjs:805:1
+✖ the server owns a room before deferred detached storage load (3.653458ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+  
+  + Uint8Array(1117) [
+  - Uint8Array(1085) [
+      1,
+  +   18,
+  -   14,
+      185,
+      210,
+      239,
+      206,
+      7,
+  ...
+      1,
+  +   161,
+  -   168,
+      185,
+      210,
+      239,
+      206,
+      7,
+      10,
+      1,
+  +   161,
+  +   185,
+  +   210,
+  +   239,
+  +   206,
+  +   7,
+  +   11,
+  +   1,
+  +   161,
+  +   185,
+  +   210,
+  +   239,
+  +   206,
+  +   7,
+  +   12,
+  +   1,
+  +   161,
+  +   185,
+  +   210,
+  +   239,
+  +   206,
+  +   7,
+  +   13,
+  +   1,
+  +   168,
+  +   185,
+  +   210,
+  +   239,
+  +   206,
+  +   7,
+  +   14,
+  +   1,
+      119,
+      8,
+      102,
+      114,
+      101,
+  ...
+      7,
+  +   15,
+  -   11,
+      1,
+      119,
+      36,
+      100,
+      49,
+  ...
+      10,
+  +   6
+  -   2
+    ]
+  
+      at assertIdentityStable (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:93:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:916:7)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Uint8Array(1117) [
+        1,  18, 185, 210, 239, 206,   7,   0,  40,   1,  10, 115,
+      101, 114, 118, 101, 114,  77, 101, 116,  97,  13, 115,  99,
+      104, 101, 109,  97,  86, 101, 114, 115, 105, 111, 110,   1,
+      125,   1,  40,   1,  10, 115, 101, 114, 118, 101, 114,  77,
+      101, 116,  97,   9, 112, 114, 111, 106, 101,  99, 116,  73,
+      100,   1, 119,  36,  48,  48,  48,  48,  48,  48,  48,  48,
+       45,  48,  48,  48,  48,  45,  52,  48,  48,  48,  45,  56,
+       48,  48,  48,  45,  48,  48,  48,  48,  48,  48,  48,  48,
+       48,  57,  48,  49,
+      ... 1017 more items
+    ],
+    expected: Uint8Array(1085) [
+        1,  14, 185, 210, 239, 206,   7,   0,  40,   1,  10, 115,
+      101, 114, 118, 101, 114,  77, 101, 116,  97,  13, 115,  99,
+      104, 101, 109,  97,  86, 101, 114, 115, 105, 111, 110,   1,
+      125,   1,  40,   1,  10, 115, 101, 114, 118, 101, 114,  77,
+      101, 116,  97,   9, 112, 114, 111, 106, 101,  99, 116,  73,
+      100,   1, 119,  36,  48,  48,  48,  48,  48,  48,  48,  48,
+       45,  48,  48,  48,  48,  45,  52,  48,  48,  48,  45,  56,
+       48,  48,  48,  45,  48,  48,  48,  48,  48,  48,  48,  48,
+       48,  57,  48,  49,
+      ... 985 more items
+    ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-review-freeze.test.mjs:970:1
+✖ a committed freezing snapshot reconciles without mutating its identity (0.984834ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+  
+  + Uint8Array(1101) [
+  - Uint8Array(1067) [
+      1,
+  +   16,
+  -   12,
+      242,
+      238,
+      201,
+      205,
+      2,
+  ...
+      1,
+  +   161,
+  -   168,
+      242,
+      238,
+      201,
+      205,
+      2,
+      5,
+      1,
+  +   161,
+  +   242,
+  +   238,
+  +   201,
+  +   205,
+  +   2,
+  +   6,
+  +   1,
+  +   161,
+  +   242,
+  +   238,
+  +   201,
+  +   205,
+  +   2,
+  +   10,
+  +   1,
+  +   161,
+  +   242,
+  +   238,
+  +   201,
+  +   205,
+  +   2,
+  +   11,
+  +   1,
+  +   168,
+  +   242,
+  +   238,
+  +   201,
+  +   205,
+  +   2,
+  +   12,
+  +   1,
+      119,
+      8,
+      102,
+      114,
+      101,
+  ...
+      2,
+  +   13,
+  -   6,
+      1,
+      119,
+      36,
+      48,
+      48,
+  ...
+      2,
+  +   2,
+  -   1,
+      5,
+      2,
+  +   10,
+  +   4
+    ]
+  
+      at assertIdentityStable (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:93:12)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:1000:3)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Uint8Array(1101) [
+        1,  16, 242, 238, 201, 205,   2,   0,  40,   1,  10, 115,
+      101, 114, 118, 101, 114,  77, 101, 116,  97,  13, 115,  99,
+      104, 101, 109,  97,  86, 101, 114, 115, 105, 111, 110,   1,
+      125,   1,  40,   1,  10, 115, 101, 114, 118, 101, 114,  77,
+      101, 116,  97,   9, 112, 114, 111, 106, 101,  99, 116,  73,
+      100,   1, 119,  36,  48,  48,  48,  48,  48,  48,  48,  48,
+       45,  48,  48,  48,  48,  45,  52,  48,  48,  48,  45,  56,
+       48,  48,  48,  45,  48,  48,  48,  48,  48,  48,  48,  48,
+       48,  57,  48,  49,
+      ... 1001 more items
+    ],
+    expected: Uint8Array(1067) [
+        1,  12, 242, 238, 201, 205,   2,   0,  40,   1,  10, 115,
+      101, 114, 118, 101, 114,  77, 101, 116,  97,  13, 115,  99,
+      104, 101, 109,  97,  86, 101, 114, 115, 105, 111, 110,   1,
+      125,   1,  40,   1,  10, 115, 101, 114, 118, 101, 114,  77,
+      101, 116,  97,   9, 112, 114, 111, 106, 101,  99, 116,  73,
+      100,   1, 119,  36,  48,  48,  48,  48,  48,  48,  48,  48,
+       45,  48,  48,  48,  48,  45,  52,  48,  48,  48,  45,  56,
+       48,  48,  48,  45,  48,  48,  48,  48,  48,  48,  48,  48,
+       48,  57,  48,  49,
+      ... 967 more items
+    ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-review-freeze.test.mjs:1005:1
+✖ freeze metadata reconciliation changes only the differing field (0.257416ms)
+  TypeError: drawingFreezeModule.reconcileDrawingFreezeMetadata is not a function
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-review-freeze.test.mjs:1016:25)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)

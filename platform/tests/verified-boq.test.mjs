@@ -21,8 +21,12 @@ import {
   resolveVerifiedBoqSource,
 } from "../app/lukas/lib/verified-boq-source.server.ts";
 import {
+  VERIFIED_BOQ_PRICEBOOK_HEADER,
+  analyzeVerifiedBoqPriceBook,
+  buildVerifiedBoqPriceBookAnalysisErrorsCsv,
   buildVerifiedBoqPriceBookTemplateCsv,
   parseVerifiedBoqPriceBook,
+  validateVerifiedBoqPriceBookFileMetadata,
 } from "../app/lukas/lib/verified-boq-pricebook.server.ts";
 import {
   buildVerifiedBoqStructureTemplateCsv,
@@ -51,6 +55,12 @@ const vite = await createServer({
 });
 const verifiedBoqScreen = await vite
   .ssrLoadModule("/app/lukas/screens/verified-boq.tsx")
+  .catch(() => ({}));
+const verifiedBoqExportRoute = await vite
+  .ssrLoadModule("/app/lukas/screens/verified-boq-export.ts")
+  .catch(() => ({}));
+const responseHeaders = await vite
+  .ssrLoadModule("/app/core/lib/response-headers.server.ts")
   .catch(() => ({}));
 const verifiedBoqDrawingSources = await vite
   .ssrLoadModule("/app/lukas/components/verified-boq-drawing-sources.tsx")
@@ -255,12 +265,47 @@ test("verified BOQ imperatively focuses only the server-validated row", () => {
   );
   assert.doesNotMatch(source, /<tr\s+autoFocus=/);
   assert.match(source, /useEffect\([\s\S]*focusVerifiedBoqLine/);
-  assert.match(source, /\[focusedLineId, focusedLineRendered\]/);
+});
+
+test("verified BOQ falls back to its calculation row when a comparison anchor is unavailable", () => {
+  const shouldFocus = verifiedBoqScreen.shouldFocusVerifiedBoqCalculationLine;
+  assert.equal(typeof shouldFocus, "function");
+  const hash = "#verified-boq-comparison-row-412d303031";
+
+  assert.equal(
+    shouldFocus({
+      comparisonRowRendered: true,
+      focusedItemCode: "A-001",
+      locationHash: hash,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldFocus({
+      comparisonRowRendered: false,
+      focusedItemCode: "A-001",
+      locationHash: hash,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldFocus({
+      comparisonRowRendered: true,
+      focusedItemCode: "A-001",
+      locationHash: "#different-fragment",
+    }),
+    true,
+  );
 });
 
 test("verified BOQ redirect builder preserves one validated return path with version mutations", () => {
   const back = verifiedBoqScreen.verifiedBoqLocation;
+  const download = verifiedBoqScreen.verifiedBoqExportLocation;
+  const priceBookErrors =
+    verifiedBoqScreen.verifiedBoqPriceBookErrorReportLocation;
   assert.equal(typeof back, "function");
+  assert.equal(typeof download, "function");
+  assert.equal(typeof priceBookErrors, "function");
   const projectId = "40000000-0000-4000-8000-000000000001";
   const versionId = "40000000-0000-4000-8000-000000000003";
   const returnTo = `/projects/${projectId}/workspaces/40000000-0000-4000-8000-000000000002`;
@@ -273,13 +318,93 @@ test("verified BOQ redirect builder preserves one validated return path with ver
     `/projects/${projectId}/boq?returnTo=${encodeURIComponent(returnTo)}`,
   );
   assert.equal(
-    back(projectId, undefined, returnTo, "pricebook-template"),
-    `/projects/${projectId}/boq?returnTo=${encodeURIComponent(returnTo)}&download=pricebook-template`,
+    download(projectId, "pricebook-template"),
+    `/projects/${projectId}/boq/export/pricebook-template`,
   );
   assert.equal(
-    back(projectId, versionId, returnTo, "structure-template"),
-    `/projects/${projectId}/boq?version=${versionId}&returnTo=${encodeURIComponent(returnTo)}&download=structure-template`,
+    download(projectId, "structure-template", versionId),
+    `/projects/${projectId}/boq/export/structure-template?version=${versionId}`,
   );
+  assert.equal(
+    download(projectId, "csv", versionId),
+    `/projects/${projectId}/boq/export/csv?version=${versionId}`,
+  );
+  assert.equal(
+    priceBookErrors(projectId, "40000000-0000-4000-8000-000000000004"),
+    `/projects/${projectId}/boq/export/pricebook-errors?price_book_id=40000000-0000-4000-8000-000000000004`,
+  );
+});
+
+test("verified BOQ downloads use a dedicated resource route", () => {
+  const routes = readFileSync(
+    new URL("../app/routes.ts", import.meta.url),
+    "utf8",
+  );
+  const resource = readFileSync(
+    new URL("../app/lukas/screens/verified-boq-export.ts", import.meta.url),
+    "utf8",
+  );
+  const screen = readFileSync(
+    new URL("../app/lukas/screens/verified-boq.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    routes,
+    /route\(\s*"\/projects\/:projectId\/boq\/export\/:format",\s*"lukas\/screens\/verified-boq-export\.ts"/,
+  );
+  assert.match(resource, /export async function loader/);
+  assert.doesNotMatch(resource, /export default/);
+  assert.match(screen, /verifiedBoqExportLocation\(\s*project\.id,\s*"csv"/);
+  assert.doesNotMatch(screen, /&download=(?:csv|xlsx|manifest)/);
+});
+
+test("verified BOQ attachment responses retain every auth refresh cookie", async () => {
+  const merge = responseHeaders.mergeResponseHeaders;
+  assert.equal(typeof merge, "function");
+  const authHeaders = new Headers();
+  authHeaders.append("Set-Cookie", "first=one; Path=/; HttpOnly");
+  authHeaders.append("Set-Cookie", "second=two; Path=/; HttpOnly");
+  const response = merge(
+    new Response("csv", {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": 'attachment; filename="verified.csv"',
+        "Content-Type": "text/csv; charset=utf-8",
+      },
+    }),
+    authHeaders,
+  );
+  assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  assert.equal(
+    response.headers.get("Content-Disposition"),
+    'attachment; filename="verified.csv"',
+  );
+  assert.deepEqual(response.headers.getSetCookie(), authHeaders.getSetCookie());
+  assert.equal(await response.text(), "csv");
+});
+
+test("verified BOQ resource routes fail closed instead of serializing page data", () => {
+  const requireAttachment =
+    verifiedBoqExportRoute.requireVerifiedBoqAttachmentResponse;
+  assert.equal(typeof requireAttachment, "function");
+  const attachment = new Response("csv", {
+    headers: {
+      "Content-Disposition": 'attachment; filename="verified.csv"',
+      "Content-Type": "text/csv; charset=utf-8",
+    },
+  });
+  assert.equal(requireAttachment(attachment), attachment);
+  for (const invalid of [
+    { data: { project: {} } },
+    new Response("ordinary page"),
+  ])
+    assert.throws(
+      () => requireAttachment(invalid),
+      (error) =>
+        error instanceof Response &&
+        error.status === 409 &&
+        error.headers.get("Cache-Control") === "private, no-store",
+    );
 });
 
 function goldenInput(policy = "general_half_away") {
@@ -1070,10 +1195,8 @@ test("IFC derivative generation is non-destructive while failure remains distinc
     ),
     "utf8",
   );
-  assert.match(
-    browser,
-    /const generating = derivative\?\.status === "pending"/,
-  );
+  assert.match(browser, /ifcDerivativeStatusPresentation\(/);
+  assert.match(browser, /const generating = presentation\.waiting/);
   assert.match(browser, /setViewerPhase\(generating \? "loading" : "error"\)/);
   assert.match(browser, /setError\(generating \? null : message\)/);
   assert.doesNotMatch(browser, /byteSize/);
@@ -1123,6 +1246,400 @@ test("customer-owned price resources import from strict UTF-8 CSV", () => {
         unitPriceKrw: "120000.125",
       },
     ],
+  );
+});
+
+test("price-book preflight maps headers and keeps every normalized valid row beside ordered field errors", () => {
+  const csv = [
+    "resource_code,resource_type,resource_name,specification,unit,unit_price_krw",
+    " Ｍ－００１ ,material, 콘크리트 , 25－270－15 ,m3,00120000.1200",
+    "M-002,service,,,box,-1",
+    "M-001,labor,중복,,day,1",
+  ].join("\n");
+
+  assert.deepEqual(
+    analyzeVerifiedBoqPriceBook(new TextEncoder().encode(csv), "rates.csv"),
+    {
+      headerMapping: [
+        {
+          sourceColumn: 1,
+          sourceHeader: "resource_code",
+          requiredHeader: "resource_code",
+        },
+        {
+          sourceColumn: 2,
+          sourceHeader: "resource_type",
+          requiredHeader: "resource_type",
+        },
+        {
+          sourceColumn: 3,
+          sourceHeader: "resource_name",
+          requiredHeader: "resource_name",
+        },
+        {
+          sourceColumn: 4,
+          sourceHeader: "specification",
+          requiredHeader: "specification",
+        },
+        {
+          sourceColumn: 5,
+          sourceHeader: "unit",
+          requiredHeader: "unit",
+        },
+        {
+          sourceColumn: 6,
+          sourceHeader: "unit_price_krw",
+          requiredHeader: "unit_price_krw",
+        },
+      ],
+      validRows: [
+        {
+          resourceCode: "M-001",
+          resourceType: "material",
+          resourceName: "콘크리트",
+          specification: "25-270-15",
+          unit: "m3",
+          unitPriceKrw: "120000.12",
+        },
+      ],
+      errors: [
+        {
+          row: 3,
+          field: "resource_type",
+          reason: "단가표 3행 자원 구분이 올바르지 않습니다.",
+        },
+        {
+          row: 3,
+          field: "unit",
+          reason: "단가표 3행 단위가 올바르지 않습니다.",
+        },
+        {
+          row: 3,
+          field: "unit_price_krw",
+          reason: "단가표 3행 단가는 음수일 수 없습니다.",
+        },
+        {
+          row: 3,
+          field: "resource_name",
+          reason: "단가표 3행 자원명가 비어 있거나 너무 깁니다.",
+        },
+        {
+          row: 4,
+          field: "resource_code",
+          reason: "단가표 자원 코드가 중복되었습니다: M-001",
+        },
+      ],
+      totalErrorCount: 5,
+      errorsTruncated: false,
+    },
+  );
+});
+
+test("price-book preflight reports file and header failures without throwing", () => {
+  const reordered = [
+    "resource_name,resource_code,resource_type,specification,unit,unit_price_krw",
+    "레미콘,M-001,material,25-270-15,m3,100.00",
+  ].join("\n");
+  const analyzed = analyzeVerifiedBoqPriceBook(
+    new TextEncoder().encode(reordered),
+    "rates.csv",
+  );
+  assert.deepEqual(analyzed.headerMapping, [
+    {
+      sourceColumn: 1,
+      sourceHeader: "resource_name",
+      requiredHeader: "resource_name",
+    },
+    {
+      sourceColumn: 2,
+      sourceHeader: "resource_code",
+      requiredHeader: "resource_code",
+    },
+    {
+      sourceColumn: 3,
+      sourceHeader: "resource_type",
+      requiredHeader: "resource_type",
+    },
+    {
+      sourceColumn: 4,
+      sourceHeader: "specification",
+      requiredHeader: "specification",
+    },
+    { sourceColumn: 5, sourceHeader: "unit", requiredHeader: "unit" },
+    {
+      sourceColumn: 6,
+      sourceHeader: "unit_price_krw",
+      requiredHeader: "unit_price_krw",
+    },
+  ]);
+  assert.deepEqual(analyzed.validRows, [
+    {
+      resourceCode: "M-001",
+      resourceType: "material",
+      resourceName: "레미콘",
+      specification: "25-270-15",
+      unit: "m3",
+      unitPriceKrw: "100",
+    },
+  ]);
+  assert.deepEqual(analyzed.errors, [
+    {
+      row: 1,
+      field: null,
+      reason: "단가표 헤더가 검증 내역서 자원 계약과 일치하지 않습니다.",
+    },
+  ]);
+  assert.equal(analyzed.totalErrorCount, 1);
+  assert.equal(analyzed.errorsTruncated, false);
+  assert.throws(
+    () =>
+      parseVerifiedBoqPriceBook(
+        new TextEncoder().encode(reordered),
+        "rates.csv",
+      ),
+    {
+      message: "단가표 헤더가 검증 내역서 자원 계약과 일치하지 않습니다.",
+    },
+  );
+
+  assert.deepEqual(analyzeVerifiedBoqPriceBook(new Uint8Array(), "rates.txt"), {
+    headerMapping: [],
+    validRows: [],
+    errors: [
+      {
+        row: null,
+        field: null,
+        reason: "단가표 일괄 가져오기는 UTF-8 CSV 또는 XLSX만 지원합니다.",
+      },
+    ],
+    totalErrorCount: 1,
+    errorsTruncated: false,
+  });
+});
+
+test("price-book preflight bounds error details while retaining exact totals and later valid rows", () => {
+  const csv = [
+    "resource_code,resource_type,resource_name,specification,unit,unit_price_krw",
+    ...Array.from(
+      { length: 105 },
+      (_, index) => `M-${index},unsupported,자원 ${index},,EA,1`,
+    ),
+    "VALID-001,material,정상 자원,,EA,10.50",
+  ].join("\n");
+  const analyzed = analyzeVerifiedBoqPriceBook(
+    new TextEncoder().encode(csv),
+    "rates.csv",
+  );
+
+  assert.equal(analyzed.errors.length, 100);
+  assert.equal(analyzed.totalErrorCount, 105);
+  assert.equal(analyzed.errorsTruncated, true);
+  assert.deepEqual(analyzed.errors[0], {
+    row: 2,
+    field: "resource_type",
+    reason: "단가표 2행 자원 구분이 올바르지 않습니다.",
+  });
+  assert.deepEqual(analyzed.errors.at(-1), {
+    row: 101,
+    field: "resource_type",
+    reason: "단가표 101행 자원 구분이 올바르지 않습니다.",
+  });
+  assert.deepEqual(analyzed.validRows, [
+    {
+      resourceCode: "VALID-001",
+      resourceType: "material",
+      resourceName: "정상 자원",
+      specification: "",
+      unit: "EA",
+      unitPriceKrw: "10.5",
+    },
+  ]);
+});
+
+test("price-book preflight error CSV is UTF-8 formula-safe and RFC-style escaped", () => {
+  const csv = buildVerifiedBoqPriceBookAnalysisErrorsCsv([
+    {
+      row: 2,
+      field: "resource_code",
+      reason: '=HYPERLINK("https://example.com","a,b")',
+    },
+    { row: null, field: null, reason: "첫째 줄\n둘째 줄" },
+  ]);
+
+  assert.equal(
+    csv,
+    '\uFEFFrow,field,reason\r\n2,resource_code,"\'=HYPERLINK(""https://example.com"",""a,b"")"\r\n,,"첫째 줄\n둘째 줄"\r\n',
+  );
+});
+
+test("price-book metadata validation bounds bytes and requires a matching CSV or XLSX MIME", () => {
+  for (const metadata of [
+    {
+      filename: "회사단가.CSV",
+      contentType: "text/csv; charset=UTF-8",
+      byteSize: 1,
+    },
+    {
+      filename: "회사단가.xlsx",
+      contentType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      byteSize: 20 * 1024 * 1024,
+    },
+    {
+      filename: "회사단가.xlsx",
+      contentType: "application/octet-stream",
+      byteSize: 1024,
+    },
+  ])
+    assert.equal(validateVerifiedBoqPriceBookFileMetadata(metadata), null);
+
+  assert.equal(
+    validateVerifiedBoqPriceBookFileMetadata({
+      filename: "empty.csv",
+      contentType: "text/csv",
+      byteSize: 0,
+    }),
+    "단가표 원본 파일이 비어 있습니다.",
+  );
+  assert.equal(
+    validateVerifiedBoqPriceBookFileMetadata({
+      filename: "large.csv",
+      contentType: "text/csv",
+      byteSize: 20 * 1024 * 1024 + 1,
+    }),
+    "단가표 원본 파일은 20MB까지 지원합니다.",
+  );
+  assert.equal(
+    validateVerifiedBoqPriceBookFileMetadata({
+      filename: "rates.xls",
+      contentType: "application/vnd.ms-excel",
+      byteSize: 10,
+    }),
+    "단가표 일괄 가져오기는 UTF-8 CSV 또는 XLSX만 지원합니다.",
+  );
+  assert.equal(
+    validateVerifiedBoqPriceBookFileMetadata({
+      filename: "rates.csv",
+      contentType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      byteSize: 10,
+    }),
+    "단가표 원본 파일 형식 정보가 확장자와 일치하지 않습니다.",
+  );
+  assert.equal(
+    validateVerifiedBoqPriceBookFileMetadata({
+      filename: "rates.xlsx",
+      contentType: "text/csv",
+      byteSize: 10,
+    }),
+    "단가표 원본 파일 형식 정보가 확장자와 일치하지 않습니다.",
+  );
+});
+
+test("price-book analysis rejects actual source bytes above the import limit", () => {
+  const analysis = analyzeVerifiedBoqPriceBook(
+    new Uint8Array(20 * 1024 * 1024 + 1),
+    "rates.csv",
+  );
+
+  assert.equal(analysis.totalErrorCount, 1);
+  assert.equal(
+    analysis.errors[0]?.reason,
+    "단가표 원본 파일은 20MB까지 지원합니다.",
+  );
+});
+
+test("price-book XLSX rejects excessive expanded bytes before parsing", () => {
+  const workbook = zipSync({
+    "xl/workbook.xml": strToU8(
+      '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="단가" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    ),
+    "xl/_rels/workbook.xml.rels": strToU8(
+      '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    ),
+    "xl/worksheets/sheet1.xml": strToU8(
+      '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>resource_code</t></is></c></row></sheetData></worksheet>',
+    ),
+    "xl/media/highly-compressible.bin": new Uint8Array(32 * 1024 * 1024 + 1),
+  });
+
+  assert.throws(
+    () => parseVerifiedBoqPriceBook(workbook, "rates.xlsx"),
+    /XLSX 압축 해제 크기가 허용 범위를 초과합니다/,
+  );
+});
+
+test("price-book XLSX counts actual inflated bytes when ZIP headers understate a selected entry", () => {
+  const sharedStringsPath = "xl/sharedStrings.xml";
+  const workbook = zipSync({
+    "xl/workbook.xml": strToU8(
+      '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="단가" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    ),
+    "xl/_rels/workbook.xml.rels": strToU8(
+      '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    ),
+    "xl/worksheets/sheet1.xml": strToU8(
+      '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>resource_code</t></is></c><c r="B1" t="inlineStr"><is><t>resource_type</t></is></c><c r="C1" t="inlineStr"><is><t>resource_name</t></is></c><c r="D1" t="inlineStr"><is><t>specification</t></is></c><c r="E1" t="inlineStr"><is><t>unit</t></is></c><c r="F1" t="inlineStr"><is><t>unit_price_krw</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>M-001</t></is></c><c r="B2" t="inlineStr"><is><t>material</t></is></c><c r="C2" t="inlineStr"><is><t>콘크리트</t></is></c><c r="D2" t="inlineStr"><is><t></t></is></c><c r="E2" t="inlineStr"><is><t>m3</t></is></c><c r="F2" t="inlineStr"><is><t>1000</t></is></c></row></sheetData></worksheet>',
+    ),
+    [sharedStringsPath]: strToU8(
+      `<sst>${" ".repeat(32 * 1024 * 1024 + 1)}</sst>`,
+    ),
+  });
+  const view = new DataView(
+    workbook.buffer,
+    workbook.byteOffset,
+    workbook.byteLength,
+  );
+  const decoder = new TextDecoder();
+  let patchedHeaders = 0;
+  for (let offset = 0; offset + 46 <= workbook.byteLength; offset += 1) {
+    const signature = view.getUint32(offset, true);
+    const local = signature === 0x04034b50;
+    const central = signature === 0x02014b50;
+    if (!local && !central) continue;
+    const nameLength = view.getUint16(offset + (local ? 26 : 28), true);
+    const nameOffset = offset + (local ? 30 : 46);
+    const name = decoder.decode(
+      workbook.subarray(nameOffset, nameOffset + nameLength),
+    );
+    if (name !== sharedStringsPath) continue;
+    view.setUint32(offset + (local ? 22 : 24), 1, true);
+    patchedHeaders += 1;
+  }
+  assert.equal(patchedHeaders, 2);
+
+  assert.throws(
+    () => parseVerifiedBoqPriceBook(workbook, "rates.xlsx"),
+    /XLSX 압축 해제 크기가 허용 범위를 초과합니다/,
+  );
+});
+
+test("price-book XLSX rejects worksheet coordinates beyond the row bound", () => {
+  const header = VERIFIED_BOQ_PRICEBOOK_HEADER.map((value, index) => {
+    const column = String.fromCharCode(65 + index);
+    return `<c r="${column}1" t="inlineStr"><is><t>${value}</t></is></c>`;
+  }).join("");
+  const values = ["M-001", "material", "콘크리트", "", "m3", "1000"]
+    .map((value, index) => {
+      const column = String.fromCharCode(65 + index);
+      return `<c r="${column}50002" t="inlineStr"><is><t>${value}</t></is></c>`;
+    })
+    .join("");
+  const workbook = zipSync({
+    "xl/workbook.xml": strToU8(
+      '<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="단가" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    ),
+    "xl/_rels/workbook.xml.rels": strToU8(
+      '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    ),
+    "xl/worksheets/sheet1.xml": strToU8(
+      `<worksheet><sheetData><row r="1">${header}</row><row r="50002">${values}</row></sheetData></worksheet>`,
+    ),
+  });
+
+  assert.throws(
+    () => parseVerifiedBoqPriceBook(workbook, "rates.xlsx"),
+    /XLSX 행 번호가 허용 범위를 초과합니다/,
   );
 });
 

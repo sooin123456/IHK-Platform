@@ -1,0 +1,209 @@
+{
+  "unit": "released_collaboration_recovery",
+  "status": "verified_locally",
+  "overallGoal": "active",
+  "operatingDeployment": false,
+  "migration": "20260905131704_drawing_released_freeze_recovery.sql",
+  "sourceFreeze": {
+    "platform/supabase/migrations/20260905131704_drawing_released_freeze_recovery.sql": "18a9768ed289615cf5e8d69cc1ac1d988c39f3e191763c355bdd8eec8635cd19",
+    "platform/tests/drawing-native-catalog-real-database.test.mjs": "438f01550450fd56db27b2fc7aab8701c2c85162734aa320d7b53f8768c90b39",
+    "platform/e2e/drawing-workspace-m1-estimator.spec.ts": "da15e7ece5a7a4d98ed3fe1922fc6d7da4d5883479aab931ea75930fc4252205",
+    "platform/scripts/run-drawing-workspace-m1-e2e.mjs": "9cb49f4c4622ea086b57281c280e62532c0292c0cce8167402c56f58e3760671",
+    "platform/collaboration/src/freeze.ts": "462bb38c93f1573dfb4ddd0b6b0dba191be7e7bc3684934de957c4b7213c712d",
+    "platform/collaboration/src/storage.ts": "d5c37967a28eb668f7e421a378d474b9186f7f1913320bc39ca7a967c4e52d32"
+  },
+  "checks": {
+    "realDatabase": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "focused": {
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0
+    },
+    "m1": {
+      "exitCode": 0,
+      "browserPassed": 23,
+      "browserFailed": 0,
+      "browserSkipped": 0,
+      "databasePassed": 5,
+      "configurationGuardSkips": 2,
+      "appBuild": true,
+      "collaborationBuild": true
+    },
+    "independentReview": {
+      "spec": "approved",
+      "quality": "approved",
+      "critical": 0,
+      "important": 0
+    }
+  },
+  "securityAdvisors": {
+    "projectId": "1hk-m1-f3c34236",
+    "localOnly": true,
+    "exitCode": 0,
+    "signal": null,
+    "executionError": null,
+    "levels": {
+      "INFO": 8
+    },
+    "findings": [
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "metadata": {
+          "name": "lukas_drawing_collaboration_freeze_leases",
+          "type": "table",
+          "schema": "private"
+        },
+        "detail": "Table `private.lukas_drawing_collaboration_freeze_leases` has RLS enabled, but no policies exist"
+      },
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "metadata": {
+          "name": "lukas_drawing_collaboration_states",
+          "type": "table",
+          "schema": "private"
+        },
+        "detail": "Table `private.lukas_drawing_collaboration_states` has RLS enabled, but no policies exist"
+      },
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "metadata": {
+          "name": "lukas_drawing_native_assets",
+          "type": "table",
+          "schema": "private"
+        },
+        "detail": "Table `private.lukas_drawing_native_assets` has RLS enabled, but no policies exist"
+      },
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "metadata": {
+          "name": "lukas_drawing_personal_projects",
+          "type": "table",
+          "schema": "private"
+        },
+        "detail": "Table `private.lukas_drawing_personal_projects` has RLS enabled, but no policies exist"
+      },
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "metadata": {
+          "name": "lukas_drawing_ifc_derivative_jobs",
+          "type": "table",
+          "schema": "public"
+        },
+        "detail": "Table `public.lukas_drawing_ifc_derivative_jobs` has RLS enabled, but no policies exist"
+      },
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "metadata": {
+          "name": "lukas_drawing_ifc_derivative_requeue_events",
+          "type": "table",
+          "schema": "public"
+        },
+        "detail": "Table `public.lukas_drawing_ifc_derivative_requeue_events` has RLS enabled, but no policies exist"
+      },
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "metadata": {
+          "name": "lukas_qto_drawing_share_events",
+          "type": "table",
+          "schema": "public"
+        },
+        "detail": "Table `public.lukas_qto_drawing_share_events` has RLS enabled, but no policies exist"
+      },
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "metadata": {
+          "name": "lukas_qto_drawing_shares",
+          "type": "table",
+          "schema": "public"
+        },
+        "detail": "Table `public.lukas_qto_drawing_shares` has RLS enabled, but no policies exist"
+      }
+    ]
+  },
+  "preview": {
+    "url": "http://127.0.0.1:4173/workspace-preview/drawing-workspace?awarenessTest=1",
+    "status": 200,
+    "errors": [],
+    "canvases": 3,
+    "overlays": 0
+  },
+  "nativeRegression": {
+    "measurementCheckpoint": {
+      "documentId": "70674b2c-7441-403b-ba79-aa488331c4e3",
+      "revisionId": "25965252-42ef-4e06-a2bf-4bff032d3271",
+      "revisionVersion": 1,
+      "snapshotSha256": "1b49fefa4eb73a29df5cde82cdd88fc33ca46b629f0cebbc279b1fc24b906e8c",
+      "operationCheckpoint": 3,
+      "ruleVersion": "P4_MEASUREMENT_V1"
+    },
+    "placement": {
+      "id": "41d038b0-30d5-4b50-8594-ef1a5a5a91bd",
+      "origin": {
+        "x": 3000,
+        "y": 9000
+      },
+      "version": 2
+    },
+    "exportReceipt": {
+      "artifact_sha256": "7ca6887977f517d6e359fd1d9c3d254c5a76467a7f6b75aa6beae9bcca9de958",
+      "artifact_byte_size": 44833,
+      "revision_version": 1,
+      "operation_checkpoint": 3,
+      "checkpoint_sha256": "1b49fefa4eb73a29df5cde82cdd88fc33ca46b629f0cebbc279b1fc24b906e8c",
+      "revision_snapshot_sha256": "1b49fefa4eb73a29df5cde82cdd88fc33ca46b629f0cebbc279b1fc24b906e8c"
+    },
+    "replayStatus": {
+      "reviewRequested": 200,
+      "approved": 200,
+      "changedSameRequestId": 409,
+      "approvedNewRequest": 409,
+      "viewer": 403
+    },
+    "browserEvidence": {
+      "editor": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [
+          "GET http://127.0.0.1:4000/projects/42a760d0-f6f4-4d79-a1a1-cb6034954810/workspaces/70674b2c-7441-403b-ba79-aa488331c4e3.data net::ERR_ABORTED"
+        ],
+        "responseErrors": []
+      },
+      "viewer": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "responseErrors": []
+      },
+      "reviewer": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "responseErrors": []
+      },
+      "approver": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "responseErrors": []
+      }
+    }
+  },
+  "boundaries": [
+    "Actual isolated SQL plus newly constructed production coordinator and Yjs document; not an operating/customer reconnect trial",
+    "No lease expiry, ownership, approval, original-byte or permission weakening",
+    "RLS-no-policy INFO findings retained; security run does not certify all authorization behavior",
+    "DWG native roundtrip/delivery and licensed customer/recipient CAD gates remain incomplete"
+  ]
+}

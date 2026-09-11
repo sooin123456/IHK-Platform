@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from "react";
 import { Form } from "react-router";
+import { ChevronDown } from "lucide-react";
 
 import {
   copyDrawingBlockInstanceCommand,
@@ -14,6 +15,7 @@ import {
   updateDrawingBlockInstanceCommand,
 } from "~/lukas/lib/drawing-blocks";
 import { DrawingPropertyFields } from "~/lukas/components/drawing-properties-panel";
+import { DrawingGeometryInspector } from "~/lukas/components/drawing-geometry-inspector";
 import { DrawingQuantityInspector } from "~/lukas/components/drawing-quantity-inspector";
 import { DrawingSemanticInspector } from "~/lukas/components/drawing-semantic-inspector";
 import { drawingObjectSupportsMeasurement } from "~/lukas/lib/drawing-measurements";
@@ -179,20 +181,47 @@ export function DrawingInspector({
           geometry: Extract<DrawingObject["geometry"], { semanticVersion: 1 }>;
         })
       : null;
+  const selectedPreciseObject =
+    selectedObject &&
+    (selectedObject.geometry.type === "wall" ||
+      selectedObject.geometry.type === "dimension")
+      ? (selectedObject as DrawingObject & {
+          geometry: Extract<
+            DrawingObject["geometry"],
+            { type: "wall" | "dimension" }
+          >;
+        })
+      : null;
   const selectedMeasurableObject =
     selectedObject && drawingObjectSupportsMeasurement(selectedObject)
       ? selectedObject
       : null;
+  const selectedCanvasId = selectedObject
+    ? state.layers[selectedObject.layerId]?.canvasId
+    : null;
+  const selectedCanvas = selectedCanvasId
+    ? state.structure?.canvases[selectedCanvasId]
+    : null;
   const inspectorLeaseEntityId =
     selectedInstance?.id ?? selectedObject?.id ?? null;
   const lockConflict = selectedIds
     .map((id) => drawingSoftLockConflict(id, awarenessPeers))
     .find(Boolean);
   const canEdit = capabilityCanEdit && !lockConflict;
+  const geometryInspector = selectedPreciseObject ? (
+    <DrawingGeometryInspector
+      actorId={actorId}
+      canEdit={canEdit && selectionEligible}
+      object={selectedPreciseObject}
+      onCommand={onCommand}
+      state={state}
+    />
+  ) : null;
   const semanticInspector = selectedSemanticObject ? (
     <DrawingSemanticInspector
       actorId={actorId}
       canEdit={canEdit && selectionEligible}
+      canvas={selectedCanvas}
       evidence={evidence}
       evidenceError={evidenceError}
       hasUnconfirmedChanges={hasUnconfirmedChanges}
@@ -205,8 +234,10 @@ export function DrawingInspector({
   const quantityInspector = selectedMeasurableObject ? (
     <DrawingQuantityInspector
       canCreateQuantity={canCreateQuantity}
+      canvas={selectedCanvas}
       evidence={evidence}
       hasUnconfirmedChanges={hasUnconfirmedChanges}
+      key={selectedMeasurableObject.id}
       lineage={lineage}
       object={selectedMeasurableObject}
       projectId={projectId}
@@ -252,7 +283,7 @@ export function DrawingInspector({
   const issueSection = selectedObject ? (
     <section
       aria-labelledby="drawing-inspector-issues-title"
-      className="mt-6 border-t border-white/10 pt-4"
+      className="mt-6 border-t border-slate-200 pt-4"
     >
       <h3 className="text-sm font-bold" id="drawing-inspector-issues-title">
         연결된 이슈
@@ -260,16 +291,16 @@ export function DrawingInspector({
       {linkedIssues.length ? (
         <ul className="mt-2 grid gap-2 text-sm">
           {linkedIssues.map((issue) => (
-            <li className="rounded-md bg-white/5 p-2" key={issue.id}>
+            <li className="rounded-md bg-slate-50 p-2" key={issue.id}>
               <span className="font-medium">{issue.title}</span>
-              <span className="ml-2 text-xs text-slate-400">
+              <span className="ml-2 text-xs text-slate-600">
                 {issue.status}
               </span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mt-2 text-xs text-slate-400">연결된 이슈가 없습니다.</p>
+        <p className="mt-2 text-xs text-slate-600">연결된 이슈가 없습니다.</p>
       )}
       {canLinkIssues ? (
         <Form
@@ -286,7 +317,7 @@ export function DrawingInspector({
           >
             이슈 검색
             <input
-              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              className="min-h-10 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900"
               id="inspector-issue-search"
               onChange={(event) => setIssueSearch(event.target.value)}
               type="search"
@@ -296,7 +327,7 @@ export function DrawingInspector({
           <label className="grid gap-1 text-xs" htmlFor="inspector-issue">
             이슈
             <select
-              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              className="min-h-10 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900"
               defaultValue=""
               disabled={availableIssues.length === 0}
               id="inspector-issue"
@@ -314,7 +345,7 @@ export function DrawingInspector({
             </select>
           </label>
           <button
-            className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white disabled:opacity-50"
+            className="min-h-10 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white disabled:opacity-50"
             disabled={availableIssues.length === 0}
             type="submit"
           >
@@ -402,11 +433,11 @@ export function DrawingInspector({
           <h2 className="text-sm font-bold" id="drawing-inspector-title">
             블록 인스턴스
           </h2>
-          <p className="mt-1 text-xs text-slate-400">읽기 전용</p>
+          <p className="mt-1 text-xs text-slate-600">읽기 전용</p>
           {lockConflict ? (
             <p
               aria-label="선택 블록 잠금 상태"
-              className="mt-3 max-w-full break-words rounded-md border border-amber-400/30 bg-amber-950/60 p-2 text-xs leading-5 text-amber-100"
+              className="mt-3 max-w-full break-words rounded-md border border-amber-200 bg-amber-50 p-2 text-xs leading-5 text-amber-900"
               role="status"
             >
               {lockConflict.user.displayName}님이 편집 중입니다. 이 잠금은
@@ -415,21 +446,21 @@ export function DrawingInspector({
           ) : null}
           <dl className="mt-4 grid gap-3 text-sm">
             <div>
-              <dt className="text-xs text-slate-400">이름</dt>
+              <dt className="text-xs text-slate-600">이름</dt>
               <dd>{selectedInstance.name}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400">원점</dt>
+              <dt className="text-xs text-slate-600">원점</dt>
               <dd>
                 {selectedInstance.origin.x}, {selectedInstance.origin.y}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400">회전</dt>
+              <dt className="text-xs text-slate-600">회전</dt>
               <dd>{selectedInstance.rotation}°</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400">배율</dt>
+              <dt className="text-xs text-slate-600">배율</dt>
               <dd>
                 {selectedInstance.scaleX}, {selectedInstance.scaleY}
               </dd>
@@ -488,7 +519,7 @@ export function DrawingInspector({
           <label className="grid gap-1 text-xs" htmlFor="block-instance-name">
             이름
             <input
-              className="min-h-10 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+              className="min-h-10 rounded border border-slate-200 bg-white px-2 text-sm text-slate-900"
               defaultValue={selectedInstance.name}
               id="block-instance-name"
               maxLength={255}
@@ -499,7 +530,7 @@ export function DrawingInspector({
           <label className="grid gap-1 text-xs" htmlFor="block-instance-layer">
             레이어
             <select
-              className="min-h-10 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+              className="min-h-10 rounded border border-slate-200 bg-white px-2 text-sm text-slate-900"
               defaultValue={selectedInstance.layerId}
               id="block-instance-layer"
               name="layerId"
@@ -536,7 +567,7 @@ export function DrawingInspector({
               >
                 {labels[field]}
                 <input
-                  className="min-h-10 rounded border border-white/15 bg-slate-950 px-2 text-sm"
+                  className="min-h-10 rounded border border-slate-200 bg-white px-2 text-sm text-slate-900"
                   defaultValue={values[field]}
                   id={`block-instance-${field}`}
                   name={field}
@@ -548,7 +579,7 @@ export function DrawingInspector({
             );
           })}
           <button
-            className="min-h-10 rounded bg-indigo-500 px-3 text-sm font-semibold"
+            className="min-h-10 rounded bg-indigo-600 px-3 text-sm font-semibold text-white"
             type="submit"
           >
             인스턴스 저장
@@ -556,7 +587,7 @@ export function DrawingInspector({
         </form>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button
-            className="min-h-10 rounded border border-white/20 px-2 text-sm"
+            className="min-h-10 rounded border border-slate-300 px-2 text-sm text-slate-700"
             onClick={() => {
               try {
                 onCommand(
@@ -576,7 +607,7 @@ export function DrawingInspector({
             인스턴스 복사
           </button>
           <button
-            className="min-h-10 rounded border border-white/20 px-2 text-sm"
+            className="min-h-10 rounded border border-slate-300 px-2 text-sm text-slate-700"
             onClick={() => {
               try {
                 onCommand(
@@ -597,7 +628,7 @@ export function DrawingInspector({
           </button>
         </div>
         {error ? (
-          <p className="mt-3 text-xs text-red-300" role="alert">
+          <p className="mt-3 text-xs text-red-700" role="alert">
             {error}
           </p>
         ) : null}
@@ -618,7 +649,7 @@ export function DrawingInspector({
         <h2 className="text-sm font-bold" id="drawing-inspector-title">
           속성
         </h2>
-        <p className="mt-4 text-sm leading-6 text-slate-400">
+        <p className="mt-4 text-sm leading-6 text-slate-600">
           객체를 선택하면 속성을 편집할 수 있습니다.
         </p>
       </section>
@@ -631,7 +662,7 @@ export function DrawingInspector({
         <h2 className="text-sm font-bold" id="drawing-inspector-title">
           속성
         </h2>
-        <p className="mt-4 text-sm text-red-300" role="alert">
+        <p className="mt-4 text-sm text-red-700" role="alert">
           {styleResolution.error}
         </p>
       </section>
@@ -644,16 +675,30 @@ export function DrawingInspector({
         <h2 className="text-sm font-bold" id="drawing-inspector-title">
           속성
         </h2>
-        <p className="mt-4 text-sm text-amber-300" role="status">
+        <p className="mt-4 text-sm text-amber-800" role="status">
           숨김 또는 잠긴 레이어의 선택은 편집할 수 없습니다.
         </p>
-        <DrawingPropertyFields
-          actorId={actorId}
-          canEdit={false}
-          onCommand={onCommand}
-          selectedIds={selectedIds}
-          state={state}
-        />
+        {state.structure?.propertySchemas &&
+        Object.keys(state.structure.propertySchemas).length > 0 ? (
+          <details className="mt-5 rounded-xl border border-slate-200 bg-white">
+            <summary className="flex min-h-12 cursor-pointer items-center justify-between gap-3 px-4 text-sm font-semibold text-slate-900">
+              고급 속성
+              <span className="text-xs font-normal text-slate-600">
+                사용자 속성
+              </span>
+            </summary>
+            <div className="border-t border-slate-200 px-4 pb-4">
+              <DrawingPropertyFields
+                actorId={actorId}
+                canEdit={false}
+                onCommand={onCommand}
+                selectedIds={selectedIds}
+                state={state}
+              />
+            </div>
+          </details>
+        ) : null}
+        {geometryInspector}
         {semanticInspector}
         {quantityInspector}
         {issueSection}
@@ -667,13 +712,13 @@ export function DrawingInspector({
         <h2 className="text-sm font-bold" id="drawing-inspector-title">
           속성
         </h2>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-slate-600">
           {selectedObjects.length}개 객체 선택 · 읽기 전용
         </p>
         {lockConflict ? (
           <p
             aria-label="선택 객체 잠금 상태"
-            className="mt-3 max-w-full break-words rounded-md border border-amber-400/30 bg-amber-950/60 p-2 text-xs leading-5 text-amber-100"
+            className="mt-3 max-w-full break-words rounded-md border border-amber-200 bg-amber-50 p-2 text-xs leading-5 text-amber-900"
             role="status"
           >
             {lockConflict.user.displayName}님이 편집 중입니다. 이 잠금은 충돌을
@@ -682,11 +727,11 @@ export function DrawingInspector({
         ) : null}
         <dl className="mt-4 grid gap-3 text-sm">
           <div>
-            <dt className="text-xs text-slate-400">객체 이름</dt>
+            <dt className="text-xs text-slate-600">객체 이름</dt>
             <dd>{sharedValue(selectedObjects, (object) => object.name)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-400">레이어</dt>
+            <dt className="text-xs text-slate-600">레이어</dt>
             <dd>
               {sharedValue(
                 selectedObjects,
@@ -695,11 +740,11 @@ export function DrawingInspector({
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-400">선 색상</dt>
+            <dt className="text-xs text-slate-600">선 색상</dt>
             <dd>{sharedStyleValue(selectedStyles, (style) => style.stroke)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-400">선 두께</dt>
+            <dt className="text-xs text-slate-600">선 두께</dt>
             <dd>
               {sharedStyleValue(selectedStyles, (style) =>
                 String(style.strokeWidth),
@@ -707,13 +752,13 @@ export function DrawingInspector({
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-400">채우기</dt>
+            <dt className="text-xs text-slate-600">채우기</dt>
             <dd>
               {sharedStyleValue(selectedStyles, (style) => style.fill ?? "")}
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-slate-400">글꼴 크기</dt>
+            <dt className="text-xs text-slate-600">글꼴 크기</dt>
             <dd>
               {sharedStyleValue(selectedStyles, (style) =>
                 String(style.fontSize ?? ""),
@@ -722,7 +767,7 @@ export function DrawingInspector({
           </div>
           {textOnly ? (
             <div>
-              <dt className="text-xs text-slate-400">텍스트</dt>
+              <dt className="text-xs text-slate-600">텍스트</dt>
               <dd className="whitespace-pre-wrap">
                 {sharedValue(selectedObjects, (object) =>
                   object.geometry.type === "text" ? object.geometry.text : "",
@@ -731,13 +776,27 @@ export function DrawingInspector({
             </div>
           ) : null}
         </dl>
-        <DrawingPropertyFields
-          actorId={actorId}
-          canEdit={false}
-          onCommand={onCommand}
-          selectedIds={selectedIds}
-          state={state}
-        />
+        {state.structure?.propertySchemas &&
+        Object.keys(state.structure.propertySchemas).length > 0 ? (
+          <details className="mt-5 rounded-xl border border-slate-200 bg-white">
+            <summary className="flex min-h-12 cursor-pointer items-center justify-between gap-3 px-4 text-sm font-semibold text-slate-900">
+              고급 속성
+              <span className="text-xs font-normal text-slate-600">
+                사용자 속성
+              </span>
+            </summary>
+            <div className="border-t border-slate-200 px-4 pb-4">
+              <DrawingPropertyFields
+                actorId={actorId}
+                canEdit={false}
+                onCommand={onCommand}
+                selectedIds={selectedIds}
+                state={state}
+              />
+            </div>
+          </details>
+        ) : null}
+        {geometryInspector}
         {semanticInspector}
         {quantityInspector}
         {issueSection}
@@ -753,66 +812,12 @@ export function DrawingInspector({
       <h2 className="text-sm font-bold" id="drawing-inspector-title">
         속성
       </h2>
-      <p className="mt-1 text-xs text-slate-400">
+      <p className="mt-1 text-xs text-slate-600">
         {selectedObjects.length}개 객체 선택
       </p>
-      {state.structure ? (
-        <div className="mt-4 grid gap-2 border-t border-white/10 pt-4">
-          <label className="grid gap-1 text-xs" htmlFor="inspector-style">
-            공유 스타일
-            <select
-              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
-              id="inspector-style"
-              onChange={(event) => applyStyle(event.currentTarget.value)}
-              value={selectedStyleId}
-            >
-              <option disabled value="">
-                인라인 스타일
-              </option>
-              <option disabled value={DRAWING_MIXED_STYLE_ID}>
-                혼합 값
-              </option>
-              {Object.values(state.structure.styles)
-                .sort((left, right) => left.name.localeCompare(right.name))
-                .map((style) => (
-                  <option key={style.id} value={style.id}>
-                    {style.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="min-h-9 rounded border border-white/20 px-2 text-sm"
-              disabled={
-                !selectedStyleId || selectedStyleId === DRAWING_MIXED_STYLE_ID
-              }
-              onClick={() => applyStyle(selectedStyleId)}
-              type="button"
-            >
-              스타일 다시 적용
-            </button>
-            <button
-              className="min-h-9 rounded border border-white/20 px-2 text-sm"
-              disabled={selectedObjects.some((object) => !object.styleId)}
-              onClick={resetOverrides}
-              type="button"
-            >
-              재정의 초기화
-            </button>
-            <button
-              className="min-h-9 rounded border border-white/20 px-2 text-sm"
-              disabled={selectedObjects.some((object) => !object.styleId)}
-              onClick={detachStyle}
-              type="button"
-            >
-              스타일 분리
-            </button>
-          </div>
-        </div>
-      ) : null}
       <form
-        className="mt-4 grid gap-3"
+        aria-label="기본 객체 속성"
+        className="mt-4 grid gap-4 [&_input]:min-w-0 [&_input]:w-full [&_label]:min-w-0 [&_select]:min-w-0 [&_textarea]:min-w-0"
         data-drawing-shortcuts="ignore"
         key={selectionKey}
         onSubmit={applyProperties}
@@ -820,7 +825,7 @@ export function DrawingInspector({
         <label className="grid gap-1 text-xs" htmlFor="inspector-object-name">
           객체 이름
           <input
-            className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+            className="min-h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900"
             defaultValue={sharedValue(selectedObjects, (object) => object.name)}
             disabled={!canEdit}
             id="inspector-object-name"
@@ -833,7 +838,7 @@ export function DrawingInspector({
         <label className="grid gap-1 text-xs" htmlFor="inspector-layer">
           레이어
           <select
-            className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+            className="min-h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900"
             defaultValue={sharedValue(
               selectedObjects,
               (object) => object.layerId,
@@ -854,55 +859,63 @@ export function DrawingInspector({
           </select>
         </label>
 
-        <label className="grid gap-1 text-xs" htmlFor="inspector-stroke">
-          선 색상
-          <input
-            className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 font-mono text-sm"
-            defaultValue={styleResolution.defaults.stroke}
-            disabled={!canEdit}
-            id="inspector-stroke"
-            name="stroke"
-            onChange={() => markDirty("stroke")}
-            pattern="#[0-9a-fA-F]{6}"
-            placeholder="#000000"
-          />
-        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="grid gap-1 text-xs" htmlFor="inspector-stroke">
+            선 색상
+            <input
+              className="min-h-10 rounded-md border border-slate-200 bg-slate-50 px-2 font-mono text-sm text-slate-900"
+              defaultValue={styleResolution.defaults.stroke}
+              disabled={!canEdit}
+              id="inspector-stroke"
+              name="stroke"
+              onChange={() => markDirty("stroke")}
+              pattern="#[0-9a-fA-F]{6}"
+              placeholder="#000000"
+            />
+          </label>
 
-        <label className="grid gap-1 text-xs" htmlFor="inspector-stroke-width">
-          선 두께
-          <input
-            className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
-            defaultValue={styleResolution.defaults.strokeWidth}
-            disabled={!canEdit}
-            id="inspector-stroke-width"
-            max={1000}
-            min={0.000001}
-            name="strokeWidth"
-            onChange={() => markDirty("strokeWidth")}
-            step="any"
-            type="number"
-          />
-        </label>
+          <label
+            className="grid gap-1 text-xs"
+            htmlFor="inspector-stroke-width"
+          >
+            선 두께
+            <input
+              className="min-h-10 rounded-md border border-slate-200 bg-slate-50 px-2 text-sm text-slate-900"
+              defaultValue={styleResolution.defaults.strokeWidth}
+              disabled={!canEdit}
+              id="inspector-stroke-width"
+              max={1000}
+              min={0.000001}
+              name="strokeWidth"
+              onChange={() => markDirty("strokeWidth")}
+              step="any"
+              type="number"
+            />
+          </label>
 
-        <label className="grid gap-1 text-xs" htmlFor="inspector-fill">
-          채우기
-          <input
-            className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 font-mono text-sm"
-            defaultValue={styleResolution.defaults.fill}
-            disabled={!canEdit}
-            id="inspector-fill"
-            name="fill"
-            onChange={() => markDirty("fill")}
-            pattern="#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?"
-            placeholder="비우면 채우기 없음"
-          />
-        </label>
+          <label
+            className="col-span-2 grid gap-1 text-xs"
+            htmlFor="inspector-fill"
+          >
+            채우기
+            <input
+              className="min-h-10 rounded-md border border-slate-200 bg-slate-50 px-2 font-mono text-sm text-slate-900"
+              defaultValue={styleResolution.defaults.fill}
+              disabled={!canEdit}
+              id="inspector-fill"
+              name="fill"
+              onChange={() => markDirty("fill")}
+              pattern="#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?"
+              placeholder="비우면 채우기 없음"
+            />
+          </label>
+        </div>
 
         {textOnly ? (
           <label className="grid gap-1 text-xs" htmlFor="inspector-font-size">
             글꼴 크기
             <input
-              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              className="min-h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900"
               defaultValue={styleResolution.defaults.fontSize}
               id="inspector-font-size"
               max={10000}
@@ -919,7 +932,7 @@ export function DrawingInspector({
           <label className="grid gap-1 text-xs" htmlFor="inspector-text">
             텍스트
             <textarea
-              className="min-h-24 rounded-md border border-white/15 bg-slate-950 p-2 text-sm"
+              className="min-h-24 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-900"
               defaultValue={sharedValue(selectedObjects, (object) =>
                 object.geometry.type === "text" ? object.geometry.text : "",
               )}
@@ -933,24 +946,95 @@ export function DrawingInspector({
         ) : null}
 
         <button
-          className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white disabled:opacity-50"
+          className="min-h-10 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white disabled:opacity-50"
           disabled={!canEdit}
           type="submit"
         >
           속성 적용
         </button>
       </form>
-      <DrawingPropertyFields
-        actorId={actorId}
-        canEdit
-        onCommand={onCommand}
-        selectedIds={selectedIds}
-        state={state}
-      />
+      <details className="group mt-5 rounded-xl border border-slate-200 bg-white">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-semibold text-slate-900 marker:content-none">
+          고급 속성
+          <span className="text-xs font-normal text-slate-600">
+            공유 스타일 · 사용자 속성
+          </span>
+          <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-slate-200 px-4 pb-4">
+          {state.structure ? (
+            <div className="mt-4 grid gap-2">
+              <label
+                className="grid gap-1 text-xs text-slate-700"
+                htmlFor="inspector-style"
+              >
+                공유 스타일
+                <select
+                  className="min-h-10 rounded-md border border-slate-200 bg-slate-50 px-2 text-sm text-slate-900"
+                  id="inspector-style"
+                  onChange={(event) => applyStyle(event.currentTarget.value)}
+                  value={selectedStyleId}
+                >
+                  <option disabled value="">
+                    인라인 스타일
+                  </option>
+                  <option disabled value={DRAWING_MIXED_STYLE_ID}>
+                    혼합 값
+                  </option>
+                  {Object.values(state.structure.styles)
+                    .sort((left, right) => left.name.localeCompare(right.name))
+                    .map((style) => (
+                      <option key={style.id} value={style.id}>
+                        {style.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="min-h-9 rounded border border-slate-300 px-2 text-sm text-slate-700"
+                  disabled={
+                    !selectedStyleId ||
+                    selectedStyleId === DRAWING_MIXED_STYLE_ID
+                  }
+                  onClick={() => applyStyle(selectedStyleId)}
+                  type="button"
+                >
+                  스타일 다시 적용
+                </button>
+                <button
+                  className="min-h-9 rounded border border-slate-300 px-2 text-sm text-slate-700"
+                  disabled={selectedObjects.some((object) => !object.styleId)}
+                  onClick={resetOverrides}
+                  type="button"
+                >
+                  재정의 초기화
+                </button>
+                <button
+                  className="min-h-9 rounded border border-slate-300 px-2 text-sm text-slate-700"
+                  disabled={selectedObjects.some((object) => !object.styleId)}
+                  onClick={detachStyle}
+                  type="button"
+                >
+                  스타일 분리
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <DrawingPropertyFields
+            actorId={actorId}
+            canEdit
+            onCommand={onCommand}
+            selectedIds={selectedIds}
+            state={state}
+          />
+        </div>
+      </details>
+      {geometryInspector}
       {semanticInspector}
       {quantityInspector}
       {error ? (
-        <p className="mt-3 text-xs text-red-300" role="alert">
+        <p className="mt-3 text-xs text-red-700" role="alert">
           {error}
         </p>
       ) : null}

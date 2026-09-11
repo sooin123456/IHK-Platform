@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "1hk-native-cad-projection-evidence/1",
+  "status": "internal-projection-only",
+  "syntheticScope": true,
+  "authenticatedSnapshot": false,
+  "dwgFilesGenerated": false,
+  "productionDwgQualified": false,
+  "independentCadVerification": "not-performed",
+  "artifacts": [
+    {
+      "key": "measured-plan",
+      "filename": "measured-plan.cad.json",
+      "bytes": 21293,
+      "sha256": "ad6ee11f8986c5039441fefdb32fabddba507923af4c8eb8e2ae148e0739784f",
+      "structureSha256": "b014b5660fcdb5c4881f743ae1e1a3f6e210e147d92cf867b3c4316439f5c860",
+      "objects": 9,
+      "instances": 1,
+      "blocks": 1,
+      "modelEntities": 19,
+      "blockEntities": 4,
+      "independentLiteralChecks": "passed",
+      "sourceUnchanged": true
+    },
+    {
+      "key": "office-layout",
+      "filename": "office-layout.cad.json",
+      "bytes": 20787,
+      "sha256": "39b58325c440cf730b237a5027e10e460b2d0e12c3707049c0cb9c4dddee5a7e",
+      "structureSha256": "33db4a7c14aa6a6fafe50cb4993144b90b65e14322c5790b7e04fb6ad201df63",
+      "objects": 3,
+      "instances": 5,
+      "blocks": 2,
+      "modelEntities": 10,
+      "blockEntities": 13,
+      "independentLiteralChecks": "passed",
+      "sourceUnchanged": true
+    },
+    {
+      "key": "remodel-phases",
+      "filename": "remodel-phases.cad.json",
+      "bytes": 20765,
+      "sha256": "b6fc7b456d5b9ab91e9bf98ed8c283b88872a37aced9efb6998175d8e692976d",
+      "structureSha256": "0306b1263b17ae80b55ef95a4a6bbfdae49797cfe288199b38c4c009b6afea66",
+      "objects": 7,
+      "instances": 1,
+      "blocks": 1,
+      "modelEntities": 16,
+      "blockEntities": 4,
+      "independentLiteralChecks": "passed",
+      "sourceUnchanged": true
+    },
+    {
+      "key": "finishes-takeoff",
+      "filename": "finishes-takeoff.cad.json",
+      "bytes": 12150,
+      "sha256": "95222a78ffad28e4f23a3ea071627175ede0f6823b4954c1e5ef24ef0f003be0",
+      "structureSha256": "75bbdbfe8e5670e023ca208aa3fe4271a8541081944cf81c48244a3e693552dd",
+      "objects": 3,
+      "instances": 1,
+      "blocks": 1,
+      "modelEntities": 6,
+      "blockEntities": 3,
+      "independentLiteralChecks": "passed",
+      "sourceUnchanged": true
+    }
+  ]
+}

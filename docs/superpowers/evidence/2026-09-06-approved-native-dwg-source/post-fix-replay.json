@@ -1,0 +1,17 @@
+{
+  "status": "post-fix-recorded-source-replay-passed",
+  "source": "previously-captured-actual-SQL-RPC-payload",
+  "transport": "checked-adapter-transport-shim",
+  "sourceSnapshotSha256": "f7e36b840e64d27560a031b09954685844c0a5755369937bf1639ce322f41407",
+  "manifestSha256": "56bbd9685cc66a94307c3f2f3daa0b931bc526db4d43c2656d5fe1437789b8f9",
+  "authoritySha256": "ab1235c72ec61946c9c8c71b66ac2059fc9813201c66c50370fb3926d34a9cd3",
+  "manifestByteIdentical": true,
+  "authorityByteIdentical": true,
+  "inputUnchanged": true,
+  "freshDatabaseRun": false,
+  "freshWriterRun": false,
+  "freshHttpTransport": false,
+  "adapterSha256": "93f263b688367ea396b2ff2fbc8a464314631faedda4406a0c6fc24a6a15cfb8",
+  "testSha256": "7ffe8641cf6a4d38d2d1e27ee02f00135ca36fae0a5460fafb1bdf74cb8c6f8f",
+  "productionDwgQualified": false
+}

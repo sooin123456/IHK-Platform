@@ -5,7 +5,7 @@ import type { Route } from "./+types/local-drawing-pdf-current";
 
 const representativeDrawing = path.resolve(
   process.cwd(),
-  "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+  "tests/fixtures/p5-current-revision.pdf",
 );
 
 export async function loader({ request }: Route.LoaderArgs) {

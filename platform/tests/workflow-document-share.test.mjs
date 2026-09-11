@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {createServer} from 'vite';
+const vite=await createServer({configFile:false,appType:'custom',logLevel:'silent',server:{middlewareMode:true}});test.after(()=>vite.close());
+test('new invitations require matching recipient acceptance before feedback and cannot reopen a decline',async()=>{
+ const {createDocumentShare,respondShareInvitation,shareFeedback}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-share.ts');
+ const doc=createDocumentShare({id:'d',title:'초대',shapes:[]},'author',{recipient:'guest@example.com',permission:'comment',includeQuantity:false});
+ assert.equal(doc.shares[0].invitation,'pending');
+ assert.equal(shareFeedback(doc,1,'미수락 의견'),doc);
+ assert.equal(respondShareInvitation(doc,1,'wrong@example.com','accepted'),doc);
+ const accepted=respondShareInvitation(doc,1,' GUEST@example.com ','accepted');
+ assert.equal(accepted.shares[0].invitation,'accepted');
+ assert.deepEqual(shareFeedback(accepted,1,'확인했습니다').shares[0].feedback,['확인했습니다']);
+ const declined=respondShareInvitation(doc,1,'guest@example.com','declined');
+ assert.equal(declined.shares[0].invitation,'declined');
+ assert.equal(respondShareInvitation(declined,1,'guest@example.com','accepted'),declined);
+ assert.equal(shareFeedback(declined,1,'거절 후 의견'),declined);
+ const expired={...doc,shares:[{...doc.shares[0],status:'expired'}]};
+ assert.equal(respondShareInvitation(expired,1,'guest@example.com','accepted'),expired);
+});
+test('expired share access requests require an owner decision and preserve disclosed snapshot',async()=>{
+ const {requestShareAccess,decideShareAccess}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-share.ts');
+ const doc={id:'d',shares:[{sequence:1,status:'expired',objects:[{id:'frozen'}],permission:'view',feedback:[]}]};
+ let next=requestShareAccess(doc,1,'현장 확인을 위해 다시 열람합니다');assert.equal(next.shares[0].accessRequests[0].status,'pending');assert.equal(next.shares[0].status,'expired');assert.equal(requestShareAccess(next,1,'중복'),next);assert.equal(requestShareAccess(doc,1,' '),doc);
+ assert.equal(decideShareAccess(next,1,1,'viewer','allow','허용'),next);assert.equal(decideShareAccess(next,1,99,'author','allow','허용'),next);
+ next=decideShareAccess(next,1,1,'author','deny','공유 범위 확인 필요');assert.equal(next.shares[0].status,'expired');assert.equal(next.shares[0].accessRequests[0].status,'denied');
+ next=requestShareAccess(next,1,'범위를 확인했습니다');assert.equal(next.shares[0].accessRequests[1].id,2);
+ next=decideShareAccess(next,1,2,'author','allow','같은 공유본 열람 재개');assert.equal(next.shares[0].status,'active');assert.equal(next.shares[0].objects,doc.shares[0].objects);assert.equal(next.shares[0].permission,'view');assert.equal(next.shares[0].accessRequests[0].decision,'공유 범위 확인 필요');assert.equal(requestShareAccess(next,1,'활성 공유'),next);
+});
+test('local sharing freezes disclosed content and refuses expired or view-only feedback',async()=>{
+ const {createDocumentShare,shareFeedback,expireDocumentShare,respondShareInvitation}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-share.ts');
+ const doc={id:'d',title:'도면',revision:1,shapes:[{id:'a',label:'벽',x:10,y:20,quantity:{raw:10,rate:50}}]};
+ const input={recipient:'review@example.com',permission:'comment',includeQuantity:false};
+ const next=createDocumentShare(doc,'author',input);assert.equal(next.shares[0].sequence,1);assert.equal(next.shares[0].objects[0].quantity,undefined);assert.equal(next.shapes,doc.shapes);
+ doc.shapes[0].label='변경';assert.equal(next.shares[0].objects[0].label,'벽');
+ assert.equal(createDocumentShare(doc,'viewer',input),doc);assert.equal(createDocumentShare(doc,'author',{...input,recipient:'bad'}),doc);
+ const replied=shareFeedback(respondShareInvitation(next,1,'review@example.com','accepted'),1,'위치 확인 바랍니다');assert.deepEqual(replied.shares[0].feedback,['위치 확인 바랍니다']);assert.equal(shareFeedback(next,99,'다른공유'),next);
+ const expired=expireDocumentShare(replied,1,'author');assert.equal(shareFeedback(expired,1,'의견'),expired);assert.equal(expireDocumentShare(next,1,'viewer'),next);
+ const view=createDocumentShare(doc,'author',{...input,permission:'view',includeQuantity:true});assert.equal(view.shares[0].objects[0].quantity.raw,10);assert.equal(shareFeedback(view,1,'의견'),view);
+});

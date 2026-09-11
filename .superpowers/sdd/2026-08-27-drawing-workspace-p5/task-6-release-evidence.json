@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "MEASURED",
   "authority": "LOCAL_PRODUCTION_BUILD_CHROMIUM",
-  "sourceCommitSha": "6bf871cc6d5985529fa82f8e673dc65749c33ae6",
+  "sourceCommitSha": "9f5f56d93db325ff935772252f9d4fb64d69f98c",
   "browserName": "chromium",
   "browserVersion": "151.0.7922.34",
   "viewport": {
@@ -26,7 +26,7 @@
   "derivativeGeometryAuthority": "SYNTHETIC_MAPPING_FIXTURE_NOT_SOURCE_FAITHFUL",
   "sourceObservation": {
     "observedBy": "browser_mutation_workflow",
-    "runId": "84fe2c0c-20cc-42a9-a22d-7050bb891eb6",
+    "runId": "02bd697f-771d-4f30-8894-a885f5de62b7",
     "before": [
       {
         "kind": "pdf_current",
@@ -92,7 +92,7 @@
       }
     ]
   },
-  "firstUsableMs": 3579.100000023842,
+  "firstUsableMs": 3653,
   "firstUsableTargetMs": 2500,
   "firstUsableTargetStatus": "NOT MET",
   "p7SixtyFpsGate": "UNEXECUTED",

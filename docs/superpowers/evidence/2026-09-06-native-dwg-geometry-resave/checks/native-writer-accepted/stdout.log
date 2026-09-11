@@ -1,0 +1,16 @@
+/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/native-dwg-self-test-734ee25f9eb243f585e5554fba6394ef/output/native-report.json
+qualification=experimental-unqualified semantic-failures=0 production=not-qualified
+PASS writes measured manifest as readable native DWG
+PASS writes all four canonical manifests
+PASS preserves literal edge geometry and styles
+PASS normalizes large finite rotations before radians
+PASS preserves a custom paper profile
+PASS rejects malformed duplicate unknown reference policy profile and oversized inputs
+PASS rejects unrepresentable referenced block transforms before output
+PASS keeps representable large mirrored block transforms
+PASS refuses path collisions without overwriting
+PASS detects a corrupted read-back entity
+PASS detects constrained native geometry and style mutations
+PASS requires the exact pinned notification set
+PASS keeps failure reports free of local paths
+13 passed, 0 failed

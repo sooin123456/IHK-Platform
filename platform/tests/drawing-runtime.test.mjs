@@ -15,19 +15,41 @@ const {
   scheduleDrawingSourceReadyConnection,
 } = drawingRuntime;
 
-test("local editing is ready only with an outbox, a command bridge, and healthy persistence", () => {
+test("local editing is ready only with an outbox, a command bridge, healthy persistence, and no conflict", () => {
   assert.equal(
     drawingLocalEditReady({
       outboxReady: true,
       bridgeReady: true,
       persistenceFailed: false,
+      conflicted: false,
     }),
     true,
   );
   for (const input of [
-    { outboxReady: false, bridgeReady: true, persistenceFailed: false },
-    { outboxReady: true, bridgeReady: false, persistenceFailed: false },
-    { outboxReady: true, bridgeReady: true, persistenceFailed: true },
+    {
+      outboxReady: false,
+      bridgeReady: true,
+      persistenceFailed: false,
+      conflicted: false,
+    },
+    {
+      outboxReady: true,
+      bridgeReady: false,
+      persistenceFailed: false,
+      conflicted: false,
+    },
+    {
+      outboxReady: true,
+      bridgeReady: true,
+      persistenceFailed: true,
+      conflicted: false,
+    },
+    {
+      outboxReady: true,
+      bridgeReady: true,
+      persistenceFailed: false,
+      conflicted: true,
+    },
   ])
     assert.equal(drawingLocalEditReady(input), false);
 });
@@ -277,6 +299,24 @@ test("authoritative snapshot identity ignores loader object churn but follows ch
       bootstrap: { ...input.bootstrap, sha256: "b".repeat(64) },
     }),
     drawingAuthoritativeSnapshotKey(input),
+  );
+
+  const httpInput = {
+    revisionId: "revision-1",
+    revisionVersion: 7,
+    revisionUpdatedAt: "2026-09-02T00:00:00.000000Z",
+    sourceSha256: "c".repeat(64),
+  };
+  assert.equal(
+    drawingAuthoritativeSnapshotKey(structuredClone(httpInput)),
+    drawingAuthoritativeSnapshotKey(httpInput),
+  );
+  assert.notEqual(
+    drawingAuthoritativeSnapshotKey({
+      ...httpInput,
+      revisionUpdatedAt: "2026-09-02T00:00:00.000001Z",
+    }),
+    drawingAuthoritativeSnapshotKey(httpInput),
   );
 });
 

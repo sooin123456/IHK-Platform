@@ -1,0 +1,21 @@
+{
+  "name": "@1hk/ifc-derivative-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/server.ts --bundle --platform=node --target=node22 --format=esm --packages=external --outfile=dist/server.mjs",
+    "start": "node dist/server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.112.3",
+    "gltf-validator": "2.0.0-dev.3.10",
+    "zod": "3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3"
+  }
+}

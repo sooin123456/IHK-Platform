@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1hk-r2-r5-runtime-validation/1",
+  "qualification": "local-disposable-authenticated",
+  "snapshotRoot": "/private/tmp/1hk-r2-r5-runtime.bQ2KdI",
+  "platformRoot": "/private/tmp/1hk-r2-r5-runtime.bQ2KdI/platform",
+  "publishDirectory": "/private/tmp/1hk-r2-r5-runtime.bQ2KdI/runtime-native-publish",
+  "dotnetPath": "/opt/homebrew/Cellar/dotnet@8/8.0.130/bin/dotnet",
+  "startedAt": "2026-09-06T04:44:30.843Z",
+  "completedAt": "2026-09-06T04:50:30.066Z",
+  "writerBuildSha256": "587421d582b26074eca33f1dc10047318d2ed444d058b7fd8e7ebde21075cbb8",
+  "publishExitCode": 0,
+  "runnerExitCode": 1,
+  "commands": [
+    {
+      "cwd": "/private/tmp/1hk-r2-r5-runtime.bQ2KdI/tools/dwg-engine-qualification",
+      "command": "/opt/homebrew/Cellar/dotnet@8/8.0.130/bin/dotnet publish --no-restore -c Release -o /private/tmp/1hk-r2-r5-runtime.bQ2KdI/runtime-native-publish /private/tmp/1hk-r2-r5-runtime.bQ2KdI/tools/dwg-engine-qualification/DwgEngineQualification.csproj",
+      "log": "dotnet-publish.log"
+    },
+    {
+      "cwd": "/private/tmp/1hk-r2-r5-runtime.bQ2KdI/platform",
+      "command": "/opt/homebrew/Cellar/node/26.5.0/bin/node scripts/run-drawing-workspace-m1-e2e.mjs",
+      "log": "m1-authenticated-runtime.log"
+    }
+  ],
+  "failure": "Authenticated M1 runner failed (1)."
+}

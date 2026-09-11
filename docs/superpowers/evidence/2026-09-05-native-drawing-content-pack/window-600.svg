@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="696mm" height="246mm" viewBox="0 0 696 246">
+<rect x="0" y="0" width="696" height="246" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/frame" transform="matrix(1 0 0 1 48 48)">
+<rect x="0" y="0" width="600" height="150" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/pane-left" transform="matrix(1 0 0 1 48 48)">
+<rect x="25" y="25" width="275" height="100" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/pane-right" transform="matrix(1 0 0 1 48 48)">
+<rect x="300" y="25" width="275" height="100" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/mullion" transform="matrix(1 0 0 1 48 48)">
+<line x1="300" y1="0" x2="300" y2="150" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+</svg>

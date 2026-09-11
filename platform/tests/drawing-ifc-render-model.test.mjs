@@ -292,6 +292,43 @@ test("owned render-model disposal releases shared geometry, material arrays, and
   });
 });
 
+test("owned render model maps and disposes LineSegments primitives", () => {
+  const root = new THREE.Group();
+  const geometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(1, 0, 0),
+  ]);
+  const material = new THREE.LineBasicMaterial();
+  const lines = new THREE.LineSegments(geometry, material);
+  lines.userData = {
+    ifcNodeId: "node-window-lines",
+    ifcExpressId: 42,
+    ifcPrimitiveIndex: 0,
+  };
+  root.add(lines);
+
+  const lineManifest = manifest({
+    elements: [
+      {
+        ...manifest().elements[0],
+        typeName: "IfcWindow",
+        name: "Window footprint",
+        meshes: [{ nodeId: "node-window-lines", primitiveIndices: [0] }],
+      },
+    ],
+  });
+  const counts = { geometry: 0, material: 0 };
+  geometry.addEventListener("dispose", () => (counts.geometry += 1));
+  material.addEventListener("dispose", () => (counts.material += 1));
+
+  const owned = renderModel.createOwnedIfcRenderModel(root, lineManifest);
+  assert.deepEqual(owned.elementMeshes.get(42), [lines]);
+  assert.equal(owned.renderedElementCount, 1);
+  owned.dispose();
+  owned.dispose();
+  assert.deepEqual(counts, { geometry: 1, material: 1 });
+});
+
 test("owned model disposal retains ownership of original resources after viewer highlighting", () => {
   const root = new THREE.Group();
   const geometry = new THREE.BoxGeometry(1, 1, 1);

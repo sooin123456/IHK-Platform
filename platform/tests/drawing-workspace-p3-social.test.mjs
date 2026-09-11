@@ -41,6 +41,9 @@ const drawingAwareness = await vite.ssrLoadModule(
 const drawingHistory = await vite.ssrLoadModule(
   "/app/lukas/lib/drawing-history.server.ts",
 );
+const workspaceView = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-workspace-view.ts",
+);
 
 after(() => vite.close());
 
@@ -91,6 +94,206 @@ test("canvas region form accepts signed finite world millimeters only", () => {
   assert.throws(() => collaboration.parseDrawingMutationForm(form));
 });
 
+test("canvas region comments use the exact shared role allow-list", async () => {
+  assert.equal(typeof workspaceView.drawingWorkspaceCanComment, "function");
+  for (const capability of ["admin", "editor", "commenter", "reviewer"])
+    assert.equal(workspaceView.drawingWorkspaceCanComment(capability), true);
+  for (const capability of ["approver", "viewer"])
+    assert.equal(workspaceView.drawingWorkspaceCanComment(capability), false);
+
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /drawingWorkspaceCanComment\(effectiveCapability\)/);
+  assert.match(source, /캔버스에서 영역 선택/);
+  assert.match(source, /regionPicker=/);
+});
+
+test("workspace issue creation uses the exact shared comment authority", () => {
+  for (const role of ["admin", "editor", "commenter", "reviewer"])
+    assert.equal(workspaceView.drawingWorkspaceCanComment(role), true);
+  for (const role of ["approver", "viewer"])
+    assert.equal(workspaceView.drawingWorkspaceCanComment(role), false);
+});
+
+test("visible canvas region annotations require the exact revision page and canvas boundary", () => {
+  assert.equal(
+    typeof workspace.drawingVisibleCanvasRegionAnnotations,
+    "function",
+  );
+  const matching = {
+    id: "matching",
+    issue_id: ids.issue,
+    revision_id: ids.revision,
+    page_id: ids.page,
+    canvas_id: ids.canvas,
+    x_mm: -12.5,
+    y_mm: 24,
+    width_mm: 80,
+    height_mm: 45.5,
+    label: "",
+  };
+  const annotations = workspace.drawingVisibleCanvasRegionAnnotations({
+    anchors: [
+      matching,
+      { ...matching, id: "wrong-revision", revision_id: "other" },
+      { ...matching, id: "wrong-page", page_id: "other" },
+      { ...matching, id: "wrong-canvas", canvas_id: "other" },
+      {
+        ...matching,
+        id: "unknown-issue",
+        issue_id: "unknown",
+        label: "",
+      },
+    ],
+    canvasId: ids.canvas,
+    issues: [{ id: ids.issue, title: "외벽 개구부 확인" }],
+    pageId: ids.page,
+    revisionId: ids.revision,
+    selectedIssueId: ids.issue,
+  });
+
+  assert.deepEqual(annotations, [
+    {
+      id: "matching",
+      issueId: ids.issue,
+      label: "외벽 개구부 확인",
+      x: -12.5,
+      y: 24,
+      width: 80,
+      height: 45.5,
+      selected: true,
+    },
+    {
+      id: "unknown-issue",
+      issueId: "unknown",
+      label: "이슈 영역",
+      x: -12.5,
+      y: 24,
+      width: 80,
+      height: 45.5,
+      selected: false,
+    },
+  ]);
+});
+
+test("a locally created issue wins selection once and later realtime issues preserve manual selection", () => {
+  assert.equal(
+    typeof workspace.transitionDrawingWorkspaceIssueSelection,
+    "function",
+  );
+  const transition = workspace.transitionDrawingWorkspaceIssueSelection;
+  const beforeCreatedIssueIsVisible = transition(
+    { consumedCreatedIssueId: null, selectedIssueId: "existing" },
+    { createdIssueId: "created", issues: [{ id: "existing" }] },
+  );
+  assert.deepEqual(beforeCreatedIssueIsVisible, {
+    consumedCreatedIssueId: null,
+    selectedIssueId: "existing",
+  });
+
+  const createdIssueBecomesVisible = transition(beforeCreatedIssueIsVisible, {
+    createdIssueId: "created",
+    issues: [{ id: "created" }, { id: "existing" }],
+  });
+  assert.deepEqual(createdIssueBecomesVisible, {
+    consumedCreatedIssueId: "created",
+    selectedIssueId: "created",
+  });
+
+  assert.deepEqual(
+    transition(
+      { ...createdIssueBecomesVisible, selectedIssueId: "existing" },
+      {
+        createdIssueId: "created",
+        issues: [{ id: "unrelated" }, { id: "created" }, { id: "existing" }],
+      },
+    ),
+    {
+      consumedCreatedIssueId: "created",
+      selectedIssueId: "existing",
+    },
+  );
+});
+
+test("whole issue selection is a pure repeatable React state transition", () => {
+  assert.equal(
+    typeof workspace.transitionDrawingWorkspaceIssueSelection,
+    "function",
+  );
+  const transition = workspace.transitionDrawingWorkspaceIssueSelection;
+  const current = {
+    consumedCreatedIssueId: null,
+    selectedIssueId: "existing",
+  };
+  const input = {
+    createdIssueId: "created",
+    issues: [{ id: "created" }, { id: "existing" }],
+  };
+  const expected = {
+    consumedCreatedIssueId: "created",
+    selectedIssueId: "created",
+  };
+
+  assert.deepEqual(transition(current, input), expected);
+  assert.deepEqual(transition(current, input), expected);
+  assert.notEqual(transition(current, input), current);
+  assert.deepEqual(current, {
+    consumedCreatedIssueId: null,
+    selectedIssueId: "existing",
+  });
+  assert.equal(
+    transition(current, {
+      createdIssueId: null,
+      issues: [{ id: "existing" }],
+    }),
+    current,
+  );
+});
+
+test("canvas region picker ownership is bound to the exact capability and canvas boundary", () => {
+  const boundary = {
+    capability: "editor",
+    issueId: ids.issue,
+    revisionId: ids.revision,
+    pageId: ids.page,
+    canvasId: ids.canvas,
+  };
+  const key = workspace.drawingCanvasRegionPickerBoundaryKey(boundary);
+  assert.equal(
+    workspace.drawingCanvasRegionPickerIsArmed({
+      armedBoundaryKey: key,
+      currentBoundaryKey: key,
+      canArm: true,
+    }),
+    true,
+  );
+  for (const changed of [
+    { ...boundary, capability: "reviewer" },
+    { ...boundary, issueId: ids.comment },
+    { ...boundary, revisionId: ids.comment },
+    { ...boundary, pageId: ids.comment },
+    { ...boundary, canvasId: ids.comment },
+  ])
+    assert.equal(
+      workspace.drawingCanvasRegionPickerIsArmed({
+        armedBoundaryKey: key,
+        currentBoundaryKey:
+          workspace.drawingCanvasRegionPickerBoundaryKey(changed),
+        canArm: true,
+      }),
+      false,
+    );
+  assert.equal(
+    workspace.drawingCanvasRegionPickerBoundaryKey({
+      ...boundary,
+      pageId: null,
+    }),
+    null,
+  );
+});
+
 test("workspace tab order exposes collaboration and bounded history panels", () => {
   assert.equal(
     workspace.resolveDrawingWorkspacePanelKey("blocks", "ArrowRight"),
@@ -106,8 +309,23 @@ test("workspace tab order exposes collaboration and bounded history panels", () 
   );
 });
 
-test("activity history is one bounded chronological composite-keyset page", async () => {
+test("activity history pages stay bounded while large operations use summary-only details", async () => {
   const calls = [];
+  const largeOperationBody = {
+    type: "add_objects",
+    objects: Array.from({ length: 100 }, (_, index) => ({
+      id: `object-${index}`,
+      name: `운반되면 안 되는 원본 객체 ${index}`,
+      geometry: {
+        type: "rectangle",
+        x: index,
+        y: index,
+        width: 10,
+        height: 5,
+      },
+      style: { stroke: "#111827", fill: "#f8fafc", strokeWidth: 1 },
+    })),
+  };
   const rows = {
     lukas_drawing_operations: Array.from({ length: 11 }, (_, index) => ({
       id: `00000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`,
@@ -115,7 +333,7 @@ test("activity history is one bounded chronological composite-keyset page", asyn
       revision_id: ids.revision,
       actor_id: ids.actor,
       operation_type: "update_objects",
-      forward: { type: "update_objects" },
+      forward: index === 0 ? largeOperationBody : { type: "update_objects" },
       history_action: null,
       original_operation_id: null,
       created_at: `2026-08-26T00:${String(40 - index).padStart(2, "0")}:00.000Z`,
@@ -173,6 +391,19 @@ test("activity history is one bounded chronological composite-keyset page", asyn
     page.items[0].clientOperationId,
     rows.lukas_drawing_operations[0].client_operation_id,
   );
+  assert.deepEqual(page.items[0].detail, {
+    type: "add_objects",
+    itemCount: 100,
+  });
+  assert.equal(
+    workspace.drawingActivityDescription(page.items[0]),
+    "add_objects · 100개 항목",
+  );
+  assert.ok(
+    Buffer.byteLength(JSON.stringify(page.items[0])) <
+      Buffer.byteLength(JSON.stringify(largeOperationBody)) / 10,
+  );
+  assert.doesNotMatch(JSON.stringify(page), /운반되면 안 되는 원본 객체/);
   assert.ok(calls.some((call) => call[1] === "or"));
   assert.ok(
     calls.some(
@@ -214,7 +445,7 @@ test("activity detail and provenance stay bounded and human-readable", () => {
     actorId: ids.actor,
     revisionId: ids.revision,
     action: "undo",
-    detail: { type: "restore_checkpoint", actions: Array(500).fill({}) },
+    detail: { type: "restore_checkpoint", itemCount: 500 },
     provenance: {
       historyAction: "undo",
       originalOperationId: ids.comment,
@@ -253,6 +484,24 @@ test("workspace owns real target/comment and checkpoint restore controls", async
   assert.doesNotMatch(
     source,
     /effectiveRevisionStatus === "approved" && authority\.canWrite/,
+  );
+});
+
+test("issue linking waits for the selected-object route transition", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const issueLinkForm = source.slice(
+    source.indexOf('value="link_issue"'),
+    source.indexOf("선택 객체를 이슈에 연결") +
+      "선택 객체를 이슈에 연결".length,
+  );
+
+  assert.match(
+    issueLinkForm,
+    /disabled=\{navigation\.state !== "idle"\}/,
+    "a link click must not race the query navigation that commits object selection",
   );
 });
 

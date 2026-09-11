@@ -5,11 +5,19 @@ import { data, redirect } from "react-router";
 import { z } from "zod";
 
 import makeServerClient from "~/core/lib/supa-client.server";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 import { WorkspaceDashboard } from "~/lukas/components/workspace-dashboard";
 import {
   listDrawingIssueMetrics,
   type DrawingClient,
 } from "~/lukas/lib/drawing-collaboration.server";
+import { ensurePersonalDrawingProject } from "~/lukas/lib/drawing-personal-project.server";
+import { createDrawingWorkspaceStart } from "~/lukas/lib/drawing-starter-templates.server";
+import {
+  drawingWorkspaceNewPath,
+  drawingWorkspacePath,
+} from "~/lukas/lib/drawing-workspace-paths";
 import { drawingWorkspaceCapabilityForRole } from "~/lukas/lib/drawing-workspace.server";
 
 const newProjectSchema = z.object({
@@ -18,6 +26,81 @@ const newProjectSchema = z.object({
   contactName: z.string().trim().max(80).optional(),
   contactPhone: z.string().trim().max(40).optional(),
 });
+
+const quickStartSchema = z
+  .object({
+    intent: z.enum(["quick_blank", "quick_template", "quick_file"]),
+    client_request_id: z.string().uuid(),
+    client_created_at: z.string().datetime(),
+  })
+  .strict();
+
+type QuickStartMutation = z.infer<typeof quickStartSchema>;
+
+export function resolveWorkspaceEntryScope({
+  requestedSpace,
+  authorizedOrganizationIds,
+  defaultOrganizationId,
+  accessibleProjectOrganizationIds,
+  hasSharedProjects,
+}: {
+  requestedSpace?: string | null;
+  authorizedOrganizationIds: string[];
+  defaultOrganizationId?: string;
+  accessibleProjectOrganizationIds: Array<string | null>;
+  hasSharedProjects: boolean;
+}) {
+  const authorizedOrganizationIdSet = new Set(authorizedOrganizationIds);
+  const populatedOrganizationIds = new Set(
+    accessibleProjectOrganizationIds.filter(
+      (organizationId): organizationId is string =>
+        organizationId !== null &&
+        authorizedOrganizationIdSet.has(organizationId),
+    ),
+  );
+  const hasAccessibleProjects =
+    populatedOrganizationIds.size > 0 || hasSharedProjects;
+  const explicitScopeIsValid =
+    requestedSpace === "shared" ||
+    (requestedSpace !== null &&
+      requestedSpace !== undefined &&
+      authorizedOrganizationIdSet.has(requestedSpace));
+
+  if (explicitScopeIsValid)
+    return { activeScopeKey: requestedSpace!, hasAccessibleProjects };
+  if (
+    defaultOrganizationId &&
+    populatedOrganizationIds.has(defaultOrganizationId)
+  )
+    return { activeScopeKey: defaultOrganizationId, hasAccessibleProjects };
+
+  const populatedOrganizationId = authorizedOrganizationIds.find((id) =>
+    populatedOrganizationIds.has(id),
+  );
+  if (populatedOrganizationId)
+    return { activeScopeKey: populatedOrganizationId, hasAccessibleProjects };
+  if (hasSharedProjects)
+    return { activeScopeKey: "shared", hasAccessibleProjects };
+  return {
+    activeScopeKey:
+      defaultOrganizationId ?? authorizedOrganizationIds[0] ?? "shared",
+    hasAccessibleProjects,
+  };
+}
+
+function parseQuickStart(formData: FormData) {
+  if (!formData.has("intent")) return null;
+  const allowed = new Set(["intent", "client_request_id", "client_created_at"]);
+  for (const key of formData.keys()) {
+    if (!allowed.has(key) || formData.getAll(key).length !== 1) return false;
+  }
+  const parsed = quickStartSchema.safeParse(Object.fromEntries(formData));
+  return parsed.success ? parsed.data : false;
+}
+
+function quickStartKind(intent: QuickStartMutation["intent"]) {
+  return intent.replace("quick_", "") as "blank" | "template" | "file";
+}
 
 export const meta: Route.MetaFunction = () => [
   { title: "도면 작업공간 | 1HK Platform" },
@@ -29,230 +112,366 @@ export const meta: Route.MetaFunction = () => [
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const [client] = makeServerClient(request);
+  const [client, headers] = makeServerClient(request);
   const {
     data: { user },
   } = await client.auth.getUser();
 
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
+  try {
+    const [
+      { data: accessibleProjects, error },
+      { data: organizationMemberships, error: organizationMembershipError },
+      { data: directProjectMemberships, error: projectMembershipError },
+    ] = await Promise.all([
+      client
+        .from("lukas_qto_projects")
+        .select(
+          "id, name, owner_id, organization_id, description, workflow_status, created_at, updated_at",
+        )
+        .is("archived_at", null)
+        .order("updated_at", { ascending: false }),
+      client
+        .from("lukas_qto_organization_members")
+        .select("organization_id,user_id,role")
+        .eq("user_id", user.id)
+        .order("created_at"),
+      client
+        .from("lukas_qto_project_members")
+        .select("project_id,user_id,role")
+        .eq("user_id", user.id),
+    ]);
 
-  const [
-    { data: projects, error },
-    { data: organizationMemberships, error: organizationMembershipError },
-  ] = await Promise.all([
-    client
-      .from("lukas_qto_projects")
-      .select(
-        "id, name, owner_id, description, workflow_status, created_at, updated_at",
+    if (error || organizationMembershipError || projectMembershipError) {
+      throw new Response("프로젝트 목록을 불러오지 못했습니다.", {
+        status: 500,
+      });
+    }
+    const currentUserMemberships = (organizationMemberships ?? []).filter(
+      (membership) => membership.user_id === user.id,
+    );
+    const organizationIds = currentUserMemberships.map(
+      (membership) => membership.organization_id,
+    );
+    const organizationIdSet = new Set(organizationIds);
+    const { data: organizations, error: organizationsError } =
+      organizationIds.length === 0
+        ? { data: [], error: null }
+        : await client
+            .from("lukas_qto_organizations")
+            .select("id,name,owner_id,is_personal")
+            .in("id", organizationIds)
+            .order("name");
+    if (organizationsError)
+      throw new Response("회사 작업공간을 불러오지 못했습니다.", {
+        status: 500,
+      });
+    const organizationRoles = new Map(
+      currentUserMemberships.map((membership) => [
+        membership.organization_id,
+        membership.role,
+      ]),
+    );
+    const isStaff = user.app_metadata.role === "hangil_staff";
+    const authorizedOrganizations = (organizations ?? []).filter(
+      (organization) => organizationIdSet.has(organization.id),
+    );
+    const visibleOrganizations = authorizedOrganizations.map(
+      (organization) => ({
+        id: organization.id,
+        name: organization.name,
+        is_personal: organization.is_personal,
+        can_manage:
+          isStaff ||
+          organization.owner_id === user.id ||
+          ["owner", "admin"].includes(
+            organizationRoles.get(organization.id) ?? "",
+          ),
+      }),
+    );
+
+    const requestedSpace = new URL(request.url).searchParams.get("space");
+    const personalOrganizationId = authorizedOrganizations.find(
+      (organization) =>
+        organization.is_personal && organization.owner_id === user.id,
+    )?.id;
+    const defaultOrganization =
+      visibleOrganizations.find(
+        (organization) => organization.id === personalOrganizationId,
+      ) ?? visibleOrganizations[0];
+    const directProjectIds = new Set(
+      (directProjectMemberships ?? [])
+        .filter((membership) => membership.user_id === user.id)
+        .map((membership) => membership.project_id),
+    );
+    const sharedProjects = (accessibleProjects ?? []).filter(
+      (project) =>
+        !organizationIdSet.has(project.organization_id) &&
+        (project.owner_id === user.id || directProjectIds.has(project.id)),
+    );
+    const entryScope = resolveWorkspaceEntryScope({
+      requestedSpace,
+      authorizedOrganizationIds: visibleOrganizations.map(
+        (organization) => organization.id,
+      ),
+      defaultOrganizationId: defaultOrganization?.id,
+      accessibleProjectOrganizationIds: (accessibleProjects ?? []).map(
+        (project) => project.organization_id,
+      ),
+      hasSharedProjects: sharedProjects.length > 0,
+    });
+    const activeOrganization = visibleOrganizations.find(
+      (organization) => organization.id === entryScope.activeScopeKey,
+    );
+    const activeScope = activeOrganization
+      ? {
+          key: activeOrganization.id,
+          kind: "organization" as const,
+          name: activeOrganization.name,
+          organizationId: activeOrganization.id,
+          is_personal: activeOrganization.is_personal,
+          can_manage: activeOrganization.can_manage,
+        }
+      : {
+          key: "shared" as const,
+          kind: "shared" as const,
+          name: "공유받은 항목",
+          can_manage: false as const,
+        };
+    const projects = activeOrganization
+      ? (accessibleProjects ?? []).filter(
+          (project) => project.organization_id === activeOrganization.id,
+        )
+      : sharedProjects;
+
+    const projectIds = (projects ?? []).map((project) => project.id);
+    const [filesResult, documentsResult, reviewsResult, membersResult] =
+      projectIds.length === 0
+        ? [
+            { data: [], error: null },
+            { data: [], error: null },
+            { data: [], error: null },
+            { data: [], error: null },
+          ]
+        : await Promise.all([
+            client
+              .from("lukas_qto_files")
+              .select("id, project_id, kind, original_filename, created_at")
+              .in("project_id", projectIds)
+              .order("created_at", { ascending: false }),
+            (client as any)
+              .from("lukas_drawing_documents")
+              .select("id,project_id,title,updated_at")
+              .in("project_id", projectIds)
+              .order("updated_at", { ascending: false })
+              .order("id", { ascending: false }),
+            client
+              .from("lukas_qto_reviews")
+              .select("id, project_id, status, note, created_at")
+              .in("project_id", projectIds)
+              .order("created_at", { ascending: false }),
+            client
+              .from("lukas_qto_project_members")
+              .select("project_id, user_id, role")
+              .in("project_id", projectIds),
+          ]);
+
+    if (
+      filesResult.error ||
+      documentsResult.error ||
+      reviewsResult.error ||
+      membersResult.error
+    ) {
+      throw new Response("프로젝트 작업 현황을 불러오지 못했습니다.", {
+        status: 500,
+      });
+    }
+
+    const files = filesResult.data ?? [];
+    const documents = documentsResult.data ?? [];
+    const reviews = reviewsResult.data ?? [];
+    const members = membersResult.data ?? [];
+    const drawingMetrics = await listDrawingIssueMetrics(
+      client as unknown as DrawingClient,
+      projectIds,
+      user.id,
+    );
+    const projectMetrics = Object.fromEntries(
+      projectIds.map((projectId) => {
+        const project = (projects ?? []).find(
+          (candidate) => candidate.id === projectId,
+        );
+        const projectFiles = files.filter(
+          (file) => file.project_id === projectId,
+        );
+        const latestIfc = projectFiles.find((file) => file.kind === "ifc");
+        const latestDrawing = documents.find(
+          (document: { id: string; project_id: string }) =>
+            document.project_id === projectId,
+        );
+        const membershipRole = members.find(
+          (member) =>
+            member.project_id === projectId && member.user_id === user.id,
+        )?.role;
+        const capability = drawingWorkspaceCapabilityForRole(
+          isStaff
+            ? "staff"
+            : project?.owner_id === user.id
+              ? "owner"
+              : membershipRole,
+        );
+        return [
+          projectId,
+          {
+            canCreateWorkspace:
+              capability === "admin" || capability === "editor",
+            fileCount: projectFiles.length,
+            ifcCount: projectFiles.filter((file) => file.kind === "ifc").length,
+            openReviewCount: reviews.filter(
+              (review) =>
+                review.project_id === projectId && review.status !== "resolved",
+            ).length,
+            memberCount: members.filter(
+              (member) => member.project_id === projectId,
+            ).length,
+            latestIfcId: latestIfc?.id ?? null,
+            latestDrawingId: latestDrawing?.id ?? null,
+            unresolvedDrawingCount:
+              drawingMetrics[projectId]?.unresolvedCount ?? 0,
+            assignedToMeCount:
+              drawingMetrics[projectId]?.assignedToMeCount ?? 0,
+            latestFilename: projectFiles[0]?.original_filename ?? null,
+          },
+        ];
+      }),
+    );
+
+    const projectNames = new Map(
+      (projects ?? []).map((project) => [project.id, project.name]),
+    );
+    const activities = [
+      ...files.slice(0, 8).map((file) => ({
+        id: `file-${file.id}`,
+        projectId: file.project_id,
+        projectName: projectNames.get(file.project_id) ?? "프로젝트",
+        kind: "file" as const,
+        title: file.original_filename,
+        detail:
+          file.kind === "ifc"
+            ? "IFC 3D 모델이 추가되었습니다."
+            : "새 파일이 추가되었습니다.",
+        createdAt: file.created_at,
+      })),
+      ...reviews.slice(0, 8).map((review) => ({
+        id: `review-${review.id}`,
+        projectId: review.project_id,
+        projectName: projectNames.get(review.project_id) ?? "프로젝트",
+        kind: "review" as const,
+        title:
+          review.status === "resolved"
+            ? "검토가 완료되었습니다."
+            : "새 검토가 등록되었습니다.",
+        detail: review.note || "검토 내용을 확인하세요.",
+        createdAt: review.created_at,
+      })),
+    ]
+      .sort(
+        (left, right) =>
+          Date.parse(right.createdAt) - Date.parse(left.createdAt),
       )
-      .is("archived_at", null)
-      .order("updated_at", { ascending: false }),
-    client
-      .from("lukas_qto_organization_members")
-      .select("organization_id,role")
-      .order("created_at")
-      .limit(100),
-  ]);
-
-  if (error || organizationMembershipError) {
-    throw new Response("프로젝트 목록을 불러오지 못했습니다.", {
-      status: 500,
+      .slice(0, 8);
+    const quickStartRequest = () => ({
+      clientRequestId: crypto.randomUUID(),
+      clientCreatedAt: new Date().toISOString(),
     });
-  }
-  const organizationIds = (organizationMemberships ?? []).map(
-    (membership) => membership.organization_id,
-  );
-  const { data: organizations, error: organizationsError } =
-    organizationIds.length === 0
-      ? { data: [], error: null }
-      : await client
-          .from("lukas_qto_organizations")
-          .select("id,name,owner_id")
-          .in("id", organizationIds)
-          .order("name")
-          .limit(100);
-  if (organizationsError)
-    throw new Response("회사 작업공간을 불러오지 못했습니다.", { status: 500 });
-  const organizationRoles = new Map(
-    (organizationMemberships ?? []).map((membership) => [
-      membership.organization_id,
-      membership.role,
-    ]),
-  );
-  const isStaff = user.app_metadata.role === "hangil_staff";
-  const visibleOrganizations = (organizations ?? []).map((organization) => ({
-    id: organization.id,
-    name: organization.name,
-    can_manage:
-      isStaff ||
-      organization.owner_id === user.id ||
-      ["owner", "admin"].includes(organizationRoles.get(organization.id) ?? ""),
-  }));
 
-  const projectIds = (projects ?? []).map((project) => project.id);
-  const [filesResult, documentsResult, reviewsResult, membersResult] =
-    projectIds.length === 0
-      ? [
-          { data: [], error: null },
-          { data: [], error: null },
-          { data: [], error: null },
-          { data: [], error: null },
-        ]
-      : await Promise.all([
-          client
-            .from("lukas_qto_files")
-            .select("id, project_id, kind, original_filename, created_at")
-            .in("project_id", projectIds)
-            .order("created_at", { ascending: false }),
-          (client as any)
-            .from("lukas_drawing_documents")
-            .select("id,project_id,updated_at")
-            .in("project_id", projectIds)
-            .order("updated_at", { ascending: false })
-            .order("id", { ascending: false }),
-          client
-            .from("lukas_qto_reviews")
-            .select("id, project_id, status, note, created_at")
-            .in("project_id", projectIds)
-            .order("created_at", { ascending: false }),
-          client
-            .from("lukas_qto_project_members")
-            .select("project_id, user_id, role")
-            .in("project_id", projectIds),
-        ]);
-
-  if (
-    filesResult.error ||
-    documentsResult.error ||
-    reviewsResult.error ||
-    membersResult.error
-  ) {
-    throw new Response("프로젝트 작업 현황을 불러오지 못했습니다.", {
-      status: 500,
-    });
-  }
-
-  const files = filesResult.data ?? [];
-  const documents = documentsResult.data ?? [];
-  const reviews = reviewsResult.data ?? [];
-  const members = membersResult.data ?? [];
-  const drawingMetrics = await listDrawingIssueMetrics(
-    client as unknown as DrawingClient,
-    projectIds,
-    user.id,
-  );
-  const projectMetrics = Object.fromEntries(
-    projectIds.map((projectId) => {
-      const project = (projects ?? []).find(
-        (candidate) => candidate.id === projectId,
-      );
-      const projectFiles = files.filter(
-        (file) => file.project_id === projectId,
-      );
-      const latestIfc = projectFiles.find((file) => file.kind === "ifc");
-      const latestDrawing = documents.find(
-        (document: { id: string; project_id: string }) =>
-          document.project_id === projectId,
-      );
-      const membershipRole = members.find(
-        (member) =>
-          member.project_id === projectId && member.user_id === user.id,
-      )?.role;
-      const capability = drawingWorkspaceCapabilityForRole(
-        isStaff
-          ? "staff"
-          : project?.owner_id === user.id
-            ? "owner"
-            : membershipRole,
-      );
-      return [
-        projectId,
-        {
-          canCreateWorkspace: capability === "admin" || capability === "editor",
-          fileCount: projectFiles.length,
-          ifcCount: projectFiles.filter((file) => file.kind === "ifc").length,
-          openReviewCount: reviews.filter(
-            (review) =>
-              review.project_id === projectId && review.status !== "resolved",
-          ).length,
-          memberCount: members.filter(
-            (member) => member.project_id === projectId,
-          ).length,
-          latestIfcId: latestIfc?.id ?? null,
-          latestDrawingId: latestDrawing?.id ?? null,
-          unresolvedDrawingCount:
-            drawingMetrics[projectId]?.unresolvedCount ?? 0,
-          assignedToMeCount: drawingMetrics[projectId]?.assignedToMeCount ?? 0,
-          latestFilename: projectFiles[0]?.original_filename ?? null,
+    return data(
+      {
+        projects: projects ?? [],
+        projectMetrics,
+        activities,
+        drawings: documents.slice(0, 8),
+        email: user.email ?? "",
+        isStaff,
+        organizations: visibleOrganizations,
+        activeScope,
+        hasSharedProjects: sharedProjects.length > 0,
+        hasAccessibleProjects: entryScope.hasAccessibleProjects,
+        quickStartRequests: {
+          blank: quickStartRequest(),
+          template: quickStartRequest(),
+          file: quickStartRequest(),
         },
-      ];
-    }),
-  );
-
-  const projectNames = new Map(
-    (projects ?? []).map((project) => [project.id, project.name]),
-  );
-  const activities = [
-    ...files.slice(0, 8).map((file) => ({
-      id: `file-${file.id}`,
-      projectId: file.project_id,
-      projectName: projectNames.get(file.project_id) ?? "프로젝트",
-      kind: "file" as const,
-      title: file.original_filename,
-      detail:
-        file.kind === "ifc"
-          ? "IFC 3D 모델이 추가되었습니다."
-          : "새 파일이 추가되었습니다.",
-      createdAt: file.created_at,
-    })),
-    ...reviews.slice(0, 8).map((review) => ({
-      id: `review-${review.id}`,
-      projectId: review.project_id,
-      projectName: projectNames.get(review.project_id) ?? "프로젝트",
-      kind: "review" as const,
-      title:
-        review.status === "resolved"
-          ? "검토가 완료되었습니다."
-          : "새 검토가 등록되었습니다.",
-      detail: review.note || "검토 내용을 확인하세요.",
-      createdAt: review.created_at,
-    })),
-  ]
-    .sort(
-      (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
-    )
-    .slice(0, 8);
-
-  return {
-    projects: projects ?? [],
-    projectMetrics,
-    activities,
-    email: user.email ?? "",
-    isStaff,
-    organizations: visibleOrganizations,
-  };
+      },
+      { headers },
+    );
+  } catch (error) {
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
+  }
 }
 
 export async function action({ request }: Route.ActionArgs) {
+  const [client, headers] = makeServerClient(request);
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+  if (!user || user.is_anonymous) {
+    throw redirect(authLoginPath(request.url), { headers });
+  }
+
   const formData = await request.formData();
+  const quickMutation = parseQuickStart(formData);
+  if (quickMutation === false) {
+    return data({ error: "입력값을 확인하세요." }, { status: 400, headers });
+  }
+  if (quickMutation) {
+    const kind = quickStartKind(quickMutation.intent);
+    try {
+      const { projectId, organizationId } =
+        await ensurePersonalDrawingProject(client);
+      if (quickMutation.intent === "quick_template")
+        return redirect(
+          `${drawingWorkspaceNewPath(projectId)}#starter-workspace-title`,
+          { headers },
+        );
+      if (quickMutation.intent === "quick_file")
+        return redirect(`/projects/${projectId}/files`, { headers });
+      const created = await createDrawingWorkspaceStart(client, {
+        projectId,
+        organizationId,
+        title: "새 도면",
+        sourceFile: null,
+        definition: null,
+        clientRequestId: quickMutation.client_request_id,
+        clientCreatedAt: quickMutation.client_created_at,
+      });
+      return redirect(drawingWorkspacePath(projectId, created.documentId), {
+        headers,
+      });
+    } catch {
+      return data(
+        {
+          quickStartFailure: {
+            kind,
+            clientRequestId: quickMutation.client_request_id,
+            clientCreatedAt: quickMutation.client_created_at,
+            message:
+              "새 도면을 시작하지 못했습니다. 잠시 후 다시 시도하거나 프로젝트에서 시작하세요.",
+          },
+        },
+        { status: 409, headers },
+      );
+    }
+  }
   const parsed = newProjectSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     return data(
       {
         error: parsed.error.issues[0]?.message ?? "입력값을 확인하세요.",
       },
-      { status: 400 },
-    );
-  }
-
-  const [client, headers] = makeServerClient(request);
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-  if (!user || user.is_anonymous) {
-    return data(
-      { error: "이메일 로그인이 필요합니다." },
-      { status: 401, headers },
+      { status: 400, headers },
     );
   }
 
@@ -282,7 +501,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  return redirect(`/projects/${project.id}/workspace`, { headers });
+  return redirect(drawingWorkspaceNewPath(project.id), { headers });
 }
 
 export default function Workspace({
@@ -295,11 +514,21 @@ export default function Workspace({
         actionData && "error" in actionData ? actionData.error : undefined
       }
       activities={loaderData.activities}
+      drawings={loaderData.drawings}
       email={loaderData.email}
       isStaff={loaderData.isStaff}
       organizations={loaderData.organizations}
+      activeScope={loaderData.activeScope}
+      hasSharedProjects={loaderData.hasSharedProjects}
+      hasAccessibleProjects={loaderData.hasAccessibleProjects}
       projectMetrics={loaderData.projectMetrics}
       projects={loaderData.projects}
+      quickStartFailure={
+        actionData && "quickStartFailure" in actionData
+          ? actionData.quickStartFailure
+          : undefined
+      }
+      quickStartRequests={loaderData.quickStartRequests}
     />
   );
 }

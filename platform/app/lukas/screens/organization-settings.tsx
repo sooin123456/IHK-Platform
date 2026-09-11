@@ -6,13 +6,15 @@ import { Form, Link, data, redirect } from "react-router";
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 import { organizationAdminPageHref } from "~/lukas/lib/organization-administration";
 import {
   deliverOrganizationInvitationEmail,
   loadOrganizationAdminPage,
   parseOrganizationAdministrationForm,
-  runOrganizationAdministrationMutation,
+  runOrganizationAdministrationMutationWithInvitationOrigin,
 } from "~/lukas/lib/organization-administration.server";
 
 async function context(request: Request, organizationId: string) {
@@ -20,7 +22,8 @@ async function context(request: Request, organizationId: string) {
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   const [{ data: organization }, { data: membership }] = await Promise.all([
     client
       .from("lukas_qto_organizations")
@@ -41,7 +44,10 @@ async function context(request: Request, organizationId: string) {
     membership?.role === "owner" ||
     membership?.role === "admin";
   if (!organization || !mayManage)
-    throw new Response("회사를 관리할 권한이 없습니다.", { status: 403 });
+    throw mergeResponseHeaders(
+      new Response("회사를 관리할 권한이 없습니다.", { status: 403 }),
+      headers,
+    );
   return { client: client as any, headers, isStaff, organization, user };
 }
 
@@ -58,117 +64,126 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.organizationId!,
   );
-  const searchParams = new URL(request.url).searchParams;
-  const memberCursor = searchParams.get("memberAfter");
-  const invitationCursor = searchParams.get("invitationAfter");
-  const projectCursor = searchParams.get("projectAfter");
-  const destinationCursor = searchParams.get("destinationAfter");
-  let pages;
   try {
-    pages = await Promise.all([
-      loadOrganizationAdminPage<any>(
-        client,
-        "lukas_qto_list_organization_members",
-        organization.id,
-        memberCursor,
-      ),
-      loadOrganizationAdminPage<any>(
-        client,
-        "lukas_qto_list_organization_invitations",
-        organization.id,
-        invitationCursor,
-      ),
-      loadOrganizationAdminPage<any>(
-        client,
-        "lukas_qto_list_organization_projects",
-        organization.id,
-        projectCursor,
-      ),
-      loadOrganizationAdminPage<any>(
-        client,
-        "lukas_qto_list_managed_organizations",
-        organization.id,
-        destinationCursor,
-      ),
+    const searchParams = new URL(request.url).searchParams;
+    const memberCursor = searchParams.get("memberAfter");
+    const invitationCursor = searchParams.get("invitationAfter");
+    const projectCursor = searchParams.get("projectAfter");
+    const destinationCursor = searchParams.get("destinationAfter");
+    let pages;
+    try {
+      pages = await Promise.all([
+        loadOrganizationAdminPage<any>(
+          client,
+          "lukas_qto_list_organization_members",
+          organization.id,
+          memberCursor,
+        ),
+        loadOrganizationAdminPage<any>(
+          client,
+          "lukas_qto_list_organization_invitations",
+          organization.id,
+          invitationCursor,
+        ),
+        loadOrganizationAdminPage<any>(
+          client,
+          "lukas_qto_list_organization_projects",
+          organization.id,
+          projectCursor,
+        ),
+        loadOrganizationAdminPage<any>(
+          client,
+          "lukas_qto_list_managed_organizations",
+          organization.id,
+          destinationCursor,
+        ),
+      ]);
+    } catch (error) {
+      if (error instanceof Error && error.name === "ZodError")
+        throw new Response("회사 관리 페이지 위치가 올바르지 않습니다.", {
+          status: 400,
+        });
+      throw error;
+    }
+    const [memberPage, invitationPage, projectPage, destinationPage] = pages;
+    const members = memberPage.rows;
+    const [entitlements, events] = await Promise.all([
+      client
+        .from("lukas_qto_organization_entitlement_versions")
+        .select(
+          "id,version_no,plan,seat_limit,project_limit,library_version_limit,trial_ends_at,features,reason,created_at",
+        )
+        .eq("organization_id", organization.id)
+        .order("version_no", { ascending: false })
+        .limit(20),
+      client
+        .from("lukas_qto_organization_admin_events")
+        .select("id,event_type,details,created_at")
+        .eq("organization_id", organization.id)
+        .order("created_at", { ascending: false })
+        .limit(50),
     ]);
+    const failed = [entitlements, events].find((result) => result.error);
+    if (failed?.error)
+      throw new Response(
+        `회사 관리 정보를 불러오지 못했습니다: ${failed.error.message}`,
+        {
+          status: 500,
+        },
+      );
+    const invitations = invitationPage.rows;
+    const projects = projectPage.rows;
+    return data(
+      {
+        organization,
+        isStaff,
+        members,
+        memberNext: memberPage.next,
+        invitations,
+        invitationNext: invitationPage.next,
+        entitlements: entitlements.data ?? [],
+        events: events.data ?? [],
+        projects,
+        projectNext: projectPage.next,
+        destinations: destinationPage.rows,
+        destinationNext: destinationPage.next,
+        cursors: {
+          memberAfter: memberCursor,
+          invitationAfter: invitationCursor,
+          projectAfter: projectCursor,
+          destinationAfter: destinationCursor,
+        },
+        requestIds: {
+          settings: crypto.randomUUID(),
+          invite: crypto.randomUUID(),
+          entitlement: crypto.randomUUID(),
+          members: Object.fromEntries(
+            members.map((member: any) => [member.user_id, crypto.randomUUID()]),
+          ),
+          invitations: Object.fromEntries(
+            invitations.map((invitation: any) => [
+              invitation.id,
+              crypto.randomUUID(),
+            ]),
+          ),
+          projects: Object.fromEntries(
+            projects.map((project: any) => [project.id, crypto.randomUUID()]),
+          ),
+        },
+      },
+      { headers },
+    );
   } catch (error) {
-    if (error instanceof Error && error.name === "ZodError")
-      throw new Response("회사 관리 페이지 위치가 올바르지 않습니다.", {
-        status: 400,
-      });
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
     throw error;
   }
-  const [memberPage, invitationPage, projectPage, destinationPage] = pages;
-  const members = memberPage.rows;
-  const [entitlements, events] = await Promise.all([
-    client
-      .from("lukas_qto_organization_entitlement_versions")
-      .select(
-        "id,version_no,plan,seat_limit,project_limit,library_version_limit,trial_ends_at,features,reason,created_at",
-      )
-      .eq("organization_id", organization.id)
-      .order("version_no", { ascending: false })
-      .limit(20),
-    client
-      .from("lukas_qto_organization_admin_events")
-      .select("id,event_type,details,created_at")
-      .eq("organization_id", organization.id)
-      .order("created_at", { ascending: false })
-      .limit(50),
-  ]);
-  const failed = [entitlements, events].find((result) => result.error);
-  if (failed?.error)
-    throw new Response(
-      `회사 관리 정보를 불러오지 못했습니다: ${failed.error.message}`,
-      {
-        status: 500,
-      },
-    );
-  const invitations = invitationPage.rows;
-  const projects = projectPage.rows;
-  return data(
-    {
-      organization,
-      isStaff,
-      members,
-      memberNext: memberPage.next,
-      invitations,
-      invitationNext: invitationPage.next,
-      entitlements: entitlements.data ?? [],
-      events: events.data ?? [],
-      projects,
-      projectNext: projectPage.next,
-      destinations: destinationPage.rows,
-      destinationNext: destinationPage.next,
-      cursors: {
-        memberAfter: memberCursor,
-        invitationAfter: invitationCursor,
-        projectAfter: projectCursor,
-        destinationAfter: destinationCursor,
-      },
-      requestIds: {
-        settings: crypto.randomUUID(),
-        invite: crypto.randomUUID(),
-        entitlement: crypto.randomUUID(),
-        members: Object.fromEntries(
-          members.map((member: any) => [member.user_id, crypto.randomUUID()]),
-        ),
-        invitations: Object.fromEntries(
-          invitations.map((invitation: any) => [
-            invitation.id,
-            crypto.randomUUID(),
-          ]),
-        ),
-        projects: Object.fromEntries(
-          projects.map((project: any) => [project.id, crypto.randomUUID()]),
-        ),
-      },
-    },
-    { headers },
-  );
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
+  const { client, headers, isStaff, organization } = await context(
+    request,
+    params.organizationId!,
+  );
   let mutation: ReturnType<typeof parseOrganizationAdministrationForm>;
   try {
     mutation = parseOrganizationAdministrationForm(await request.formData());
@@ -177,33 +192,41 @@ export async function action({ request, params }: Route.ActionArgs) {
       {
         error: error instanceof Error ? error.message : "입력값을 확인하세요.",
       },
-      { status: 400 },
+      { status: 400, headers },
     );
   }
-  const { client, headers, isStaff, organization } = await context(
-    request,
-    params.organizationId!,
-  );
   if (mutation.intent === "set_entitlement" && !isStaff)
     return data(
       { error: "서비스 운영자만 플랜 권한을 변경할 수 있습니다." },
       { status: 403, headers },
     );
   try {
-    const result = await runOrganizationAdministrationMutation(
-      client,
-      organization.id,
-      mutation,
-    );
+    const { result, invitationOrigin } =
+      await runOrganizationAdministrationMutationWithInvitationOrigin(
+        client,
+        organization.id,
+        mutation,
+        request.url,
+      );
     if (mutation.intent === "invite_member" && result) {
       const invitationId = (result as { invitationId: string }).invitationId;
-      const origin = new URL(request.url).origin;
-      await deliverOrganizationInvitationEmail({
+      const origin = invitationOrigin!;
+      const delivered = await deliverOrganizationInvitationEmail({
         email: mutation.email,
         invitationId,
         organizationName: organization.name,
         origin,
       });
+      if (!delivered) {
+        return data(
+          {
+            warning:
+              "초대는 생성됐지만 이메일을 보내지 못했습니다. 아래 링크를 초대받을 사람에게 직접 공유하세요.",
+            invitationUrl: `${origin}/organization-invitations/${invitationId}/accept`,
+          },
+          { status: 201, headers },
+        );
+      }
     }
     return redirect(`/organizations/${organization.id}/settings`, { headers });
   } catch (error) {
@@ -236,6 +259,9 @@ export default function OrganizationSettings({
   actionData,
 }: Route.ComponentProps) {
   const current = loaderData.entitlements[0];
+  const error = actionData && "error" in actionData ? actionData.error : null;
+  const invitationFallback =
+    actionData && "invitationUrl" in actionData ? actionData : null;
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-10">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -253,10 +279,24 @@ export default function OrganizationSettings({
           <Link to="/workspace">작업실</Link>
         </Button>
       </header>
-      {actionData?.error ? (
+      {error ? (
         <p className="rounded-lg bg-destructive/10 p-3 text-destructive">
-          {actionData.error}
+          {error}
         </p>
+      ) : null}
+      {invitationFallback ? (
+        <div
+          className="space-y-2 rounded-lg bg-amber-500/10 p-3 text-amber-900 dark:text-amber-100"
+          role="status"
+        >
+          <p>{invitationFallback.warning}</p>
+          <Label htmlFor="manual-invitation-url">직접 공유할 초대 링크</Label>
+          <Input
+            id="manual-invitation-url"
+            readOnly
+            value={invitationFallback.invitationUrl}
+          />
+        </div>
       ) : null}
 
       <section className="rounded-2xl border p-6">

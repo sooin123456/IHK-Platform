@@ -1,0 +1,541 @@
+--- /tmp/1hk-r2-restore-x55wft/drawing-workspace-m1-estimator.spec.ts	2026-09-06 17:48:55
++++ platform/e2e/drawing-workspace-m1-estimator.spec.ts	2026-09-06 18:18:53
+@@ -4146,6 +4146,210 @@
+         state: "초안",
+       });
+       await expect(page.getByLabel("총 예상 금액")).toHaveText("153,600원");
++
++      const readEstimatorRestorationSnapshot = async () => {
++        const [
++          currentRevision,
++          savedObjects,
++          propertySchemas,
++          propertyValues,
++          canvases,
++          binding,
++          boqVersion,
++        ] = await Promise.all([
++          fixture.admin
++            .from("lukas_drawing_revisions")
++            .select("id,document_id,status,version")
++            .eq("id", revision.id)
++            .single(),
++          fixture.admin
++            .from("lukas_drawing_objects")
++            .select(
++              "id,lineage_id,page_id,layer_id,name,object_type,geometry,style_id,style,status,version",
++            )
++            .eq("revision_id", revision.id)
++            .in("id", Object.values(estimatorObjectIds))
++            .order("name"),
++          fixture.admin
++            .from("lukas_drawing_property_schemas")
++            .select(
++              "id,name,value_type,enum_options,applies_to,required,version",
++            )
++            .eq("revision_id", revision.id)
++            .order("name"),
++          fixture.admin
++            .from("lukas_drawing_property_values")
++            .select("id,schema_id,object_id,block_instance_id,value,version")
++            .eq("revision_id", revision.id)
++            .in("object_id", Object.values(estimatorObjectIds))
++            .order("id"),
++          fixture.admin
++            .from("lukas_drawing_canvases")
++            .select(
++              "id,page_id,name,space_kind,width_mm,height_mm,background_source_file_id,background_source_sha256,background_pdf_page,calibration,sort_order,version",
++            )
++            .eq("revision_id", revision.id)
++            .order("sort_order"),
++          fixture.admin
++            .from("lukas_drawing_estimate_bindings")
++            .select(
++              "id,project_id,drawing_revision_id,boq_version_id,created_by,created_at",
++            )
++            .eq("drawing_revision_id", revision.id)
++            .single(),
++          fixture.admin
++            .from("lukas_qto_boq_versions")
++            .select(
++              "id,project_id,version_no,title,status,engine_version,price_book_id,calculation_policy,quantity_scale,input_state_sha256,result_sha256,manifest_sha256,direct_cost_krw,line_count",
++            )
++            .eq("id", boqVersionId)
++            .single(),
++        ]);
++        const failed = [
++          currentRevision,
++          savedObjects,
++          propertySchemas,
++          propertyValues,
++          canvases,
++          binding,
++          boqVersion,
++        ].find((result) => result.error);
++        if (failed?.error) throw failed.error;
++        return {
++          binding: binding.data,
++          boqVersion: boqVersion.data,
++          canvases: canvases.data ?? [],
++          objects: savedObjects.data ?? [],
++          propertySchemas: propertySchemas.data ?? [],
++          propertyValues: propertyValues.data ?? [],
++          revision: currentRevision.data,
++        };
++      };
++
++      const savedRestorationSnapshot = await readEstimatorRestorationSnapshot();
++      expect(savedRestorationSnapshot.revision).toMatchObject({
++        document_id: estimatorWorkspaceId,
++        id: revision.id,
++        status: "draft",
++      });
++      expect(
++        Object.fromEntries(
++          savedRestorationSnapshot.objects.map(
++            ({ id, name, object_type, status }) => [
++              name,
++              { id, objectType: object_type, status },
++            ],
++          ),
++        ),
++      ).toEqual({
++        "M1 D-001 문": {
++          id: estimatorObjectIds.count,
++          objectType: "circle",
++          status: "active",
++        },
++        "M1 F-001 바닥": {
++          id: estimatorObjectIds.area,
++          objectType: "rectangle",
++          status: "active",
++        },
++        "M1 W-001 기준선": {
++          id: estimatorObjectIds.line,
++          objectType: "line",
++          status: "active",
++        },
++      });
++      expect(
++        Object.fromEntries(
++          savedRestorationSnapshot.objects.map(({ geometry, name }) => [
++            name,
++            geometry,
++          ]),
++        ),
++      ).toEqual({
++        "M1 D-001 문": {
++          center: { x: 350, y: 120 },
++          radius: 30,
++          type: "circle",
++        },
++        "M1 F-001 바닥": {
++          height: 100,
++          origin: { x: 40, y: 100 },
++          rotation: 0,
++          type: "rectangle",
++          width: 200,
++        },
++        "M1 W-001 기준선": {
++          end: { x: 340, y: 40 },
++          start: { x: 40, y: 40 },
++          type: "line",
++        },
++      });
++      const schemaNameById = new Map(
++        savedRestorationSnapshot.propertySchemas.map(({ id, name }) => [
++          id,
++          name,
++        ]),
++      );
++      const savedPropertyValues = Object.fromEntries(
++        savedRestorationSnapshot.objects.map(({ id, name }) => [
++          name,
++          Object.fromEntries(
++            savedRestorationSnapshot.propertyValues
++              .filter(({ object_id }) => object_id === id)
++              .map(({ schema_id, value }) => [
++                schemaNameById.get(schema_id),
++                value,
++              ]),
++          ),
++        ]),
++      );
++      expect(savedPropertyValues).toEqual({
++        "M1 D-001 문": {
++          "근거 사유": null,
++          "근거 상태": "수기 입력",
++          공종: "창호",
++          "적산 분류": "문",
++          "품목 코드": "D-001",
++        },
++        "M1 F-001 바닥": {
++          "근거 사유": "현장 실측 전 설계 치수 가정",
++          "근거 상태": "가정값",
++          공종: "마감",
++          "적산 분류": "바닥",
++          "품목 코드": "F-001",
++        },
++        "M1 W-001 기준선": {
++          "근거 사유": null,
++          "근거 상태": "현장 실측",
++          공종: "금속",
++          "적산 분류": "벽",
++          "품목 코드": "W-001",
++        },
++      });
++      expect(savedRestorationSnapshot.canvases).toEqual([
++        expect.objectContaining({
++          background_pdf_page: null,
++          background_source_file_id: null,
++          background_source_sha256: null,
++          calibration: null,
++          height_mm: 297,
++          name: "1 Paper",
++          sort_order: 0,
++          space_kind: "paper",
++          width_mm: 420,
++        }),
++      ]);
++      expect(savedRestorationSnapshot.binding).toMatchObject({
++        boq_version_id: boqVersionId,
++        drawing_revision_id: revision.id,
++        project_id: fixture.projectId,
++      });
++      expect(savedRestorationSnapshot.boqVersion).toMatchObject({
++        id: boqVersionId,
++        project_id: fixture.projectId,
++        status: "draft",
++      });
++
+       await page.reload();
+       await openResultRail(page);
+       await expectExactEstimateRow(page, {
+@@ -4155,6 +4359,88 @@
+         rate: "10,000원",
+         state: "초안",
+       });
++
++      await page.goto(`${baseUrl}/`);
++      const logoutLink = page.getByRole("link", {
++        name: "로그아웃",
++        exact: true,
++      });
++      await expect(logoutLink).toBeVisible();
++      await logoutLink.click();
++      await expect(page).toHaveURL(`${baseUrl}/`);
++      await expect(
++        page.getByRole("link", { name: "고객 로그인", exact: true }),
++      ).toBeVisible();
++      await expect(
++        page.getByRole("link", { name: "로그아웃", exact: true }),
++      ).toHaveCount(0);
++      await page.goto(`${baseUrl}/workspace`);
++      await expect(page).toHaveURL(
++        `${baseUrl}/auth/magic-link?next=%2Fworkspace`,
++      );
++      await expect(
++        page.getByText("로그인 링크 받기", { exact: true }),
++      ).toBeVisible();
++
++      const loggedOutPage = page;
++      page = await authenticateContext(
++        fixture,
++        context,
++        fixture.editor,
++        baseUrl,
++        "/workspace",
++      );
++      await loggedOutPage.close();
++      // Login defaults to the editor's personal space; the estimator belongs
++      // to the shared fixture organization, selected through the actual hub UI.
++      await page.getByRole("combobox", { name: "작업 공간 선택" })
++        .selectOption(fixture.organizationId);
++      await expect(page).toHaveURL(
++        `${baseUrl}/workspace?space=${fixture.organizationId}`,
++      );
++      const recent = page.getByRole("region", {
++        name: "최근 도면",
++        exact: true,
++      });
++      const estimatorPath = canonicalPath(
++        fixture.projectId,
++        estimatorWorkspaceId,
++      );
++      const recentEstimator = recent.locator(`a[href="${estimatorPath}"]`);
++      await expect(recentEstimator).toBeVisible();
++      await expect(recentEstimator).toContainText("A동 실내 적산");
++      await recentEstimator.click();
++      await expect(page).toHaveURL(estimatorPath);
++      await expect(
++        page.getByText("기준 좌표 · 1 도면 단위 = 1 mm"),
++      ).toBeVisible();
++      expect(await readEstimatorRestorationSnapshot()).toEqual(
++        savedRestorationSnapshot,
++      );
++      await openResultRail(page);
++      await expectExactEstimateRow(page, {
++        amount: "3,000원",
++        code: "W-001",
++        quantity: "0.3 m",
++        rate: "10,000원",
++        state: "초안",
++      });
++      await expectExactEstimateRow(page, {
++        amount: "600원",
++        code: "F-001",
++        quantity: "0.02 m2",
++        rate: "30,000원",
++        state: "가정값",
++      });
++      await expectExactEstimateRow(page, {
++        amount: "150,000원",
++        code: "D-001",
++        quantity: "1 EA",
++        rate: "150,000원",
++        state: "초안",
++      });
++      await expect(page.getByLabel("총 예상 금액")).toHaveText("153,600원");
++
+       await context.close();
+       context = null;
+ 
+@@ -4169,8 +4455,21 @@
+         baseUrl,
+         canonicalPath(fixture.projectId, estimatorWorkspaceId),
+       );
++      await expect(
++        page.getByText("기준 좌표 · 1 도면 단위 = 1 mm"),
++      ).toBeVisible();
++      expect(await readEstimatorRestorationSnapshot()).toEqual(
++        savedRestorationSnapshot,
++      );
+       await openResultRail(page);
+       await expectExactEstimateRow(page, {
++        amount: "3,000원",
++        code: "W-001",
++        quantity: "0.3 m",
++        rate: "10,000원",
++        state: "초안",
++      });
++      await expectExactEstimateRow(page, {
+         amount: "600원",
+         code: "F-001",
+         quantity: "0.02 m2",
+@@ -4184,6 +4483,7 @@
+         rate: "150,000원",
+         state: "초안",
+       });
++      await expect(page.getByLabel("총 예상 금액")).toHaveText("153,600원");
+       const binding = await fixture.admin
+         .from("lukas_drawing_estimate_bindings")
+         .select("drawing_revision_id,boq_version_id")
+@@ -8014,6 +8314,7 @@
+     const editorContext = await browser.newContext({
+       viewport: { width: 1440, height: 900 },
+     });
++    const editorEvidence = trackContextEvidence(editorContext);
+     const viewerContext = await browser.newContext({
+       viewport: { width: 1440, height: 900 },
+     });
+@@ -8353,12 +8654,68 @@
+       }
+       await selectObject(ownerPage, sharedObject.data.id);
+ 
++      const preOfflineObject = await fixture.admin
++        .from("lukas_drawing_objects")
++        .select("id,name,geometry,version")
++        .eq("id", sharedObject.data.id)
++        .single();
++      if (preOfflineObject.error) throw preOfflineObject.error;
++      const preOfflineGeometry = preOfflineObject.data.geometry as {
++        end?: { x: number; y: number };
++        start?: { x: number; y: number };
++        type?: string;
++      };
++      if (
++        preOfflineGeometry.type !== "line" ||
++        !preOfflineGeometry.start ||
++        !preOfflineGeometry.end
++      )
++        throw new Error("M3 pre-offline object is not the selected line");
++      const expectedOfflineGeometry = {
++        end: {
++          x: preOfflineGeometry.end.x + 1,
++          y: preOfflineGeometry.end.y,
++        },
++        start: {
++          x: preOfflineGeometry.start.x + 1,
++          y: preOfflineGeometry.start.y,
++        },
++        type: "line",
++      };
++      const expectedOfflineVersion = preOfflineObject.data.version + 1;
++      const expectedOfflineForward = {
++        type: "update_objects",
++        updates: [
++          {
++            objectId: sharedObject.data.id,
++            patch: { geometry: expectedOfflineGeometry },
++          },
++        ],
++      };
++      const expectedOfflineBaseVersions = {
++        [sharedObject.data.id]: preOfflineObject.data.version,
++      };
++      const expectedOfflineResultVersions = {
++        [sharedObject.data.id]: expectedOfflineVersion,
++      };
++      await ownerPage.getByRole("tab", { name: "객체" }).click();
++      // Send the nudge from the canvas, not the inspector tab's arrow navigation.
++      await selectObject(ownerPage, sharedObject.data.id);
+       const persistedBefore = await persistedCollaborationState(ownerPage);
++      const editorFailuresBeforeReconnect =
++        editorEvidence.requestFailures.length;
+       await ownerContext.setOffline(true);
+       await ownerPage.keyboard.press("ArrowRight");
+       await expect(
+         ownerPage.getByRole("status", { name: /저장 상태/ }),
+       ).toContainText(/오프라인|저장 중/);
++      await expect(ownerPage.getByLabel(/도면 화면/)).toHaveAttribute(
++        "data-selected-object-name",
++        collaborativeName,
++      );
++      await expect(ownerPage.getByLabel("선택 객체 경계")).toHaveText(
++        lineBoundsText(expectedOfflineGeometry),
++      );
+       const persistedOffline = await persistedCollaborationState(ownerPage);
+       const beforeIds = new Set(
+         persistedBefore.rows.map(({ clientOperationId }) => clientOperationId),
+@@ -8374,10 +8731,41 @@
+       });
+       await ownerContext.setOffline(false);
+       await waitUntilSaved(ownerPage);
++      for (const page of [ownerPage, editorPage]) {
++        await expect(
++          page.getByRole("status", { name: "공동 편집 상태: connected" }),
++        ).toBeVisible({ timeout: 30_000 });
++      }
++      await selectObject(editorPage, sharedObject.data.id);
++      await editorPage.getByRole("tab", { name: "객체" }).click();
++      for (const page of [ownerPage, editorPage]) {
++        await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
++          "data-selected-object-name",
++          collaborativeName,
++        );
++        await expect(page.getByLabel("선택 객체 경계")).toHaveText(
++          lineBoundsText(expectedOfflineGeometry),
++        );
++      }
++      expect(
++        editorEvidence.requestFailures.slice(editorFailuresBeforeReconnect),
++      ).toEqual([]);
++      const authoritativeObject = await fixture.admin
++        .from("lukas_drawing_objects")
++        .select("id,name,geometry,version")
++        .eq("id", sharedObject.data.id)
++        .single();
++      if (authoritativeObject.error) throw authoritativeObject.error;
++      expect(authoritativeObject.data).toEqual({
++        geometry: expectedOfflineGeometry,
++        id: sharedObject.data.id,
++        name: collaborativeName,
++        version: expectedOfflineVersion,
++      });
+       const operations = await fixture.admin
+         .from("lukas_drawing_operations")
+         .select(
+-          "id,client_operation_id,actor_id,revision_id,sequence,result_versions",
++          "id,client_operation_id,actor_id,revision_id,sequence,base_versions,forward,result_versions",
+         )
+         .eq("revision_id", revision.id)
+         .eq("client_operation_id", offlineRows[0].clientOperationId);
+@@ -8387,6 +8775,13 @@
+         actor_id: fixture.owner.id,
+         revision_id: revision.id,
+       });
++      expect(operations.data?.[0].base_versions).toEqual(
++        expectedOfflineBaseVersions,
++      );
++      expect(operations.data?.[0].forward).toEqual(expectedOfflineForward);
++      expect(operations.data?.[0].result_versions).toEqual(
++        expectedOfflineResultVersions,
++      );
+       await expect
+         .poll(async () => {
+           const acknowledged = (
+@@ -8405,10 +8800,12 @@
+         })
+         .toEqual({
+           authoritativeSequence: Number(operations.data?.[0].sequence),
+-          resultVersions: operations.data?.[0].result_versions,
++          resultVersions: expectedOfflineResultVersions,
+           status: "acked",
+         });
+ 
++      const editorFailuresBeforeOnlineReload =
++        editorEvidence.requestFailures.length;
+       await Promise.all([ownerPage.reload(), editorPage.reload()]);
+       for (const page of [ownerPage, editorPage]) {
+         await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
+@@ -8420,21 +8817,27 @@
+           page.getByRole("status", { name: "공동 편집 상태: connected" }),
+         ).toBeVisible({ timeout: 30_000 });
+       }
++      expect(
++        editorEvidence.requestFailures.slice(editorFailuresBeforeOnlineReload),
++      ).toEqual([]);
+       const finalObject = await fixture.admin
+         .from("lukas_drawing_objects")
+-        .select("id,name,geometry")
++        .select("id,name,geometry,version")
+         .eq("id", sharedObject.data.id)
+         .single();
+       if (finalObject.error) throw finalObject.error;
+-      await selectObject(editorPage, sharedObject.data.id);
+-      await editorPage.getByRole("tab", { name: "객체" }).click();
+-      await expect(editorPage.getByLabel(/도면 화면/)).toHaveAttribute(
+-        "data-selected-object-name",
+-        collaborativeName,
+-      );
+-      await expect(editorPage.getByLabel("선택 객체 경계")).toHaveText(
+-        lineBoundsText(finalObject.data.geometry),
+-      );
++      expect(finalObject.data).toEqual(authoritativeObject.data);
++      for (const page of [ownerPage, editorPage]) {
++        await selectObject(page, sharedObject.data.id);
++        await page.getByRole("tab", { name: "객체" }).click();
++        await expect(page.getByLabel(/도면 화면/)).toHaveAttribute(
++          "data-selected-object-name",
++          collaborativeName,
++        );
++        await expect(page.getByLabel("선택 객체 경계")).toHaveText(
++          lineBoundsText(expectedOfflineGeometry),
++        );
++      }
+       const [ownerPersistence, editorPersistence] = await Promise.all([
+         persistedCollaborationState(ownerPage),
+         persistedCollaborationState(editorPage),
+@@ -8452,16 +8855,20 @@
+         ),
+       ).toMatchObject({
+         authoritativeSequence: Number(operations.data?.[0].sequence),
+-        resultVersions: operations.data?.[0].result_versions,
++        resultVersions: expectedOfflineResultVersions,
+         status: "acked",
+       });
+       const operationsAfterReload = await fixture.admin
+         .from("lukas_drawing_operations")
+-        .select("id", { count: "exact" })
++        .select(
++          "id,client_operation_id,actor_id,revision_id,sequence,base_versions,forward,result_versions",
++          { count: "exact" },
++        )
+         .eq("revision_id", revision.id)
+         .eq("client_operation_id", offlineRows[0].clientOperationId);
+       if (operationsAfterReload.error) throw operationsAfterReload.error;
+       expect(operationsAfterReload.count).toBe(1);
++      expect(operationsAfterReload.data).toEqual(operations.data);
+ 
+       const dragBase = await fixture.admin
+         .from("lukas_drawing_objects")

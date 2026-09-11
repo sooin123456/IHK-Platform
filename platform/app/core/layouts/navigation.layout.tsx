@@ -1,18 +1,19 @@
 import type { Route } from "./+types/navigation.layout";
 
 import { Suspense } from "react";
-import { Await, Outlet, useMatches } from "react-router";
+import { Await, Outlet, data, useMatches } from "react-router";
 
 import Footer from "../components/footer";
 import { NavigationBar } from "../components/navigation-bar";
 import makeServerClient from "../lib/supa-client.server";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const [client] = makeServerClient(request);
-  const userPromise = client.auth.getUser().then(({ data, error }) => ({
-    user: error ? null : data.user,
-  }));
-  return { userPromise };
+  const [client, headers] = makeServerClient(request);
+  const { data: auth, error } = await client.auth.getUser();
+  const userPromise = Promise.resolve({
+    user: error ? null : auth.user,
+  });
+  return data({ userPromise }, { headers });
 }
 
 export default function NavigationLayout({ loaderData }: Route.ComponentProps) {

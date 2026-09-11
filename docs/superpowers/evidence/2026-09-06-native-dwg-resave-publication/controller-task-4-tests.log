@@ -1,0 +1,45 @@
+✔ receipt adapters require complete ordered receipt and exact normalized authorized scope (2.44975ms)
+✔ download descriptor binds every path component to authorized project/job/attempt/kind/hash (0.849834ms)
+✔ latest status authenticates before lookup, accepts null and completed with existing public shape (0.538ms)
+✔ builds the four exact ordered artifacts through the production verifier (12.913916ms)
+✔ snapshots caller claim and native buffers before the attestation await (6.255417ms)
+✔ rejects unpinned, changed-attestation, no-op and extra claim/result inputs (3.134ms)
+✔ rejects report object/bytes disagreement and source/request/output mismatches (19.098791ms)
+✔ validates exact staged replay, immutable paths and a closed response (3.541125ms)
+✔ validates the exact public receipt and self-consistent descriptor (3.647458ms)
+✔ publishes fixed safe artifact limits and strict kinds (0.122791ms)
+✔ browser-safe DTO contract is shared and rejects forged completed envelopes (85.626458ms)
+✔ React requests only on click, retries same identity, owns cancel, and exposes only completed validated four links (3339.514542ms)
+✔ actor/open/scope generations fence A to B to A responses and relogin reads latest without admission (369.108542ms)
+✔ actual dialog chooses one imported control and gates actor/backend/checkpoint/outbox; workspace passes actor (377.731458ms)
+✔ remount recovers latest and actor-scoped ownership; own cancel is explicit and retry gets a new ID (458.759166ms)
+✔ scope and close/reopen generations fence pending status; disabled storage keeps uncertain identity (425.994541ms)
+✔ resave config validates immutable image, origin, local socket, lease and poll bounds (1.604542ms)
+✔ strip-compatible error fields preserve the accepted source-free and imported error contract (27.609417ms)
+✔ worker once uses exact claim RPC, validates claim, and settles a claim received during shutdown (2.035291ms)
+✔ actual strip-only Node CLI claims idle and SIGTERM exits cleanly with outcome-only sanitized logs (181.927875ms)
+✔ actual CLI source transport is wired and every immediate refusal turn gets a bounded poll wait (410.610209ms)
+✔ malformed verified-user responses cannot authorize admission (2.189792ms)
+✔ present non-null falsy RPC errors cannot become successful admission (16.984375ms)
+✔ an unchanged approved source persists a no-changes admission (1.585667ms)
+✔ request compiles approved source and admits only the verified actor and normalized scope (3.429166ms)
+✔ untrusted request fields and changed login cannot reach service admission (2.927042ms)
+✔ uppercase browser UUIDs normalize and an abort-ignoring RPC cannot hang admission (4.0445ms)
+✔ admission rejects mismatched identity, malformed responses, aborted and malformed transport (12.56125ms)
+✔ service errors expose only conflict, stale and capacity classifications (5.31675ms)
+✔ status and cancel bind exact job identity and reject locators or inconsistent states (0.756125ms)
+✔ claim validates stored attestation and source against exact fresh payload and pinned image (2.827917ms)
+✔ framework resources expose loader/action delegates and preserve bounded authenticated context errors (11.176583ms)
+✔ resource admits strict authenticated intent via actual compiler and trusted image (4.241916ms)
+✔ resource rejects origin, media, overflow, malformed UTF8, extra authority, route and query identities (2.857375ms)
+✔ GET idle and pending omit receipt; completed reads exact receipt; cancel needs no admin/image (2.240708ms)
+✔ download returns copied hash-verified bytes only after second authorization and never leaks locator (3.770208ms)
+✔ download deadline returns despite abort-ignoring GET/body/cancel and actual stalled loopback body (128.228041ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5366.396083

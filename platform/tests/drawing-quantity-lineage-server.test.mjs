@@ -10,6 +10,7 @@ import {
   listDrawingObjectQuantityLineage,
   listVerifiedBoqDrawingSources,
   parseVerifiedBoqV1_1RpcInput,
+  persistMaterialManifest,
   putDrawingBoqLink,
   recheckAndDecideVerifiedBoqV1_1,
   resolveDrawingWorkspaceEntry,
@@ -37,13 +38,29 @@ const P6_SHA_B = "b".repeat(64);
 const componentB = "00000000-0000-4000-8000-000000000116";
 
 test("bounded BOQ material reads remain complete under an API cap of one", async () => {
-  const source = ["a", "b", "c"];
-  const loadPage = async (from, to) => ({
-    data: source.slice(from, Math.min(to + 1, from + 1)),
-    error: null,
-  });
+  const source = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  const loadPage = async (afterId, limit) => {
+    const from = afterId ? source.findIndex((row) => row.id > afterId) : 0;
+    return {
+      data: from < 0 ? [] : source.slice(from, from + Math.min(limit, 1)),
+      error: null,
+    };
+  };
   assert.deepEqual(await collectBoundedRows(loadPage, 3), source);
   await assert.rejects(collectBoundedRows(loadPage, 2), /limit exceeded/);
+});
+
+test("bounded material reads preserve existing rows across leading and trailing appends", async () => {
+  const source = [{ id: "b" }, { id: "c" }, { id: "d" }];
+  let pages = 0;
+  const rows = await collectBoundedRows(async (afterId, limit) => {
+    const from = afterId ? source.findIndex((row) => row.id > afterId) : 0;
+    const data = from < 0 ? [] : source.slice(from, from + Math.min(limit, 1));
+    if (pages++ === 0) source.push({ id: "a" }, { id: "z" });
+    source.sort((left, right) => left.id.localeCompare(right.id));
+    return { data, error: null };
+  }, 10);
+  assert.deepEqual(rows, [{ id: "b" }, { id: "c" }, { id: "d" }, { id: "z" }]);
 });
 
 function materialManifestJson({
@@ -109,7 +126,7 @@ test("approved BOQ material handoff persists only selected authoritative materia
     },
     async loadContext() {
       return {
-        ownerId: p6Ids.actor,
+        ownerId: "00000000-0000-4000-8000-000000000099",
         projectId: p6Ids.project,
         boqVersionId: p6Ids.version,
         priceBookId: p6Ids.priceBook,
@@ -133,6 +150,7 @@ test("approved BOQ material handoff persists only selected authoritative materia
       };
     },
     async persistManifest(input) {
+      assert.notEqual(input.actorId, input.ownerId);
       assert.deepEqual(input.bytes, manifestJson);
       assert.equal(
         input.path,
@@ -346,6 +364,388 @@ test("approved BOQ material handoff persists only selected authoritative materia
   );
 });
 
+test("material handoff failures log a bounded server stage without leaking the cause", async () => {
+  const originalError = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args);
+  try {
+    await assert.rejects(
+      createP6MaterialHandoff(
+        authorizedClient(p6Ids.actor, p6Ids.project, "owner"),
+        p6Ids.actor,
+        {
+          projectId: p6Ids.project,
+          boqVersionId: p6Ids.version,
+          operationId: "00000000-0000-4000-8000-000000000129",
+          selectedRateComponentIds: [p6Ids.component],
+        },
+        {
+          async loadApprovedExport() {
+            return {
+              resultSha256: P6_SHA_A,
+              manifestSha256: "c".repeat(64),
+              handoffSha256: P6_SHA_B,
+              manifestJson: materialManifestJson(),
+            };
+          },
+          async loadContext() {
+            throw Object.assign(new Error("private database detail"), {
+              code: "P6M01",
+            });
+          },
+          async persistManifest() {
+            throw new Error("unexpected");
+          },
+          async insertHandoff() {
+            throw new Error("unexpected");
+          },
+        },
+      ),
+      (error) => error.code === "P6M01",
+    );
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(logged.length, 1);
+  assert.equal(logged[0][0], "Approved BOQ material handoff failed");
+  assert.equal(logged[0][1].stage, "load-context");
+  assert.equal(logged[0][1].code, "P6M01");
+  assert.equal(logged[0][1].projectId, p6Ids.project);
+  assert.equal(
+    JSON.stringify(logged).includes("private database detail"),
+    false,
+  );
+});
+
+test("material manifest storage policy prevents a post-download delete from stranding a committed handoff", async () => {
+  const operationId = "00000000-0000-4000-8000-000000000123";
+  const manifestJson = materialManifestJson();
+  const manifestFileSha256 = createHash("sha256")
+    .update(manifestJson)
+    .digest("hex");
+  const path = `${p6Ids.actor}/${p6Ids.project}/boq-manifests/${manifestFileSha256}.manifest.json`;
+  const metadata = new Map();
+  const objects = new Map();
+  let deleteAttempted = false;
+  let raceDeleted = false;
+  let handoffCount = 0;
+  const authorization = authorizedClient(p6Ids.actor, p6Ids.project, "owner");
+  const storage = {
+    async upload(objectPath, bytes) {
+      objects.set(objectPath, new Uint8Array(bytes));
+      return { data: { path: objectPath }, error: null };
+    },
+    async download(objectPath) {
+      const bytes = objects.get(objectPath);
+      if (!bytes)
+        return { data: null, error: { statusCode: "404", message: "missing" } };
+      const data = new Blob([bytes], { type: "application/json" });
+      if (!deleteAttempted) {
+        deleteAttempted = true;
+        const reserved = [...metadata.values()].some(
+          (row) => row.storage_path === objectPath,
+        );
+        const immutableManifestNamespace =
+          objectPath.split("/")[2] === "boq-manifests";
+        if (!reserved && !immutableManifestNamespace) {
+          objects.delete(objectPath);
+          raceDeleted = true;
+        }
+      }
+      return { data, error: null };
+    },
+  };
+  const client = {
+    ...authorization,
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, "lukas-qto");
+        return storage;
+      },
+    },
+    from(table) {
+      if (table !== "lukas_qto_files") return authorization.from(table);
+      return {
+        async insert(row) {
+          metadata.set(row.id, structuredClone(row));
+          return { data: null, error: null };
+        },
+      };
+    },
+  };
+  await createP6MaterialHandoff(
+    client,
+    p6Ids.actor,
+    {
+      projectId: p6Ids.project,
+      boqVersionId: p6Ids.version,
+      operationId,
+      selectedRateComponentIds: [p6Ids.component],
+    },
+    {
+      async loadApprovedExport() {
+        return {
+          resultSha256: P6_SHA_A,
+          manifestSha256: "c".repeat(64),
+          handoffSha256: P6_SHA_B,
+          manifestJson,
+        };
+      },
+      async loadContext() {
+        return {
+          ownerId: p6Ids.actor,
+          projectId: p6Ids.project,
+          boqVersionId: p6Ids.version,
+          priceBookId: p6Ids.priceBook,
+          resultSha256: P6_SHA_A,
+          components: [
+            {
+              boqVersionId: p6Ids.version,
+              lineId: p6Ids.line,
+              rateComponentId: p6Ids.component,
+              resourceId: p6Ids.resource,
+              resourceCode: "M-001",
+              resourceName: "벽체재",
+              resourceSpecification: "12.5T",
+              resourceUnit: "m2",
+              resourceType: "material",
+              resourcePriceBookId: p6Ids.priceBook,
+              resourceCoefficient: "2",
+              finalQuantity: "4.75",
+            },
+          ],
+        };
+      },
+      persistManifest: persistMaterialManifest,
+      async insertHandoff(input) {
+        assert.ok(metadata.has(input.manifestFileId), "manifest FK metadata");
+        handoffCount += 1;
+        return input;
+      },
+    },
+  );
+
+  assert.equal(handoffCount, 1, "the metadata-only FK accepted the handoff");
+  const finalDownload = await storage.download(path);
+  assert.equal(
+    finalDownload.error,
+    null,
+    "committed manifest bytes must remain",
+  );
+  assert.equal(deleteAttempted, true);
+  assert.equal(raceDeleted, false);
+  assert.deepEqual(
+    new Uint8Array(await finalDownload.data.arrayBuffer()),
+    manifestJson,
+  );
+});
+
+test("content-addressed material manifest metadata is reused across operation IDs", async () => {
+  const manifestJson = materialManifestJson();
+  const manifestFileSha256 = createHash("sha256")
+    .update(manifestJson)
+    .digest("hex");
+  const path = `${p6Ids.actor}/${p6Ids.project}/boq-manifests/${manifestFileSha256}.manifest.json`;
+  const objects = new Map();
+  const metadata = [];
+  const client = {
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, "lukas-qto");
+        return {
+          async upload(objectPath, bytes) {
+            if (objects.has(objectPath))
+              return {
+                data: null,
+                error: { statusCode: "409", message: "already exists" },
+              };
+            objects.set(objectPath, new Uint8Array(bytes));
+            return { data: { path: objectPath }, error: null };
+          },
+          async download(objectPath) {
+            const bytes = objects.get(objectPath);
+            return bytes
+              ? {
+                  data: new Blob([bytes], { type: "application/json" }),
+                  error: null,
+                }
+              : { data: null, error: { statusCode: "404" } };
+          },
+        };
+      },
+    },
+    from(table) {
+      assert.equal(table, "lukas_qto_files");
+      return {
+        async insert(row) {
+          if (
+            metadata.some(
+              (existing) =>
+                existing.id === row.id ||
+                existing.storage_path === row.storage_path,
+            )
+          )
+            return { data: null, error: { code: "23505" } };
+          metadata.push(structuredClone(row));
+          return { data: null, error: null };
+        },
+        select() {
+          let rows = metadata;
+          const query = {
+            eq(column, value) {
+              rows = rows.filter((row) => row[column] === value);
+              return query;
+            },
+            async maybeSingle() {
+              return rows.length === 1
+                ? { data: structuredClone(rows[0]), error: null }
+                : { data: null, error: null };
+            },
+          };
+          return query;
+        },
+      };
+    },
+  };
+  const common = {
+    userClient: client,
+    actorId: p6Ids.actor,
+    boqVersionId: p6Ids.version,
+    ownerId: p6Ids.actor,
+    projectId: p6Ids.project,
+    handoffSha256: P6_SHA_B,
+    manifestFileSha256,
+    bytes: manifestJson,
+    path,
+  };
+
+  const firstId = await persistMaterialManifest({
+    ...common,
+    operationId: "00000000-0000-4000-8000-000000000123",
+  });
+  const reusedId = await persistMaterialManifest({
+    ...common,
+    operationId: "00000000-0000-4000-8000-000000000124",
+  });
+
+  assert.equal(reusedId, firstId);
+  assert.equal(metadata.length, 1);
+});
+
+test("material manifest metadata reuse rejects foreign actors paths and noncanonical rows", async () => {
+  const manifestJson = materialManifestJson();
+  const manifestFileSha256 = createHash("sha256")
+    .update(manifestJson)
+    .digest("hex");
+  const canonicalPath = `${p6Ids.actor}/${p6Ids.project}/boq-manifests/${manifestFileSha256}.manifest.json`;
+  const canonical = {
+    id: "00000000-0000-4000-8000-000000000125",
+    project_id: p6Ids.project,
+    uploaded_by: p6Ids.actor,
+    kind: "other",
+    storage_path: canonicalPath,
+    original_filename: `${P6_SHA_B}.manifest.json`,
+    content_type: "application/json",
+    byte_size: manifestJson.byteLength,
+    sha256: manifestFileSha256,
+    immutable: true,
+  };
+  const cases = [
+    {
+      label: "foreign metadata actor",
+      metadata: { ...canonical, uploaded_by: p6Ids.reviewer },
+    },
+    {
+      label: "foreign storage prefix",
+      path: `${p6Ids.reviewer}/${p6Ids.project}/boq-manifests/${manifestFileSha256}.manifest.json`,
+      metadata: {
+        ...canonical,
+        uploaded_by: p6Ids.reviewer,
+        storage_path: `${p6Ids.reviewer}/${p6Ids.project}/boq-manifests/${manifestFileSha256}.manifest.json`,
+      },
+    },
+    {
+      label: "wrong metadata kind",
+      metadata: { ...canonical, kind: "estimate" },
+    },
+    {
+      label: "wrong metadata filename",
+      metadata: { ...canonical, original_filename: "other.manifest.json" },
+    },
+    {
+      label: "wrong metadata content type",
+      metadata: { ...canonical, content_type: "text/plain" },
+    },
+  ];
+
+  for (const candidate of cases) {
+    const path = candidate.path ?? canonicalPath;
+    const client = {
+      storage: {
+        from() {
+          return {
+            async upload() {
+              return {
+                data: null,
+                error: { statusCode: "409", message: "already exists" },
+              };
+            },
+            async download() {
+              return {
+                data: new Blob([manifestJson], {
+                  type: "application/json",
+                }),
+                error: null,
+              };
+            },
+          };
+        },
+      },
+      from(table) {
+        assert.equal(table, "lukas_qto_files");
+        return {
+          async insert() {
+            return { data: null, error: { code: "23505" } };
+          },
+          select() {
+            let rows = [candidate.metadata];
+            const query = {
+              eq(column, value) {
+                rows = rows.filter((row) => row[column] === value);
+                return query;
+              },
+              async maybeSingle() {
+                return {
+                  data: rows.length === 1 ? structuredClone(rows[0]) : null,
+                  error: null,
+                };
+              },
+            };
+            return query;
+          },
+        };
+      },
+    };
+
+    await assert.rejects(
+      persistMaterialManifest({
+        userClient: client,
+        actorId: p6Ids.actor,
+        boqVersionId: p6Ids.version,
+        operationId: "00000000-0000-4000-8000-000000000126",
+        ownerId: p6Ids.actor,
+        projectId: p6Ids.project,
+        handoffSha256: P6_SHA_B,
+        manifestFileSha256,
+        bytes: manifestJson,
+        path,
+      }),
+      (error) => error.code === "P6O01",
+      candidate.label,
+    );
+  }
+});
+
 test("material handoff fails closed on non-material, stale, missing, duplicate, or non-positive selected components", async () => {
   const base = {
     boqVersionId: p6Ids.version,
@@ -480,6 +880,7 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
     lukas_qto_material_transactions: [
       {
         id: orderId,
+        created_at: "2026-08-28T00:00:00.000Z",
         material_plan_id: planId,
         transaction_type: "purchase_order",
         document_number: "PO-1",
@@ -493,6 +894,7 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
       },
       {
         id: transactionId,
+        created_at: "2026-08-28T00:00:01.000Z",
         material_plan_id: planId,
         transaction_type: "goods_receipt",
         document_number: "GR-1",
@@ -542,6 +944,250 @@ test("material lineage traverses approved BOQ through plan, transactions, carbon
   );
   assert.equal(result.rows[0].manifestFileSha256, P6_SHA_B);
   assert.equal(result.rows[0].carbonCoverage, "missing");
+});
+
+test("material lineage resolves an exact transaction before the bounded link page", async () => {
+  const transactionId = "00000000-0000-4000-8000-000000000136";
+  const materialPlanId = "00000000-0000-4000-8000-000000000137";
+  const materialLink = {
+    id: "00000000-0000-4000-8000-000000000138",
+    project_id: p6Ids.project,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    boq_rate_component_id: p6Ids.component,
+    material_resource_id: p6Ids.resource,
+    boq_result_sha256: P6_SHA_A,
+    material_plan_id: materialPlanId,
+    derived_design_quantity: "1",
+    created_at: "2026-08-01T00:00:00.000Z",
+    boq_line: { item_code: "TX-001" },
+    material_plan: {
+      id: materialPlanId,
+      material_code: "TX-MAT",
+      material_name: "거래 추적 자재",
+      specification: "표준",
+      unit: "EA",
+      design_quantity: "1",
+      allowance_rate: "0",
+      required_quantity: "1",
+      rule_id: "P6_MATERIAL_HANDOFF_V1",
+      baseline_factor_id: null,
+      source_file_id: p6Ids.quantity,
+      source_sha256: P6_SHA_B,
+    },
+  };
+  const unrelatedLinks = Array.from({ length: 205 }, (_, index) => ({
+    ...materialLink,
+    id: `00000000-0000-4000-8200-${String(index + 1).padStart(12, "0")}`,
+    material_plan_id: `00000000-0000-4000-8300-${String(index + 1).padStart(12, "0")}`,
+    created_at: "2026-09-01T00:00:00.000Z",
+    material_plan: {
+      ...materialLink.material_plan,
+      id: `00000000-0000-4000-8300-${String(index + 1).padStart(12, "0")}`,
+    },
+  }));
+  const transaction = {
+    id: transactionId,
+    project_id: p6Ids.project,
+    material_plan_id: materialPlanId,
+    transaction_type: "purchase_order",
+    document_number: "PO-TX-001",
+    supplier_name: "거래 추적 공급사",
+    quantity: "1",
+    unit_price_krw: null,
+    amount_krw: null,
+    related_order_id: null,
+    carbon_factor_id: null,
+    evidence_sha256: "c".repeat(64),
+    created_at: "2026-09-01T00:00:00.000Z",
+  };
+  const observations = [];
+  const result = await listMaterialBoqLineage(
+    filteredLineageClient(
+      {
+        lukas_drawing_material_links: [...unrelatedLinks, materialLink],
+        lukas_qto_material_transactions: [transaction],
+        lukas_qto_carbon_factors: [],
+      },
+      observations,
+    ),
+    {
+      projectId: p6Ids.project,
+      transactionId,
+      cursor: null,
+    },
+  );
+
+  assert.deepEqual(
+    result.rows.map((row) => row.materialPlanId),
+    [materialPlanId],
+  );
+  assert.deepEqual(
+    result.rows[0].transactions.map((row) => row.id),
+    [transactionId],
+  );
+  assert.ok(
+    observations.some(
+      ({ table, filters }) =>
+        table === "lukas_drawing_material_links" &&
+        filters.some(
+          (filter) =>
+            filter.kind === "eq" &&
+            filter.column === "material_plan_id" &&
+            filter.value === materialPlanId,
+        ),
+    ),
+  );
+});
+
+test("material lineage fails closed for malformed, missing, and foreign-project transactions", async () => {
+  let queriedLinks = false;
+  const client = {
+    from(table) {
+      if (table === "lukas_drawing_material_links") queriedLinks = true;
+      return filteredLineageClient({
+        lukas_qto_material_transactions: [
+          {
+            id: "00000000-0000-4000-8000-000000000139",
+            project_id: "00000000-0000-4000-8000-000000000199",
+            material_plan_id: "00000000-0000-4000-8000-000000000137",
+          },
+        ],
+      }).from(table);
+    },
+  };
+  await assert.rejects(
+    listMaterialBoqLineage(client, {
+      projectId: p6Ids.project,
+      transactionId: "not-a-uuid",
+      cursor: null,
+    }),
+    /자재 계보 범위가 올바르지 않습니다/,
+  );
+  await assert.rejects(
+    listMaterialBoqLineage(client, {
+      projectId: p6Ids.project,
+      transactionId: "00000000-0000-4000-8000-000000000140",
+      cursor: null,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+  await assert.rejects(
+    listMaterialBoqLineage(client, {
+      projectId: p6Ids.project,
+      transactionId: "00000000-0000-4000-8000-000000000139",
+      cursor: null,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+  assert.equal(queriedLinks, false);
+});
+
+test("material lineage rejects conflicting plan and transaction scopes with a controlled 400", async () => {
+  const transactionId = "00000000-0000-4000-8000-000000000136";
+  const transactionPlanId = "00000000-0000-4000-8000-000000000137";
+  const requestedPlanId = "00000000-0000-4000-8000-000000000138";
+  let queriedLinks = false;
+  const client = {
+    from(table) {
+      if (table === "lukas_drawing_material_links") queriedLinks = true;
+      return filteredLineageClient({
+        lukas_qto_material_transactions: [
+          {
+            id: transactionId,
+            project_id: p6Ids.project,
+            material_plan_id: transactionPlanId,
+          },
+        ],
+      }).from(table);
+    },
+  };
+
+  await assert.rejects(
+    listMaterialBoqLineage(client, {
+      projectId: p6Ids.project,
+      materialPlanId: requestedPlanId,
+      transactionId,
+      cursor: null,
+    }),
+    (error) => error instanceof Response && error.status === 400,
+  );
+  assert.equal(queriedLinks, false);
+});
+
+test("material lineage fails closed when the selected transaction disappears during resolution", async () => {
+  const transactionId = "00000000-0000-4000-8000-000000000136";
+  const materialPlanId = "00000000-0000-4000-8000-000000000137";
+  const transaction = {
+    id: transactionId,
+    project_id: p6Ids.project,
+    material_plan_id: materialPlanId,
+    transaction_type: "purchase_order",
+    document_number: "PO-TOCTOU",
+    supplier_name: "거래 추적 공급사",
+    quantity: "1",
+    unit_price_krw: null,
+    amount_krw: null,
+    related_order_id: null,
+    carbon_factor_id: null,
+    evidence_sha256: null,
+    created_at: "2026-09-01T00:00:00.000Z",
+  };
+  const materialLink = {
+    id: "00000000-0000-4000-8000-000000000138",
+    project_id: p6Ids.project,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    boq_rate_component_id: p6Ids.component,
+    material_resource_id: p6Ids.resource,
+    boq_result_sha256: P6_SHA_A,
+    material_plan_id: materialPlanId,
+    derived_design_quantity: "1",
+    created_at: "2026-09-01T00:00:00.000Z",
+    boq_line: { item_code: "TX-TOCTOU" },
+    material_plan: {
+      id: materialPlanId,
+      material_code: "TX-MAT",
+      material_name: "거래 추적 자재",
+      specification: "표준",
+      unit: "EA",
+      design_quantity: "1",
+      allowance_rate: "0",
+      required_quantity: "1",
+      rule_id: "P6_MATERIAL_HANDOFF_V1",
+      baseline_factor_id: null,
+      source_file_id: p6Ids.quantity,
+      source_sha256: P6_SHA_B,
+    },
+  };
+  let transactionReads = 0;
+  const rows = {
+    lukas_drawing_material_links: [materialLink],
+    lukas_qto_carbon_factors: [],
+  };
+  const client = {
+    from(table) {
+      if (table === "lukas_qto_material_transactions") {
+        transactionReads += 1;
+        return filteredLineageClient({
+          ...rows,
+          lukas_qto_material_transactions:
+            transactionReads === 1 ? [transaction] : [],
+        }).from(table);
+      }
+      return filteredLineageClient(rows).from(table);
+    },
+  };
+
+  await assert.rejects(
+    listMaterialBoqLineage(client, {
+      projectId: p6Ids.project,
+      transactionId,
+      cursor: null,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+  assert.ok(transactionReads >= 2);
 });
 
 test("material lineage cursor returns every link once across bounded pages", async () => {
@@ -612,13 +1258,429 @@ test("material lineage cursor returns every link once across bounded pages", asy
         lukas_drawing_material_links: [links[0]],
         lukas_qto_material_transactions: Array.from(
           { length: 10_001 },
-          () => ({}),
+          (_, index) => ({
+            id: `00000000-0000-4000-8400-${String(index + 1).padStart(12, "0")}`,
+          }),
         ),
       }),
       { projectId: p6Ids.project, cursor: null },
     ),
     /허용 범위를 초과했습니다/,
   );
+});
+
+test("material lineage rejects an orphan BOQ line filter before querying", async () => {
+  let queried = false;
+  await assert.rejects(
+    listMaterialBoqLineage(
+      {
+        from() {
+          queried = true;
+          throw new Error("orphan BOQ line filter reached the database");
+        },
+      },
+      {
+        projectId: p6Ids.project,
+        boqLineId: p6Ids.line,
+        cursor: null,
+      },
+    ),
+    /자재 계보 범위가 올바르지 않습니다/,
+  );
+  assert.equal(queried, false);
+});
+
+test("material lineage reads every referenced carbon factor beyond one API page", async () => {
+  const planId = "00000000-0000-4000-8000-000000000161";
+  const factorId = (value) =>
+    `00000000-0000-4000-8200-${String(value).padStart(12, "0")}`;
+  const transactionId = (value) =>
+    `00000000-0000-4000-8300-${String(value).padStart(12, "0")}`;
+  const factors = Array.from({ length: 202 }, (_, index) => ({
+    id: factorId(index + 1),
+    material_code: "M-001",
+    product_name: `factor-${index + 1}`,
+    declared_unit: "m2",
+    gwp_a1_a3_per_unit: "1",
+    source_type: "generic",
+    standard: "ISO 14040",
+    valid_until: null,
+    source_sha256: "d".repeat(64),
+  }));
+  const transactions = factors.map((factor, index) => ({
+    id: transactionId(index + 1),
+    created_at: `2026-08-28T00:00:${String(index % 60).padStart(2, "0")}.000Z`,
+    material_plan_id: planId,
+    transaction_type: "purchase_order",
+    document_number: `PO-${index + 1}`,
+    supplier_name: "supplier",
+    quantity: "1",
+    unit_price_krw: null,
+    amount_krw: null,
+    related_order_id: null,
+    carbon_factor_id: factor.id,
+    evidence_sha256: null,
+  }));
+  const [link] = [
+    {
+      id: "00000000-0000-4000-8000-000000000162",
+      project_id: p6Ids.project,
+      boq_version_id: p6Ids.version,
+      boq_line_id: p6Ids.line,
+      boq_rate_component_id: p6Ids.component,
+      material_resource_id: p6Ids.resource,
+      boq_result_sha256: P6_SHA_A,
+      material_plan_id: planId,
+      derived_design_quantity: "202",
+      created_at: "2026-08-28T00:00:00.000Z",
+      boq_line: { item_code: "M-001" },
+      material_plan: {
+        id: planId,
+        material_code: "M-001",
+        material_name: "wall",
+        specification: "12.5T",
+        unit: "m2",
+        design_quantity: "202",
+        allowance_rate: "0",
+        required_quantity: "202",
+        rule_id: "P6_MATERIAL_HANDOFF_V1",
+        baseline_factor_id: null,
+        source_file_id: p6Ids.quantity,
+        source_sha256: P6_SHA_B,
+      },
+    },
+  ];
+  const result = await listMaterialBoqLineage(
+    tableClient({
+      lukas_drawing_material_links: [link],
+      lukas_qto_material_transactions: transactions,
+      lukas_qto_carbon_factors: factors,
+    }),
+    { projectId: p6Ids.project, cursor: null },
+  );
+  assert.equal(result.rows[0].transactions.length, 202);
+  assert.equal(result.rows[0].carbonFactors.length, 202);
+});
+
+test("material lineage starts from one exact carbon factor and merges its baseline and transaction plan union", async () => {
+  const factorId = "00000000-0000-4000-8000-000000000171";
+  const baselinePlanId = "00000000-0000-4000-8000-000000000172";
+  const transactionPlanId = "00000000-0000-4000-8000-000000000173";
+  const factor = {
+    id: factorId,
+    project_id: p6Ids.project,
+    material_code: "CARBON-001",
+    product_name: "exact factor",
+    declared_unit: "EA",
+    gwp_a1_a3_per_unit: "1",
+    source_type: "generic",
+    standard: "ISO 14040",
+    valid_until: null,
+    source_sha256: "d".repeat(64),
+  };
+  const plan = (id) => ({
+    id,
+    project_id: p6Ids.project,
+    material_code: "CARBON-001",
+    material_name: "carbon material",
+    specification: "standard",
+    unit: "EA",
+    design_quantity: "1",
+    allowance_rate: "0",
+    required_quantity: "1",
+    rule_id: "P6_MATERIAL_HANDOFF_V1",
+    baseline_factor_id: id === baselinePlanId ? factorId : null,
+    source_file_id: p6Ids.quantity,
+    source_sha256: P6_SHA_B,
+  });
+  const link = (id, materialPlanId, createdAt) => ({
+    id,
+    project_id: p6Ids.project,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    boq_rate_component_id: id,
+    material_resource_id: p6Ids.resource,
+    boq_result_sha256: P6_SHA_A,
+    material_plan_id: materialPlanId,
+    derived_design_quantity: "1",
+    created_at: createdAt,
+    boq_line: { item_code: "CARBON-001" },
+    material_plan: plan(materialPlanId),
+  });
+  const unrelatedLinks = Array.from({ length: 205 }, (_, index) =>
+    link(
+      `00000000-0000-4000-8100-${String(index + 1).padStart(12, "0")}`,
+      `00000000-0000-4000-8200-${String(index + 1).padStart(12, "0")}`,
+      "2026-09-02T00:00:00.000Z",
+    ),
+  );
+  const observations = [];
+  const result = await listMaterialBoqLineage(
+    filteredLineageClient(
+      {
+        lukas_qto_carbon_factors: [factor],
+        lukas_qto_material_plans: [plan(baselinePlanId)],
+        lukas_qto_material_transactions: [
+          {
+            id: "00000000-0000-4000-8000-000000000174",
+            project_id: p6Ids.project,
+            material_plan_id: transactionPlanId,
+            transaction_type: "purchase_order",
+            document_number: "PO-CARBON",
+            supplier_name: "supplier",
+            quantity: "1",
+            unit_price_krw: null,
+            amount_krw: null,
+            related_order_id: null,
+            carbon_factor_id: factorId,
+            evidence_sha256: null,
+            created_at: "2026-09-01T00:00:01.000Z",
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000175",
+            project_id: p6Ids.project,
+            material_plan_id: transactionPlanId,
+            transaction_type: "goods_receipt",
+            document_number: "GR-CARBON",
+            supplier_name: "supplier",
+            quantity: "1",
+            unit_price_krw: null,
+            amount_krw: null,
+            related_order_id: "00000000-0000-4000-8000-000000000174",
+            carbon_factor_id: null,
+            evidence_sha256: "e".repeat(64),
+            created_at: "2026-09-01T00:00:02.000Z",
+          },
+        ],
+        lukas_drawing_material_links: [
+          ...unrelatedLinks,
+          link(
+            "00000000-0000-4000-8000-000000000176",
+            baselinePlanId,
+            "2026-09-01T00:00:00.000Z",
+          ),
+          link(
+            "00000000-0000-4000-8000-000000000177",
+            transactionPlanId,
+            "2026-09-01T00:00:03.000Z",
+          ),
+        ],
+      },
+      observations,
+    ),
+    { projectId: p6Ids.project, carbonFactorId: factorId, cursor: null },
+  );
+
+  assert.deepEqual(
+    result.rows.map((row) => row.materialPlanId),
+    [transactionPlanId, baselinePlanId],
+  );
+  assert.deepEqual(
+    result.rows[0].transactions.map((row) => row.id),
+    [
+      "00000000-0000-4000-8000-000000000174",
+      "00000000-0000-4000-8000-000000000175",
+    ],
+  );
+  assert.deepEqual(
+    result.rows[0].carbonFactors.map((row) => row.id),
+    [factorId],
+  );
+  assert.equal(result.nextCursor, null);
+  const linkPlanFilters = observations
+    .filter(({ table }) => table === "lukas_drawing_material_links")
+    .flatMap(({ filters }) =>
+      filters.filter(
+        (filter) =>
+          filter.kind === "in" && filter.column === "material_plan_id",
+      ),
+    );
+  assert.ok(linkPlanFilters.length > 0);
+  assert.ok(linkPlanFilters.every((filter) => filter.values.length <= 100));
+});
+
+test("material lineage merges more than 100 carbon-factor plans in exact timestamp order across cursor pages", async () => {
+  const factorId = "00000000-0000-4000-8000-000000000179";
+  const factor = {
+    id: factorId,
+    project_id: p6Ids.project,
+    material_code: "CARBON-PAGED",
+    product_name: "paged factor",
+    declared_unit: "EA",
+    gwp_a1_a3_per_unit: "1",
+    source_type: "generic",
+    standard: "ISO 14040",
+    valid_until: null,
+    source_sha256: "d".repeat(64),
+  };
+  const plans = Array.from({ length: 205 }, (_, index) => {
+    const suffix = String(index + 1).padStart(12, "0");
+    return {
+      id: `00000000-0000-4000-8300-${suffix}`,
+      project_id: p6Ids.project,
+      material_code: "CARBON-PAGED",
+      material_name: "paged carbon material",
+      specification: "standard",
+      unit: "EA",
+      design_quantity: "1",
+      allowance_rate: "0",
+      required_quantity: "1",
+      rule_id: "P6_MATERIAL_HANDOFF_V1",
+      baseline_factor_id: factorId,
+      source_file_id: p6Ids.quantity,
+      source_sha256: P6_SHA_B,
+    };
+  });
+  const createdAtFor = (index) => {
+    if (index === 0) return "2026-09-02T00:00:00.1+00:00";
+    if (index === 1) return "2026-09-02T00:00:00+00:00";
+    if (index === 2) return "2026-09-02T00:00:00.000000+00:00";
+    return `2026-09-01T00:00:${String(59 - (index % 60)).padStart(2, "0")}.123456+00:00`;
+  };
+  const links = plans.map((plan, index) => ({
+    id: `00000000-0000-4000-8400-${String(index + 1).padStart(12, "0")}`,
+    project_id: p6Ids.project,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    boq_rate_component_id: `00000000-0000-4000-8500-${String(index + 1).padStart(12, "0")}`,
+    material_resource_id: p6Ids.resource,
+    boq_result_sha256: P6_SHA_A,
+    material_plan_id: plan.id,
+    derived_design_quantity: "1",
+    created_at: createdAtFor(index),
+    boq_line: { item_code: "CARBON-PAGED" },
+    material_plan: plan,
+  }));
+  const expected = [...links].sort(
+    (left, right) =>
+      Date.parse(right.created_at) - Date.parse(left.created_at) ||
+      right.id.localeCompare(left.id),
+  );
+  const observations = [];
+  const client = filteredLineageClient(
+    {
+      lukas_qto_carbon_factors: [factor],
+      lukas_qto_material_plans: plans,
+      lukas_qto_material_transactions: [],
+      lukas_drawing_material_links: links,
+    },
+    observations,
+  );
+  const first = await listMaterialBoqLineage(client, {
+    projectId: p6Ids.project,
+    carbonFactorId: factorId,
+    cursor: null,
+  });
+  assert.deepEqual(
+    first.rows.map((row) => row.rateComponentId),
+    expected.slice(0, 200).map((row) => row.boq_rate_component_id),
+  );
+  assert.equal(
+    first.rows[0].materialPlanId,
+    plans[0].id,
+    ".1 second is later than a whole-second timestamp",
+  );
+  assert.equal(first.rows[1].materialPlanId, plans[2].id);
+  assert.equal(first.rows[2].materialPlanId, plans[1].id);
+  assert.deepEqual(
+    JSON.parse(Buffer.from(first.nextCursor, "base64url").toString("utf8")),
+    {
+      createdAt: expected[199].created_at,
+      id: expected[199].id,
+    },
+  );
+  const second = await listMaterialBoqLineage(client, {
+    projectId: p6Ids.project,
+    carbonFactorId: factorId,
+    cursor: first.nextCursor,
+  });
+  assert.deepEqual(
+    [...first.rows, ...second.rows].map((row) => row.rateComponentId),
+    expected.map((row) => row.boq_rate_component_id),
+  );
+  assert.equal(second.nextCursor, null);
+  const chunks = observations
+    .filter(({ table }) => table === "lukas_drawing_material_links")
+    .flatMap(({ filters }) =>
+      filters.filter(
+        (filter) =>
+          filter.kind === "in" && filter.column === "material_plan_id",
+      ),
+    );
+  assert.ok(chunks.length >= 6, "three chunks on each cursor page");
+  assert.ok(chunks.every((filter) => filter.values.length <= 100));
+});
+
+test("material lineage rejects malformed, missing, and foreign carbon factor identities", async () => {
+  const factorId = "00000000-0000-4000-8000-000000000178";
+  let queriedLinks = false;
+  const client = {
+    from(table) {
+      if (table === "lukas_drawing_material_links") queriedLinks = true;
+      return filteredLineageClient({
+        lukas_qto_carbon_factors: [
+          { id: factorId, project_id: "00000000-0000-4000-8000-000000000199" },
+        ],
+      }).from(table);
+    },
+  };
+  await assert.rejects(
+    listMaterialBoqLineage(client, {
+      projectId: p6Ids.project,
+      carbonFactorId: "not-a-uuid",
+      cursor: null,
+    }),
+    /자재 계보 범위가 올바르지 않습니다/,
+  );
+  await assert.rejects(
+    listMaterialBoqLineage(client, {
+      projectId: p6Ids.project,
+      carbonFactorId: factorId,
+      cursor: null,
+    }),
+    (error) => error instanceof Response && error.status === 404,
+  );
+  assert.equal(queriedLinks, false);
+});
+
+test("material lineage returns an empty page for an unused factor and rejects factor scope conflicts", async () => {
+  const factorId = "00000000-0000-4000-8000-000000000180";
+  const factor = { id: factorId, project_id: p6Ids.project };
+  const unrelatedPlanId = "00000000-0000-4000-8000-000000000181";
+  const transactionId = "00000000-0000-4000-8000-000000000182";
+  const client = (rows) => filteredLineageClient(rows);
+  const empty = await listMaterialBoqLineage(
+    client({
+      lukas_qto_carbon_factors: [factor],
+      lukas_qto_material_plans: [],
+      lukas_qto_material_transactions: [],
+    }),
+    { projectId: p6Ids.project, carbonFactorId: factorId, cursor: null },
+  );
+  assert.deepEqual(empty, { rows: [], nextCursor: null });
+  for (const input of [{ materialPlanId: unrelatedPlanId }, { transactionId }])
+    await assert.rejects(
+      listMaterialBoqLineage(
+        client({
+          lukas_qto_carbon_factors: [factor],
+          lukas_qto_material_plans: [],
+          lukas_qto_material_transactions: [
+            {
+              id: transactionId,
+              project_id: p6Ids.project,
+              material_plan_id: unrelatedPlanId,
+            },
+          ],
+        }),
+        {
+          projectId: p6Ids.project,
+          carbonFactorId: factorId,
+          cursor: null,
+          ...input,
+        },
+      ),
+      (error) => error instanceof Response && error.status === 400,
+    );
 });
 
 test("procurement and site roles gain no BOQ material handoff write authority", async () => {
@@ -659,7 +1721,8 @@ test("procurement and site roles gain no BOQ material handoff write authority", 
 function tableClient(rows) {
   return {
     from(table) {
-      const result = { data: rows[table] ?? [], error: null };
+      let afterId = null;
+      let includedIds = null;
       const query = {
         select() {
           return query;
@@ -667,7 +1730,12 @@ function tableClient(rows) {
         eq() {
           return query;
         },
-        in() {
+        in(column, values) {
+          if (column === "id") includedIds = new Set(values);
+          return query;
+        },
+        gt(column, value) {
+          if (column === "id") afterId = value;
           return query;
         },
         order() {
@@ -676,8 +1744,15 @@ function tableClient(rows) {
         or() {
           return query;
         },
-        limit() {
-          return Promise.resolve(result);
+        limit(size) {
+          const data = [...(rows[table] ?? [])]
+            .filter((row) => !afterId || row.id > afterId)
+            .filter((row) => !includedIds || includedIds.has(row.id))
+            .sort((left, right) =>
+              String(left.id).localeCompare(String(right.id)),
+            )
+            .slice(0, size);
+          return Promise.resolve({ data, error: null });
         },
         range(from, to) {
           return Promise.resolve({
@@ -694,6 +1769,7 @@ function tableClient(rows) {
 function cappedTableClient(rows) {
   return {
     from(table) {
+      let afterId = null;
       const query = {
         select() {
           return query;
@@ -704,14 +1780,35 @@ function cappedTableClient(rows) {
         in() {
           return query;
         },
+        gt(column, value) {
+          if (column === "id") afterId = value;
+          return query;
+        },
         order() {
           return query;
         },
-        or() {
+        or(value) {
+          const match =
+            /^created_at\.lt\.([^,]+),and\(created_at\.eq\.[^,]+,id\.lt\.([^)]+)\)$/.exec(
+              value,
+            );
+          if (match)
+            filters.push({
+              kind: "cursor",
+              createdAt: match[1],
+              id: match[2],
+            });
           return query;
         },
-        limit() {
-          return Promise.resolve({ data: rows[table] ?? [], error: null });
+        limit(size) {
+          const cap = table === "lukas_qto_material_transactions" ? 1 : size;
+          const data = [...(rows[table] ?? [])]
+            .filter((row) => !afterId || row.id > afterId)
+            .sort((left, right) =>
+              String(left.id).localeCompare(String(right.id)),
+            )
+            .slice(0, cap);
+          return Promise.resolve({ data, error: null });
         },
         range(from, to) {
           const cap = table === "lukas_qto_material_transactions" ? 1 : to + 1;
@@ -765,6 +1862,96 @@ function pagedLineageClient(links) {
         },
         range() {
           return Promise.resolve({ data: [], error: null });
+        },
+      };
+      return query;
+    },
+  };
+}
+
+function filteredLineageClient(rows, observations = []) {
+  return {
+    from(table) {
+      const filters = [];
+      const ordering = [];
+      observations.push({ table, filters, ordering });
+      const query = {
+        select() {
+          return query;
+        },
+        eq(column, value) {
+          filters.push({ kind: "eq", column, value });
+          return query;
+        },
+        in(column, values) {
+          filters.push({ kind: "in", column, values: [...values] });
+          return query;
+        },
+        gt(column, value) {
+          filters.push({ kind: "gt", column, value });
+          return query;
+        },
+        order(column, options) {
+          ordering.push({ column, ascending: options?.ascending !== false });
+          return query;
+        },
+        or(value) {
+          const match =
+            /^created_at\.lt\.([^,]+),and\(created_at\.eq\.[^,]+,id\.lt\.([^)]+)\)$/.exec(
+              value,
+            );
+          if (match)
+            filters.push({
+              kind: "cursor",
+              createdAt: match[1],
+              id: match[2],
+            });
+          return query;
+        },
+        limit(size) {
+          let selected = [...(rows[table] ?? [])];
+          for (const filter of filters) {
+            if (filter.kind === "eq")
+              selected = selected.filter(
+                (row) => row[filter.column] === filter.value,
+              );
+            else if (filter.kind === "in")
+              selected = selected.filter((row) =>
+                filter.values.includes(row[filter.column]),
+              );
+            else if (filter.kind === "cursor")
+              selected = selected.filter(
+                (row) =>
+                  Date.parse(row.created_at) < Date.parse(filter.createdAt) ||
+                  (Date.parse(row.created_at) ===
+                    Date.parse(filter.createdAt) &&
+                    row.id < filter.id),
+              );
+            else
+              selected = selected.filter(
+                (row) => row[filter.column] > filter.value,
+              );
+          }
+          selected.sort((left, right) => {
+            for (const item of ordering) {
+              if (left[item.column] === right[item.column]) continue;
+              const direction =
+                item.column === "created_at"
+                  ? Date.parse(left[item.column]) <
+                    Date.parse(right[item.column])
+                    ? -1
+                    : 1
+                  : left[item.column] < right[item.column]
+                    ? -1
+                    : 1;
+              return item.ascending ? direction : -direction;
+            }
+            return 0;
+          });
+          return Promise.resolve({
+            data: selected.slice(0, size),
+            error: null,
+          });
         },
       };
       return query;
@@ -888,6 +2075,8 @@ test("trusted quantity creation forwards only server-derived evidence", async ()
     layer: "00000000-0000-4000-8000-000000000006",
     page: "00000000-0000-4000-8000-000000000007",
     link: "00000000-0000-4000-8000-000000000008",
+    dxfFile: "00000000-0000-4000-8000-000000000009",
+    dxfSource: "00000000-0000-4000-8000-000000000010",
   };
   const canonicalJson = {
     schemaVersion: 2,
@@ -898,7 +2087,24 @@ test("trusted quantity creation forwards only server-derived evidence", async ()
       sequence: 1,
       version: 7,
     },
-    sources: [],
+    sources: [
+      {
+        id: ids.dxfSource,
+        objectId: ids.object,
+        revisionId: ids.revision,
+        sourceFileId: ids.dxfFile,
+        sourceSha256: "d".repeat(64),
+        sourceKind: "dxf_entity",
+        entityKey: "entities:0",
+        entityType: "LINE",
+        sourceLayer: "A-WALL",
+        handle: "1A2B",
+        unitCode: 4,
+        unitSource: "declared",
+        importerVersion: 1,
+        version: 1,
+      },
+    ],
     pages: [],
     canvases: [],
     layers: [],
@@ -966,7 +2172,32 @@ test("trusted quantity creation forwards only server-derived evidence", async ()
               objectId: ids.object,
               objectLineageId: ids.object,
               objectVersion: 3,
-              sourceAnchors: [],
+              sourceAnchors: [
+                {
+                  id: ids.dxfSource,
+                  object_id: ids.object,
+                  revision_id: ids.revision,
+                  source_file_id: ids.dxfFile,
+                  source_sha256: "d".repeat(64),
+                  source_kind: "dxf_entity",
+                  pdf_page_number: null,
+                  x: null,
+                  y: null,
+                  width: null,
+                  height: null,
+                  element_id: null,
+                  ifc_global_id: null,
+                  camera_json: null,
+                  dxf_entity_key: "entities:0",
+                  dxf_entity_type: "LINE",
+                  dxf_source_layer: "A-WALL",
+                  dxf_handle: "1A2B",
+                  dxf_unit_code: 4,
+                  dxf_unit_source: "declared",
+                  dxf_importer_version: 1,
+                  version: 1,
+                },
+              ],
               issueLinks: [],
             };
           },
@@ -987,7 +2218,7 @@ test("trusted quantity creation forwards only server-derived evidence", async ()
               unit: "m2",
               measurement_rule_version: "P4_MEASUREMENT_V1",
               created_by: ids.actor,
-              created_at: "2026-08-28T00:00:00.000Z",
+              created_at: new Date("2026-08-28T00:00:00.000Z"),
             };
           },
         });
@@ -996,6 +2227,7 @@ test("trusted quantity creation forwards only server-derived evidence", async ()
   );
 
   assert.equal(result.rawQuantity, "12.5");
+  assert.equal(result.createdAt, "2026-08-28T00:00:00.000Z");
   assert.deepEqual(calls[0], {
     p_actor_id: ids.actor,
     p_id: ids.link,
@@ -1011,6 +2243,186 @@ test("trusted quantity creation forwards only server-derived evidence", async ()
     p_measurement_rule_version: "P4_MEASUREMENT_V1",
   });
   assert.match(calls[0].p_object_fingerprint, /^[0-9a-f]{64}$/);
+});
+
+test("quantity authority rejects native payload attempts to shadow row identity", async () => {
+  const ids = {
+    actor: "00000000-0000-4000-8000-000000000201",
+    project: "00000000-0000-4000-8000-000000000202",
+    document: "00000000-0000-4000-8000-000000000203",
+    revision: "00000000-0000-4000-8000-000000000204",
+    object: "00000000-0000-4000-8000-000000000205",
+    layer: "00000000-0000-4000-8000-000000000206",
+    page: "00000000-0000-4000-8000-000000000207",
+    link: "00000000-0000-4000-8000-000000000208",
+    sourceFile: "00000000-0000-4000-8000-000000000209",
+    source: "00000000-0000-4000-8000-000000000210",
+    job: "00000000-0000-4000-8000-000000000211",
+  };
+  const canonicalSource = {
+    id: ids.source,
+    objectId: ids.object,
+    revisionId: ids.revision,
+    sourceFileId: ids.sourceFile,
+    sourceSha256: "d".repeat(64),
+    sourceKind: "dwg_entity",
+    analysisJobId: ids.job,
+    reportSha256: "e".repeat(64),
+    handle: "4A",
+    ownerHandle: "40",
+    layerHandle: "48",
+    entityType: "LINE",
+    sourceLayer: "QA_GEOMETRY",
+    unitCode: 4,
+    unitSource: "declared",
+    importerVersion: 1,
+    version: 1,
+  };
+  const object = {
+    id: ids.object,
+    lineageId: ids.object,
+    pageId: ids.page,
+    layerId: ids.layer,
+    name: "A-01",
+    type: "area",
+    geometry: {
+      type: "area",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 5000, y: 0 },
+        { x: 5000, y: 2500 },
+        { x: 0, y: 2500 },
+      ],
+    },
+    styleId: null,
+    style: { stroke: "#111111", strokeWidth: 1, fill: null },
+    version: 3,
+  };
+  const canonicalJson = {
+    schemaVersion: 2,
+    revision: {
+      id: ids.revision,
+      documentId: ids.document,
+      projectId: ids.project,
+      sequence: 1,
+      version: 7,
+    },
+    sources: [canonicalSource],
+    pages: [],
+    canvases: [],
+    layers: [],
+    objects: [object],
+    styles: [],
+    blocks: [],
+    blockInstances: [],
+    propertySchemas: [],
+    propertyValues: [],
+    tables: [],
+    issues: [],
+    operationSequence: 12,
+  };
+  const snapshotSha256 = "a".repeat(64);
+  let inserted = false;
+
+  await assert.rejects(
+    createDrawingQuantityLink(
+      authorizedClient(ids.actor, ids.project, "estimator"),
+      ids.actor,
+      {
+        projectId: ids.project,
+        drawingRevisionId: ids.revision,
+        drawingObjectId: ids.object,
+        measurementKind: "area",
+        linkId: ids.link,
+      },
+      {
+        async transaction(run) {
+          return run({
+            async loadAuthority() {
+              return {
+                projectId: ids.project,
+                documentId: ids.document,
+                revisionId: ids.revision,
+                revisionVersion: 7,
+                revisionStatus: "approved",
+                operationSequence: 12,
+                canonicalJson,
+                snapshotSha256,
+                recomputedSnapshotSha256: snapshotSha256,
+                approvalDecision: "approved",
+                objectId: ids.object,
+                objectLineageId: ids.object,
+                objectVersion: 3,
+                sourceAnchors: [
+                  {
+                    id: ids.source,
+                    object_id: ids.object,
+                    revision_id: ids.revision,
+                    source_file_id: ids.sourceFile,
+                    source_sha256: "c".repeat(64),
+                    source_kind: "dwg_entity",
+                    pdf_page_number: null,
+                    x: null,
+                    y: null,
+                    width: null,
+                    height: null,
+                    element_id: null,
+                    ifc_global_id: null,
+                    camera_json: null,
+                    dwg_entity_json: {
+                      analysisJobId: ids.job,
+                      reportSha256: "e".repeat(64),
+                      handle: "4A",
+                      ownerHandle: "40",
+                      layerHandle: "48",
+                      entityType: "LINE",
+                      sourceLayer: "QA_GEOMETRY",
+                      unitCode: 4,
+                      unitSource: "declared",
+                      importerVersion: 1,
+                      sourceSha256: "d".repeat(64),
+                    },
+                    dxf_entity_key: null,
+                    dxf_entity_type: null,
+                    dxf_source_layer: null,
+                    dxf_handle: null,
+                    dxf_unit_code: null,
+                    dxf_unit_source: null,
+                    dxf_importer_version: null,
+                    version: 1,
+                  },
+                ],
+                issueLinks: [],
+              };
+            },
+            async insertQuantityLink(args) {
+              inserted = true;
+              return {
+                id: ids.link,
+                project_id: ids.project,
+                drawing_revision_id: ids.revision,
+                drawing_revision_version: 7,
+                drawing_snapshot_sha256: snapshotSha256,
+                drawing_object_id: ids.object,
+                drawing_object_lineage_id: ids.object,
+                drawing_object_version: 3,
+                object_fingerprint: args.p_object_fingerprint,
+                measurement_kind: "area",
+                raw_quantity: "12.5",
+                unit: "m2",
+                measurement_rule_version: "P4_MEASUREMENT_V1",
+                created_by: ids.actor,
+                created_at: new Date("2026-09-06T00:00:00.000Z"),
+              };
+            },
+          });
+        },
+      },
+    ),
+    (error) => error.code === "P6B04",
+  );
+  assert.equal(inserted, false);
 });
 
 test("quantity creation rejects anonymous and read-only roles before database access", async () => {
@@ -1088,6 +2500,630 @@ test("lineage pages by created_at and id with a hard 200 row bound", async () =>
   assert.equal(page.rows.length, 200);
   assert.ok(page.nextCursor);
   assert.deepEqual(client.orders.slice(0, 2), ["created_at", "id"]);
+});
+
+test("quantity lineage marks material presence only for the exact project version and line", async () => {
+  const quantity = quantityFixture();
+  const lines = Array.from(
+    { length: 4 },
+    (_, index) =>
+      `00000000-0000-4001-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const links = lines.map((lineId, index) => ({
+    ...drawingLinkFixture(quantity.id),
+    id: `00000000-0000-4002-8000-${String(index + 1).padStart(12, "0")}`,
+    boq_line_id: lineId,
+    boq_version: { status: "approved" },
+    boq_line: { item_code: `M-${index + 1}` },
+  }));
+  const client = quantityMaterialLineageClient({
+    links,
+    materialLinks: [
+      materialLineageScopeFixture(1, { boq_line_id: lines[0] }),
+      materialLineageScopeFixture(2, {
+        project_id: "00000000-0000-4000-8000-000000000199",
+        boq_line_id: lines[1],
+      }),
+      materialLineageScopeFixture(3, {
+        boq_version_id: "00000000-0000-4000-8000-000000000198",
+        boq_line_id: lines[2],
+      }),
+      materialLineageScopeFixture(4, {
+        boq_line_id: "00000000-0000-4001-8000-000000000099",
+      }),
+    ],
+    quantity,
+  });
+
+  const page = await listDrawingObjectQuantityLineage(client, {
+    projectId: p6Ids.project,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.object,
+    cursor: null,
+    limit: 200,
+  });
+
+  assert.deepEqual(
+    page.rows[0].boqLinks.map((link) => link.hasMaterialLineage),
+    [true, false, false, false],
+  );
+  assert.ok(client.materialProjectFilters.length > 0);
+  assert.ok(
+    client.materialProjectFilters.every(
+      (projectId) => projectId === p6Ids.project,
+    ),
+  );
+  assert.equal(
+    "auth" in client,
+    false,
+    "Viewer reads need no writer auth path",
+  );
+});
+
+test("quantity lineage reports each downstream material stage from exact linked plans", async () => {
+  const quantity = quantityFixture();
+  const firstLine = "00000000-0000-4001-8500-000000000001";
+  const secondLine = "00000000-0000-4001-8500-000000000002";
+  const emptyLine = "00000000-0000-4001-8500-000000000003";
+  const firstPlan = "00000000-0000-4004-8500-000000000001";
+  const secondPlan = "00000000-0000-4004-8500-000000000002";
+  const links = [firstLine, secondLine, emptyLine].map((lineId, index) => ({
+    ...drawingLinkFixture(quantity.id),
+    id: `00000000-0000-4002-8500-${String(index + 1).padStart(12, "0")}`,
+    boq_line_id: lineId,
+    boq_version: { status: "approved" },
+    boq_line: { item_code: `M-${index + 1}` },
+  }));
+  const client = quantityMaterialLineageClient({
+    links,
+    materialLinks: [
+      materialLineageScopeFixture(1, {
+        boq_line_id: firstLine,
+        material_plan_id: firstPlan,
+        material_plan: { id: firstPlan, baseline_factor_id: null },
+      }),
+      materialLineageScopeFixture(2, {
+        boq_line_id: secondLine,
+        material_plan_id: secondPlan,
+        material_plan: {
+          id: secondPlan,
+          baseline_factor_id: "00000000-0000-4005-8500-000000000001",
+        },
+      }),
+    ],
+    materialTransactions: [
+      materialTransactionProgressFixture(1, firstPlan, "purchase_order"),
+      materialTransactionProgressFixture(2, firstPlan, "goods_receipt", {
+        carbon_factor_id: "00000000-0000-4005-8500-000000000002",
+      }),
+      materialTransactionProgressFixture(3, secondPlan, "installation"),
+      materialTransactionProgressFixture(4, firstPlan, "waste_disposal", {
+        project_id: "00000000-0000-4000-8000-000000000199",
+      }),
+      materialTransactionProgressFixture(
+        5,
+        "00000000-0000-4004-8500-000000000099",
+        "installation",
+      ),
+    ],
+    quantity,
+  });
+
+  const page = await listDrawingObjectQuantityLineage(client, {
+    projectId: p6Ids.project,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.object,
+    cursor: null,
+    limit: 200,
+  });
+
+  assert.deepEqual(
+    page.rows[0].boqLinks.map((link) => link.materialProgress),
+    [
+      {
+        handoff: true,
+        purchaseOrder: true,
+        goodsReceipt: true,
+        siteActivity: false,
+        carbonEvidence: true,
+      },
+      {
+        handoff: true,
+        purchaseOrder: false,
+        goodsReceipt: false,
+        siteActivity: true,
+        carbonEvidence: true,
+      },
+      {
+        handoff: false,
+        purchaseOrder: false,
+        goodsReceipt: false,
+        siteActivity: false,
+        carbonEvidence: false,
+      },
+    ],
+  );
+  assert.ok(
+    client.transactionProjectFilters.every(
+      (projectId) => projectId === p6Ids.project,
+    ),
+  );
+  assert.ok(client.transactionPlanFilters.every((ids) => ids.length <= 100));
+});
+
+test("quantity lineage batches more than 100 material plans and includes every transaction", async () => {
+  const quantity = quantityFixture();
+  const links = Array.from({ length: 101 }, (_, index) => {
+    const suffix = String(index + 1).padStart(12, "0");
+    return {
+      ...drawingLinkFixture(quantity.id),
+      id: `00000000-0000-4002-8600-${suffix}`,
+      boq_line_id: `00000000-0000-4001-8600-${suffix}`,
+      boq_version: { status: "approved" },
+      boq_line: { item_code: `M-${index + 1}` },
+    };
+  });
+  const materialLinks = links.map((link, index) =>
+    materialLineageScopeFixture(index + 1, {
+      boq_line_id: link.boq_line_id,
+    }),
+  );
+  const client = quantityMaterialLineageClient({
+    links,
+    materialLinks,
+    materialTransactions: materialLinks.map((link, index) =>
+      materialTransactionProgressFixture(
+        index + 1,
+        link.material_plan_id,
+        "purchase_order",
+      ),
+    ),
+    quantity,
+  });
+
+  const page = await listDrawingObjectQuantityLineage(client, {
+    projectId: p6Ids.project,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.object,
+    cursor: null,
+    limit: 200,
+  });
+
+  assert.equal(page.rows[0].boqLinks.length, 101);
+  assert.ok(
+    page.rows[0].boqLinks.every(
+      (link) =>
+        link.materialProgress.handoff &&
+        link.materialProgress.purchaseOrder &&
+        !link.materialProgress.goodsReceipt &&
+        !link.materialProgress.siteActivity &&
+        !link.materialProgress.carbonEvidence,
+    ),
+  );
+  assert.ok(client.transactionPlanFilters.every((ids) => ids.length <= 100));
+  assert.deepEqual(
+    [
+      ...new Map(
+        client.transactionPlanFilters.map((ids) => [JSON.stringify(ids), ids]),
+      ).values(),
+    ].map((ids) => ids.length),
+    [100, 1],
+  );
+});
+
+test("quantity lineage pages capped transactions and treats return alone as site activity", async () => {
+  const quantity = quantityFixture();
+  const orderLine = "00000000-0000-4001-8700-000000000001";
+  const returnLine = "00000000-0000-4001-8700-000000000002";
+  const orderPlan = "00000000-0000-4004-8700-000000000001";
+  const returnPlan = "00000000-0000-4004-8700-000000000002";
+  const links = [orderLine, returnLine].map((lineId, index) => ({
+    ...drawingLinkFixture(quantity.id),
+    id: `00000000-0000-4002-8700-${String(index + 1).padStart(12, "0")}`,
+    boq_line_id: lineId,
+    boq_version: { status: "approved" },
+    boq_line: { item_code: `M-${index + 1}` },
+  }));
+  const client = quantityMaterialLineageClient({
+    links,
+    materialLinks: [
+      materialLineageScopeFixture(1, {
+        boq_line_id: orderLine,
+        material_plan_id: orderPlan,
+        material_plan: { id: orderPlan, baseline_factor_id: null },
+      }),
+      materialLineageScopeFixture(2, {
+        boq_line_id: returnLine,
+        material_plan_id: returnPlan,
+        material_plan: { id: returnPlan, baseline_factor_id: null },
+      }),
+    ],
+    materialTransactions: [
+      materialTransactionProgressFixture(1, orderPlan, "purchase_order"),
+      materialTransactionProgressFixture(2, orderPlan, "goods_receipt"),
+      materialTransactionProgressFixture(3, returnPlan, "return_to_supplier"),
+    ],
+    transactionPageCap: 1,
+    quantity,
+  });
+
+  const page = await listDrawingObjectQuantityLineage(client, {
+    projectId: p6Ids.project,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.object,
+    cursor: null,
+    limit: 200,
+  });
+
+  assert.deepEqual(
+    page.rows[0].boqLinks.map((link) => link.materialProgress),
+    [
+      {
+        handoff: true,
+        purchaseOrder: true,
+        goodsReceipt: true,
+        siteActivity: false,
+        carbonEvidence: false,
+      },
+      {
+        handoff: true,
+        purchaseOrder: false,
+        goodsReceipt: false,
+        siteActivity: true,
+        carbonEvidence: false,
+      },
+    ],
+  );
+  assert.ok(
+    client.transactionAfterIds.filter(Boolean).length >= 3,
+    "the capped transaction query must continue from every returned row",
+  );
+});
+
+test("quantity lineage fails closed on transaction query, shape, and scope faults", async () => {
+  const materialPlanId = "00000000-0000-4004-8800-000000000001";
+  const common = {
+    links: [
+      {
+        ...drawingLinkFixture(p6Ids.quantity),
+        boq_version: { status: "approved" },
+        boq_line: { item_code: "M-1" },
+      },
+    ],
+    materialLinks: [
+      materialLineageScopeFixture(1, {
+        material_plan_id: materialPlanId,
+        material_plan: { id: materialPlanId, baseline_factor_id: null },
+      }),
+    ],
+  };
+  const cases = [
+    {
+      name: "query error",
+      client: quantityMaterialLineageClient({
+        ...common,
+        transactionError: { code: "XX000", message: "private detail" },
+      }),
+    },
+    {
+      name: "malformed row",
+      client: quantityMaterialLineageClient({
+        ...common,
+        materialTransactions: [
+          {
+            ...materialTransactionProgressFixture(
+              1,
+              materialPlanId,
+              "purchase_order",
+            ),
+            transaction_type: "wire_transfer",
+          },
+        ],
+      }),
+    },
+    {
+      name: "cross-project row",
+      client: quantityMaterialLineageClient({
+        ...common,
+        materialTransactions: [
+          materialTransactionProgressFixture(
+            1,
+            materialPlanId,
+            "purchase_order",
+            { project_id: "00000000-0000-4000-8800-000000000099" },
+          ),
+        ],
+        transactionBypassProjectFilter: true,
+      }),
+    },
+  ];
+
+  for (const { name, client } of cases) {
+    await assert.rejects(
+      listDrawingObjectQuantityLineage(client, {
+        projectId: p6Ids.project,
+        revisionId: p6Ids.revision,
+        objectId: p6Ids.object,
+        cursor: null,
+        limit: 200,
+      }),
+      (error) =>
+        error.code === "P6A01" &&
+        Boolean(error.requestId) &&
+        !error.message.includes("private detail"),
+      name,
+    );
+  }
+});
+
+test("quantity lineage rejects 10,001 matching transactions", async () => {
+  const materialPlanId = "00000000-0000-4004-8900-000000000001";
+  const client = quantityMaterialLineageClient({
+    links: [
+      {
+        ...drawingLinkFixture(p6Ids.quantity),
+        boq_version: { status: "approved" },
+        boq_line: { item_code: "M-1" },
+      },
+    ],
+    materialLinks: [
+      materialLineageScopeFixture(1, {
+        material_plan_id: materialPlanId,
+        material_plan: { id: materialPlanId, baseline_factor_id: null },
+      }),
+    ],
+    materialTransactions: Array.from({ length: 10_001 }, (_, index) =>
+      materialTransactionProgressFixture(
+        index + 1,
+        materialPlanId,
+        "invoice_evidence",
+      ),
+    ),
+  });
+
+  await assert.rejects(
+    listDrawingObjectQuantityLineage(client, {
+      projectId: p6Ids.project,
+      revisionId: p6Ids.revision,
+      objectId: p6Ids.object,
+      cursor: null,
+      limit: 200,
+    }),
+    (error) => error.code === "P6A01" && Boolean(error.requestId),
+  );
+});
+
+test("material presence batches at most 100 BOQ line identities", async () => {
+  const quantity = quantityFixture();
+  const links = Array.from({ length: 101 }, (_, index) => {
+    const suffix = String(index + 1).padStart(12, "0");
+    return {
+      ...drawingLinkFixture(quantity.id),
+      id: `00000000-0000-4002-8100-${suffix}`,
+      boq_line_id: `00000000-0000-4001-8100-${suffix}`,
+      boq_version: { status: "approved" },
+      boq_line: { item_code: `M-${index + 1}` },
+    };
+  });
+  const client = quantityMaterialLineageClient({
+    links,
+    materialLinks: links.map((link, index) =>
+      materialLineageScopeFixture(index + 1, {
+        id: `00000000-0000-4003-8100-${String(index + 1).padStart(12, "0")}`,
+        boq_line_id: link.boq_line_id,
+      }),
+    ),
+    quantity,
+  });
+
+  const page = await listDrawingObjectQuantityLineage(client, {
+    projectId: p6Ids.project,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.object,
+    cursor: null,
+    limit: 200,
+  });
+
+  assert.equal(page.rows[0].boqLinks.length, 101);
+  assert.ok(page.rows[0].boqLinks.every((link) => link.hasMaterialLineage));
+  assert.ok(client.materialInFilters.every((ids) => ids.length <= 100));
+  assert.deepEqual(
+    [
+      ...new Map(
+        client.materialInFilters.map((ids) => [JSON.stringify(ids), ids]),
+      ).values(),
+    ].map((ids) => ids.length),
+    [100, 1],
+  );
+});
+
+test("material presence reads only linked version-line groups before its 10,000-row limit", async () => {
+  const quantity = quantityFixture();
+  const alternateVersion = "00000000-0000-4000-8000-000000000197";
+  const links = Array.from({ length: 101 }, (_, index) => {
+    const suffix = String(index + 1).padStart(12, "0");
+    return {
+      ...drawingLinkFixture(quantity.id),
+      id: `00000000-0000-4002-8300-${suffix}`,
+      boq_version_id: index % 2 === 0 ? p6Ids.version : alternateVersion,
+      boq_line_id: `00000000-0000-4001-8300-${suffix}`,
+      boq_version: { status: "approved" },
+      boq_line: { item_code: `M-${index + 1}` },
+    };
+  });
+  const unrelatedVersion = "00000000-0000-4000-8000-000000000198";
+  const materialLinks = [
+    ...Array.from({ length: 10_001 }, (_, index) =>
+      materialLineageScopeFixture(index + 1, {
+        id: `00000000-0000-4003-8300-${String(index + 1).padStart(12, "0")}`,
+        boq_version_id: alternateVersion,
+        boq_line_id: links[0].boq_line_id,
+      }),
+    ),
+    materialLineageScopeFixture(10_002, {
+      id: "00000000-0000-4003-8301-000000000001",
+      boq_line_id: links[0].boq_line_id,
+    }),
+    materialLineageScopeFixture(10_003, {
+      id: "00000000-0000-4003-8301-000000000002",
+      boq_version_id: alternateVersion,
+      boq_line_id: links[1].boq_line_id,
+    }),
+    materialLineageScopeFixture(10_004, {
+      id: "00000000-0000-4003-8301-000000000003",
+      project_id: "00000000-0000-4000-8000-000000000199",
+      boq_line_id: links[2].boq_line_id,
+    }),
+    materialLineageScopeFixture(10_005, {
+      id: "00000000-0000-4003-8301-000000000004",
+      boq_version_id: unrelatedVersion,
+      boq_line_id: links[3].boq_line_id,
+    }),
+    materialLineageScopeFixture(10_006, {
+      id: "00000000-0000-4003-8301-000000000005",
+      boq_line_id: "00000000-0000-4001-8300-000000000199",
+    }),
+  ];
+  const client = quantityMaterialLineageClient({
+    links,
+    materialLinks,
+    quantity,
+  });
+
+  const page = await listDrawingObjectQuantityLineage(client, {
+    projectId: p6Ids.project,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.object,
+    cursor: null,
+    limit: 200,
+  });
+
+  assert.deepEqual(
+    page.rows[0].boqLinks.map((link) => link.hasMaterialLineage),
+    [true, true, ...Array.from({ length: 99 }, () => false)],
+  );
+  assert.ok(client.materialInFilters.every((ids) => ids.length <= 100));
+  assert.ok(client.materialProjectFilters.length > 0);
+  assert.ok(
+    client.materialProjectFilters.every(
+      (projectId) => projectId === p6Ids.project,
+    ),
+  );
+  assert.equal(client.materialVersionInFilters.length, 0);
+  assert.ok(client.materialVersionFilters.length > 0);
+  assert.ok(
+    client.materialVersionFilters.every((versionId) =>
+      [p6Ids.version, alternateVersion].includes(versionId),
+    ),
+  );
+  assert.ok(client.materialVersionFilters.includes(p6Ids.version));
+  assert.ok(client.materialVersionFilters.includes(alternateVersion));
+});
+
+test("material presence shares its 10,000-row limit across exact version-line groups", async () => {
+  const quantity = quantityFixture();
+  const alternateVersion = "00000000-0000-4000-8000-000000000196";
+  const laterVersion = "00000000-0000-4000-8000-000000000195";
+  const firstLine = "00000000-0000-4001-8400-000000000001";
+  const secondLine = "00000000-0000-4001-8400-000000000002";
+  const thirdLine = "00000000-0000-4001-8400-000000000003";
+  const links = [
+    {
+      ...drawingLinkFixture(quantity.id),
+      id: "00000000-0000-4002-8400-000000000001",
+      boq_line_id: firstLine,
+      boq_version: { status: "approved" },
+      boq_line: { item_code: "M-1" },
+    },
+    {
+      ...drawingLinkFixture(quantity.id),
+      id: "00000000-0000-4002-8400-000000000002",
+      boq_version_id: alternateVersion,
+      boq_line_id: secondLine,
+      boq_version: { status: "approved" },
+      boq_line: { item_code: "M-2" },
+    },
+    {
+      ...drawingLinkFixture(quantity.id),
+      id: "00000000-0000-4002-8400-000000000003",
+      boq_version_id: laterVersion,
+      boq_line_id: thirdLine,
+      boq_version: { status: "approved" },
+      boq_line: { item_code: "M-3" },
+    },
+  ];
+  const client = quantityMaterialLineageClient({
+    links,
+    materialLinks: [
+      ...Array.from({ length: 9_999 }, (_, index) =>
+        materialLineageScopeFixture(index + 1, {
+          id: `00000000-0000-4003-8400-${String(index + 1).padStart(12, "0")}`,
+          boq_line_id: firstLine,
+        }),
+      ),
+      materialLineageScopeFixture(10_000, {
+        id: "00000000-0000-4003-8401-000000000001",
+        boq_version_id: alternateVersion,
+        boq_line_id: secondLine,
+      }),
+      materialLineageScopeFixture(10_001, {
+        id: "00000000-0000-4003-8402-000000000001",
+        boq_version_id: laterVersion,
+        boq_line_id: thirdLine,
+      }),
+    ],
+    quantity,
+  });
+
+  await assert.rejects(
+    listDrawingObjectQuantityLineage(client, {
+      projectId: p6Ids.project,
+      revisionId: p6Ids.revision,
+      objectId: p6Ids.object,
+      cursor: null,
+      limit: 200,
+    }),
+    (error) => error.code === "P6A01",
+  );
+});
+
+test("material presence remains complete under a capped PostgREST page", async () => {
+  const quantity = quantityFixture();
+  const lines = [
+    "00000000-0000-4001-8200-000000000001",
+    "00000000-0000-4001-8200-000000000002",
+  ];
+  const links = lines.map((lineId, index) => ({
+    ...drawingLinkFixture(quantity.id),
+    id: `00000000-0000-4002-8200-${String(index + 1).padStart(12, "0")}`,
+    boq_line_id: lineId,
+    boq_version: { status: "approved" },
+    boq_line: { item_code: `M-${index + 1}` },
+  }));
+  const client = quantityMaterialLineageClient({
+    links,
+    materialLinks: lines.map((lineId, index) =>
+      materialLineageScopeFixture(index + 1, {
+        id: `00000000-0000-4003-8200-${String(index + 1).padStart(12, "0")}`,
+        boq_line_id: lineId,
+      }),
+    ),
+    materialPageCap: 1,
+    quantity,
+  });
+
+  const page = await listDrawingObjectQuantityLineage(client, {
+    projectId: p6Ids.project,
+    revisionId: p6Ids.revision,
+    objectId: p6Ids.object,
+    cursor: null,
+    limit: 200,
+  });
+
+  assert.deepEqual(
+    page.rows[0].boqLinks.map((link) => link.hasMaterialLineage),
+    [true, true],
+  );
 });
 
 test("exact BOQ evidence is included even when its quantity is older than the first page", async () => {
@@ -1325,6 +3361,110 @@ test("1.1 RPC input parser keeps fixed authoritative fields and rejects injectio
   ];
   assert.throws(
     () => parseVerifiedBoqV1_1RpcInput(nonFiniteAnchor),
+    (error) => error.code === "P6B04",
+  );
+
+  const dxfPayload = boqInputRpcPayload();
+  dxfPayload.input.drawingLinks[0].source.anchors = [
+    {
+      id: "00000000-0000-4000-8000-000000000124",
+      sourceFileId: p6Ids.priceFile,
+      sourceSha256: P6_SHA_A,
+      sourceKind: "dxf_entity",
+      pdfPageNumber: null,
+      x: null,
+      y: null,
+      width: null,
+      height: null,
+      elementId: null,
+      ifcGlobalId: null,
+      camera: null,
+      entityKey: "entities:0",
+      entityType: "LINE",
+      sourceLayer: "A-WALL",
+      handle: "1A2B",
+      unitCode: 4,
+      unitSource: "declared",
+      importerVersion: 1,
+      version: 1,
+    },
+  ];
+  const parsedDxf = parseVerifiedBoqV1_1RpcInput(dxfPayload);
+  assert.deepEqual(parsedDxf.input.drawingMappings[0].source.sourceAnchors[0], {
+    sourceFileId: p6Ids.priceFile,
+    sourceSha256: P6_SHA_A,
+    sourceKind: "dxf_entity",
+    pdfRegion: null,
+    ifcGlobalId: null,
+    dxfEntity: {
+      entityKey: "entities:0",
+      entityType: "LINE",
+      sourceLayer: "A-WALL",
+      handle: "1A2B",
+      unitCode: 4,
+      unitSource: "declared",
+      importerVersion: 1,
+    },
+  });
+  const invalidDxf = structuredClone(dxfPayload);
+  invalidDxf.input.drawingLinks[0].source.anchors[0].unitSource = "guessed";
+  assert.throws(
+    () => parseVerifiedBoqV1_1RpcInput(invalidDxf),
+    (error) => error.code === "P6B04",
+  );
+
+  const dwgPayload = boqInputRpcPayload();
+  dwgPayload.input.drawingLinks[0].source.anchors = [
+    {
+      id: "00000000-0000-4000-8000-000000000125",
+      sourceFileId: p6Ids.priceFile,
+      sourceSha256: P6_SHA_A,
+      sourceKind: "dwg_entity",
+      pdfPageNumber: null,
+      x: null,
+      y: null,
+      width: null,
+      height: null,
+      elementId: null,
+      ifcGlobalId: null,
+      camera: null,
+      analysisJobId: "00000000-0000-4000-8000-000000000126",
+      reportSha256: P6_SHA_B,
+      handle: "4A",
+      ownerHandle: "40",
+      layerHandle: "48",
+      entityType: "LINE",
+      sourceLayer: "QA_GEOMETRY",
+      unitCode: 4,
+      unitSource: "declared",
+      importerVersion: 1,
+      version: 1,
+    },
+  ];
+  const parsedDwg = parseVerifiedBoqV1_1RpcInput(dwgPayload);
+  assert.deepEqual(parsedDwg.input.drawingMappings[0].source.sourceAnchors[0], {
+    sourceFileId: p6Ids.priceFile,
+    sourceSha256: P6_SHA_A,
+    sourceKind: "dwg_entity",
+    pdfRegion: null,
+    ifcGlobalId: null,
+    dwgEntity: {
+      analysisJobId: "00000000-0000-4000-8000-000000000126",
+      reportSha256: P6_SHA_B,
+      handle: "4A",
+      ownerHandle: "40",
+      layerHandle: "48",
+      entityType: "LINE",
+      sourceLayer: "QA_GEOMETRY",
+      unitCode: 4,
+      unitSource: "declared",
+      importerVersion: 1,
+    },
+  });
+  const invalidDwg = structuredClone(dwgPayload);
+  invalidDwg.input.drawingLinks[0].source.anchors[0].entityKey = "entities:0";
+  assert.throws(
+    () => parseVerifiedBoqV1_1RpcInput(invalidDwg),
     (error) => error.code === "P6B04",
   );
 
@@ -1606,6 +3746,7 @@ test("PDF document entry keeps its pathname while IFC evidence opens exact split
   const document = "00000000-0000-4000-8000-000000000123";
   const pdfFile = "00000000-0000-4000-8000-000000000124";
   const ifcFile = "00000000-0000-4000-8000-000000000125";
+  const dxfFile = "00000000-0000-4000-8000-000000000129";
   const page = await listVerifiedBoqDrawingSources(
     listClient({
       quantities: [quantityFixture()],
@@ -1625,10 +3766,17 @@ test("PDF document entry keeps its pathname while IFC evidence opens exact split
           source_file_id: ifcFile,
           source_kind: "ifc_element",
         },
+        {
+          revision_id: p6Ids.revision,
+          object_id: p6Ids.object,
+          source_file_id: dxfFile,
+          source_kind: "dxf_entity",
+        },
       ],
       files: [
         { id: pdfFile, kind: "pdf" },
         { id: ifcFile, kind: "ifc" },
+        { id: dxfFile, kind: "dxf" },
       ],
     }),
     { projectId: p6Ids.project, boqVersionId: p6Ids.version },
@@ -1648,6 +3796,10 @@ test("PDF document entry keeps its pathname while IFC evidence opens exact split
       [
         "ifc_element",
         `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${ifcFile}&view=split&ifc=${ifcFile}`,
+      ],
+      [
+        "dxf_entity",
+        `/projects/${p6Ids.project}/workspaces/${document}?revision=${p6Ids.revision}&object=${p6Ids.object}&boq=${p6Ids.version}&line=${p6Ids.line}&evidence=${dxfFile}&view=2d`,
       ],
     ],
   );
@@ -2825,6 +4977,174 @@ function lineageClient() {
       };
       query.limit = (size) =>
         Promise.resolve({ data: rows.slice(0, size), error: null });
+      return query;
+    },
+  };
+}
+
+function materialLineageScopeFixture(index, overrides = {}) {
+  const materialPlanId = `00000000-0000-4004-8000-${String(index).padStart(12, "0")}`;
+  return {
+    id: `00000000-0000-4003-8000-${String(index).padStart(12, "0")}`,
+    project_id: p6Ids.project,
+    boq_version_id: p6Ids.version,
+    boq_line_id: p6Ids.line,
+    material_plan_id: materialPlanId,
+    material_plan: { id: materialPlanId, baseline_factor_id: null },
+    ...overrides,
+  };
+}
+
+function materialTransactionProgressFixture(
+  index,
+  materialPlanId,
+  transactionType,
+  overrides = {},
+) {
+  return {
+    id: `00000000-0000-4006-8500-${String(index).padStart(12, "0")}`,
+    project_id: p6Ids.project,
+    material_plan_id: materialPlanId,
+    transaction_type: transactionType,
+    carbon_factor_id: null,
+    ...overrides,
+  };
+}
+
+function quantityMaterialLineageClient({
+  links,
+  materialLinks,
+  materialTransactions = [],
+  materialPageCap = Number.POSITIVE_INFINITY,
+  transactionPageCap = Number.POSITIVE_INFINITY,
+  transactionError = null,
+  transactionBypassProjectFilter = false,
+  quantity = quantityFixture(),
+}) {
+  const materialInFilters = [];
+  const materialProjectFilters = [];
+  const materialVersionInFilters = [];
+  const materialVersionFilters = [];
+  const transactionPlanFilters = [];
+  const transactionProjectFilters = [];
+  const transactionAfterIds = [];
+  return {
+    materialInFilters,
+    materialProjectFilters,
+    materialVersionInFilters,
+    materialVersionFilters,
+    transactionPlanFilters,
+    transactionProjectFilters,
+    transactionAfterIds,
+    from(table) {
+      let afterId = null;
+      let lineIds = null;
+      let versionIds = null;
+      let projectId = null;
+      let versionId = null;
+      const query = {
+        select() {
+          return query;
+        },
+        eq(column, value) {
+          if (
+            table === "lukas_drawing_material_links" &&
+            column === "project_id"
+          ) {
+            materialProjectFilters.push(value);
+            projectId = value;
+          }
+          if (
+            table === "lukas_drawing_material_links" &&
+            column === "boq_version_id"
+          ) {
+            materialVersionFilters.push(value);
+            versionId = value;
+          }
+          if (
+            table === "lukas_qto_material_transactions" &&
+            column === "project_id"
+          ) {
+            transactionProjectFilters.push(value);
+            projectId = value;
+          }
+          return query;
+        },
+        in(column, values) {
+          if (
+            table === "lukas_drawing_material_links" &&
+            column === "boq_line_id"
+          ) {
+            lineIds = [...values];
+            materialInFilters.push([...values]);
+          }
+          if (
+            table === "lukas_drawing_material_links" &&
+            column === "boq_version_id"
+          ) {
+            versionIds = [...values];
+            materialVersionInFilters.push([...values]);
+          }
+          if (
+            table === "lukas_qto_material_transactions" &&
+            column === "material_plan_id"
+          ) {
+            lineIds = [...values];
+            transactionPlanFilters.push([...values]);
+          }
+          return query;
+        },
+        gt(column, value) {
+          if (column === "id") afterId = value;
+          return query;
+        },
+        order() {
+          return query;
+        },
+        or() {
+          return query;
+        },
+        limit(size) {
+          if (table === "lukas_drawing_quantity_links")
+            return Promise.resolve({
+              data: [quantity].slice(0, size),
+              error: null,
+            });
+          if (table === "lukas_drawing_boq_links")
+            return Promise.resolve({ data: links.slice(0, size), error: null });
+          if (table === "lukas_qto_material_transactions") {
+            transactionAfterIds.push(afterId);
+            if (transactionError)
+              return Promise.resolve({ data: null, error: transactionError });
+            const rows = materialTransactions
+              .filter(
+                (row) =>
+                  transactionBypassProjectFilter ||
+                  !projectId ||
+                  row.project_id === projectId,
+              )
+              .filter(
+                (row) => !lineIds || lineIds.includes(row.material_plan_id),
+              )
+              .filter((row) => !afterId || row.id > afterId)
+              .sort((left, right) => left.id.localeCompare(right.id))
+              .slice(0, Math.min(size, transactionPageCap));
+            return Promise.resolve({ data: rows, error: null });
+          }
+          assert.equal(table, "lukas_drawing_material_links");
+          const rows = materialLinks
+            .filter((row) => !projectId || row.project_id === projectId)
+            .filter((row) => !lineIds || lineIds.includes(row.boq_line_id))
+            .filter(
+              (row) => !versionIds || versionIds.includes(row.boq_version_id),
+            )
+            .filter((row) => !versionId || row.boq_version_id === versionId)
+            .filter((row) => !afterId || row.id > afterId)
+            .sort((left, right) => left.id.localeCompare(right.id))
+            .slice(0, Math.min(size, materialPageCap));
+          return Promise.resolve({ data: rows, error: null });
+        },
+      };
       return query;
     },
   };

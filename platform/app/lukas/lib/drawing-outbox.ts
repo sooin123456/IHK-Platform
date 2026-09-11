@@ -16,6 +16,10 @@ import {
   type DrawingStructureAction,
   type DrawingOperationInput,
 } from "./drawing-workspace.types.ts";
+import {
+  DRAWING_COLLABORATION_LIMITS,
+  DrawingCollaborationStatusSchema,
+} from "./drawing-collaboration-protocol.ts";
 
 export type DrawingOutboxStatus = "pending" | "conflicted" | "rejected";
 
@@ -26,6 +30,26 @@ export type DrawingOutboxEntry = {
   retryCount: number;
   enqueueSequence: number;
   error?: string;
+};
+
+export type DrawingOutboxAcknowledgement = {
+  clientOperationId: string;
+  authoritativeSequence: number;
+  resultVersions: Record<string, number | null>;
+  operation: DrawingOperationInput;
+};
+
+export type DrawingOutboxDisposition = {
+  clientOperationId: string;
+  status: "acked" | "rejected";
+  authoritativeSequence: number | null;
+  resultVersions: Record<string, number | null>;
+};
+
+type DrawingAcknowledgedOutboxEntry = Omit<DrawingOutboxEntry, "status"> & {
+  status: "acked";
+  authoritativeSequence: number;
+  resultVersions: Record<string, number | null>;
 };
 
 export type DrawingLegacyOutboxEntry = Omit<
@@ -42,15 +66,55 @@ export type DrawingOutboxAdapter = {
   enqueue(
     entry: Omit<DrawingOutboxEntry, "enqueueSequence">,
   ): Promise<DrawingOutboxEntry>;
-  list(): Promise<Array<DrawingOutboxEntry | DrawingLegacyOutboxEntry>>;
-  put(entry: DrawingOutboxEntry | DrawingLegacyOutboxEntry): Promise<void>;
+  list(): Promise<
+    Array<
+      | DrawingOutboxEntry
+      | DrawingLegacyOutboxEntry
+      | DrawingAcknowledgedOutboxEntry
+    >
+  >;
+  put(
+    entry:
+      | DrawingOutboxEntry
+      | DrawingLegacyOutboxEntry
+      | DrawingAcknowledgedOutboxEntry,
+  ): Promise<void>;
+  claimRecovery?(
+    clientOperationId: string,
+    claimantId: string,
+  ): Promise<
+    | boolean
+    | {
+        claimed: boolean;
+        retryAfterMs?: number;
+      }
+  >;
+  commitRecovery?(clientOperationId: string, claimantId: string): Promise<void>;
+  releaseRecovery?(
+    clientOperationId: string,
+    claimantId: string,
+  ): Promise<void>;
 };
 
-export type DrawingOutboxResponse = {
-  clientOperationId: string;
-  status: "acked" | "conflicted" | "rejected";
-  error?: string;
-};
+export type DrawingOutboxResponse =
+  | ({
+      clientOperationId: string;
+      status: "acked";
+    } & (
+      | {
+          authoritativeSequence: number;
+          resultVersions: Record<string, number | null>;
+        }
+      | {
+          authoritativeSequence?: undefined;
+          resultVersions?: undefined;
+        }
+    ))
+  | {
+      clientOperationId: string;
+      status: "conflicted" | "rejected";
+      error?: string;
+    };
 type DrawingOutboxSend = (
   operation: DrawingOperationInput,
   context?: { signal: AbortSignal },
@@ -58,12 +122,30 @@ type DrawingOutboxSend = (
 
 type RetryScheduler = (delayMs: number, retry: () => Promise<void>) => unknown;
 
+type DrawingOutboxChangeChannel = {
+  onmessage: ((event: MessageEvent<unknown>) => void) | null;
+  postMessage(message: unknown): void;
+  close(): void;
+};
+
+type DrawingOutboxChangeChannelFactory = (
+  name: string,
+) => DrawingOutboxChangeChannel | null;
+
+export type DrawingOutboxChangeKind = "pending" | "settled";
+
 type DrawingOutboxOptions = {
   ownerId: string;
   revisionId: string;
   schedule?: RetryScheduler;
+  broadcastChannelFactory?: DrawingOutboxChangeChannelFactory;
   onAcknowledged?: (count: number) => void;
+  beforeAcknowledged?: (
+    response: Extract<DrawingOutboxResponse, { status: "acked" }>,
+    operation: DrawingOperationInput,
+  ) => void | Promise<void>;
   onChange?: () => void;
+  onExternalChange?: (kind: DrawingOutboxChangeKind) => void;
 };
 
 export type DrawingOutbox = {
@@ -71,8 +153,20 @@ export type DrawingOutbox = {
   claimLegacyEntries(): Promise<number>;
   enqueue(operation: unknown): Promise<DrawingOperationInput>;
   entries(): Promise<DrawingOutboxEntry[]>;
+  acknowledgements(): Promise<DrawingOutboxAcknowledgement[]>;
+  replayableOperations(): Promise<DrawingOperationInput[]>;
+  settleConflictedSuffix(
+    dispositions: DrawingOutboxDisposition[],
+  ): Promise<number>;
+  recoverOperation(
+    clientOperationId: string,
+    recover: () => void | Promise<void>,
+  ): Promise<boolean>;
   flush(send: DrawingOutboxSend): Promise<number>;
-  markAcked(clientOperationId: string): Promise<boolean>;
+  markAcked(
+    clientOperationId: string,
+    evidence?: DrawingOutboxAcknowledgement,
+  ): Promise<boolean>;
   markConflicted(
     clientOperationId: string,
     status?: "conflicted" | "rejected",
@@ -93,8 +187,11 @@ export type DrawingRecoveryScope = {
 };
 
 const retryDelays = [1000, 2000, 4000, 8000, 15000] as const;
+export const drawingRecoveryClaimLeaseMs = 30_000;
 
-function sorted(entries: DrawingOutboxEntry[]) {
+function sorted<Entry extends { enqueueSequence: number }>(
+  entries: Entry[],
+): Entry[] {
   return entries.sort(
     (left, right) => left.enqueueSequence - right.enqueueSequence,
   );
@@ -118,6 +215,19 @@ function defaultSchedule(delayMs: number, retry: () => Promise<void>) {
 type RealmCoordinator = { active: Promise<number> | null; generation: number };
 const realmCoordinators = new Map<string, RealmCoordinator>();
 
+function openNativeDrawingOutboxChangeChannel(name: string) {
+  if (
+    typeof window === "undefined" ||
+    typeof globalThis.BroadcastChannel === "undefined"
+  )
+    return null;
+  try {
+    return new globalThis.BroadcastChannel(name);
+  } catch {
+    return null;
+  }
+}
+
 export function createDrawingOutbox(
   adapter: DrawingOutboxAdapter = createIndexedDbDrawingOutboxAdapter(),
   options: DrawingOutboxOptions,
@@ -131,32 +241,126 @@ export function createDrawingOutbox(
     generation: 0,
   };
   realmCoordinators.set(scopeKey, coordinator);
+  const senderId =
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}:${Math.random()}`;
+  const channelName = `1hk:drawing-outbox:v1:${scopeKey}`;
+  const changeChannel = (
+    options.broadcastChannelFactory ?? openNativeDrawingOutboxChangeChannel
+  )(channelName);
   const scheduledRevisions = new Set<string>();
+  const scheduledRecoveries = new Map<string, () => void>();
   const cancelRetries = new Set<() => void>();
   const inFlight = new Set<AbortController>();
   let disposed = false;
 
-  const entries = async () =>
+  if (changeChannel)
+    changeChannel.onmessage = ({ data }) => {
+      if (!data || typeof data !== "object") return;
+      const message = data as {
+        type?: unknown;
+        ownerId?: unknown;
+        revisionId?: unknown;
+        senderId?: unknown;
+        kind?: unknown;
+      };
+      if (
+        message.type !== "drawing-outbox-change" ||
+        message.ownerId !== options.ownerId ||
+        message.revisionId !== options.revisionId ||
+        message.senderId === senderId ||
+        (message.kind !== "pending" && message.kind !== "settled")
+      )
+        return;
+      coordinator.generation += 1;
+      options.onExternalChange?.(message.kind);
+    };
+
+  const notifyChange = (kind: DrawingOutboxChangeKind) => {
+    options.onChange?.();
+    try {
+      changeChannel?.postMessage({
+        type: "drawing-outbox-change",
+        ownerId: options.ownerId,
+        revisionId: options.revisionId,
+        senderId,
+        kind,
+      });
+    } catch {
+      // Cross-tab wakeup is best-effort; IndexedDB remains authoritative.
+    }
+  };
+
+  const allEntries = async () =>
     sorted(
       (await adapter.list()).filter(
-        (entry): entry is DrawingOutboxEntry =>
+        (entry): entry is DrawingOutboxEntry | DrawingAcknowledgedOutboxEntry =>
           entry.ownerId === options.ownerId &&
           typeof entry.enqueueSequence === "number" &&
           entry.operation.revisionId === options.revisionId,
       ),
     );
+  const entries = async () =>
+    (await allEntries()).filter(
+      (entry): entry is DrawingOutboxEntry => entry.status !== "acked",
+    );
+  const acknowledgements = async (): Promise<DrawingOutboxAcknowledgement[]> =>
+    (await allEntries())
+      .filter(
+        (entry): entry is DrawingAcknowledgedOutboxEntry =>
+          entry.status === "acked",
+      )
+      .map((entry) => {
+        const operation = DrawingOperationInputSchema.parse(entry.operation);
+        const acknowledgement = DrawingCollaborationStatusSchema.parse({
+          operationId: operation.clientOperationId,
+          status: "acked",
+          authoritativeSequence: entry.authoritativeSequence,
+          resultVersions: entry.resultVersions,
+        });
+        return {
+          clientOperationId: acknowledgement.operationId,
+          authoritativeSequence: acknowledgement.authoritativeSequence!,
+          resultVersions: acknowledgement.resultVersions,
+          operation,
+        };
+      });
   const legacyEntries = async () =>
     (await adapter.list()).filter(
       (entry): entry is DrawingLegacyOutboxEntry =>
         !entry.ownerId && entry.operation.revisionId === options.revisionId,
     );
-  const markAcked = async (clientOperationId: string) => {
-    const exists = (await entries()).some(
-      (entry) => entry.operation.clientOperationId === clientOperationId,
+  const markAcked = async (
+    clientOperationId: string,
+    evidence?: DrawingOutboxAcknowledgement,
+  ) => {
+    const entry = (await allEntries()).find(
+      (candidate) =>
+        candidate.operation.clientOperationId === clientOperationId,
     );
-    if (!exists) return false;
-    await adapter.delete(clientOperationId);
-    options.onChange?.();
+    if (!entry) return false;
+    if (evidence) {
+      const acknowledgement = DrawingCollaborationStatusSchema.parse({
+        operationId: evidence.clientOperationId,
+        status: "acked",
+        authoritativeSequence: evidence.authoritativeSequence,
+        resultVersions: evidence.resultVersions,
+      });
+      if (acknowledgement.operationId !== clientOperationId)
+        throw new Error(
+          "Drawing acknowledgement does not match its outbox operation.",
+        );
+      if (!sameDrawingCanonicalValue(entry.operation, evidence.operation))
+        throw new Error(
+          "Drawing acknowledgement operation does not match its outbox entry.",
+        );
+      await adapter.put({
+        ...entry,
+        status: "acked",
+        authoritativeSequence: acknowledgement.authoritativeSequence!,
+        resultVersions: acknowledgement.resultVersions,
+      });
+    } else await adapter.delete(clientOperationId);
+    notifyChange("settled");
     return true;
   };
   const markConflicted = async (
@@ -170,7 +374,7 @@ export function createDrawingOutbox(
     );
     if (!entry) return false;
     await adapter.put({ ...entry, status, error });
-    options.onChange?.();
+    notifyChange("settled");
     return true;
   };
 
@@ -222,7 +426,18 @@ export function createDrawingOutbox(
             throw error;
           }
           if (response.status === "acked") {
-            if (await markAcked(operation.clientOperationId)) acknowledged += 1;
+            await options.beforeAcknowledged?.(response, operation);
+            const evidence =
+              response.authoritativeSequence === undefined
+                ? undefined
+                : {
+                    clientOperationId: response.clientOperationId,
+                    authoritativeSequence: response.authoritativeSequence,
+                    resultVersions: response.resultVersions,
+                    operation,
+                  };
+            if (await markAcked(operation.clientOperationId, evidence))
+              acknowledged += 1;
             continue;
           }
           await markConflicted(
@@ -246,7 +461,7 @@ export function createDrawingOutbox(
             retryCount,
             error: error instanceof Error ? error.message : "Network error",
           });
-          options.onChange?.();
+          notifyChange("pending");
           if (!disposed && !scheduledRevisions.has(operation.revisionId)) {
             scheduledRevisions.add(operation.revisionId);
             const delay =
@@ -281,7 +496,7 @@ export function createDrawingOutbox(
         options.ownerId,
       );
       coordinator.generation += claimed;
-      options.onChange?.();
+      notifyChange("pending");
       return claimed;
     },
     async enqueue(input) {
@@ -295,10 +510,120 @@ export function createDrawingOutbox(
         retryCount: 0,
       });
       coordinator.generation += 1;
-      options.onChange?.();
+      notifyChange("pending");
       return operation;
     },
     entries,
+    acknowledgements,
+    async replayableOperations() {
+      return (await allEntries())
+        .filter(
+          (entry) => entry.status === "acked" || entry.status === "pending",
+        )
+        .map((entry) => DrawingOperationInputSchema.parse(entry.operation));
+    },
+    async settleConflictedSuffix(input) {
+      if (disposed) return 0;
+      if (coordinator.active) await coordinator.active.catch(() => undefined);
+      const queued = await entries();
+      const conflict = queued.find((entry) => entry.status !== "pending");
+      if (!conflict) return 0;
+      const suffix = queued.filter(
+        (entry) => entry.enqueueSequence >= conflict.enqueueSequence,
+      );
+      if (
+        input.length !== suffix.length ||
+        input.some(
+          (disposition, index) =>
+            disposition.clientOperationId !==
+            suffix[index].operation.clientOperationId,
+        )
+      )
+        throw new Error(
+          "Drawing conflict dispositions do not match the causal suffix.",
+        );
+      const dispositions = input.map((disposition) => {
+        const status = DrawingCollaborationStatusSchema.parse({
+          operationId: disposition.clientOperationId,
+          status: disposition.status,
+          authoritativeSequence: disposition.authoritativeSequence,
+          resultVersions: disposition.resultVersions,
+        });
+        return { ...disposition, status };
+      });
+      // Keep the conflict sentinel until every later operation is durable so
+      // a partial local failure remains visibly blocked and safely retryable.
+      for (let index = suffix.length - 1; index >= 0; index -= 1) {
+        const entry = suffix[index];
+        const disposition = dispositions[index];
+        if (disposition.status.status === "acked") {
+          const response = {
+            clientOperationId: disposition.clientOperationId,
+            status: "acked" as const,
+            authoritativeSequence: disposition.status.authoritativeSequence!,
+            resultVersions: disposition.status.resultVersions,
+          };
+          await options.beforeAcknowledged?.(response, entry.operation);
+          await markAcked(disposition.clientOperationId, {
+            clientOperationId: disposition.clientOperationId,
+            authoritativeSequence: response.authoritativeSequence,
+            resultVersions: response.resultVersions,
+            operation: entry.operation,
+          });
+        } else await adapter.delete(disposition.clientOperationId);
+      }
+      for (const cancel of cancelRetries) cancel();
+      cancelRetries.clear();
+      scheduledRecoveries.clear();
+      scheduledRevisions.clear();
+      coordinator.generation += suffix.length;
+      notifyChange("settled");
+      return suffix.length;
+    },
+    async recoverOperation(clientOperationId, recover) {
+      if (disposed) return false;
+      if (!adapter.claimRecovery) {
+        await recover();
+        return true;
+      }
+      const claim = await adapter.claimRecovery(clientOperationId, senderId);
+      const claimed = typeof claim === "boolean" ? claim : claim.claimed;
+      if (!claimed) {
+        const retryAfterMs =
+          typeof claim === "object" ? claim.retryAfterMs : undefined;
+        if (
+          retryAfterMs !== undefined &&
+          retryAfterMs > 0 &&
+          !scheduledRecoveries.has(clientOperationId)
+        ) {
+          let cancel = () => {};
+          const scheduled = schedule(retryAfterMs, async () => {
+            scheduledRecoveries.delete(clientOperationId);
+            cancelRetries.delete(cancel);
+            if (!disposed)
+              await api.recoverOperation(clientOperationId, recover);
+          });
+          if (typeof scheduled === "function") cancel = scheduled as () => void;
+          scheduledRecoveries.set(clientOperationId, cancel);
+          cancelRetries.add(cancel);
+        }
+        return false;
+      }
+      const pendingRetry = scheduledRecoveries.get(clientOperationId);
+      if (pendingRetry) {
+        pendingRetry();
+        scheduledRecoveries.delete(clientOperationId);
+        cancelRetries.delete(pendingRetry);
+      }
+      try {
+        await recover();
+        await adapter.commitRecovery?.(clientOperationId, senderId);
+        return true;
+      } catch (error) {
+        await adapter.releaseRecovery?.(clientOperationId, senderId);
+        throw error;
+      }
+    },
     flush(send) {
       if (disposed) return Promise.resolve(0);
       if (coordinator.active)
@@ -336,14 +661,20 @@ export function createDrawingOutbox(
       )
         throw new Error("Drawing recovery evidence is outside outbox scope.");
       await adapter.put({ ...entry, status: "conflicted", error });
-      options.onChange?.();
+      notifyChange("settled");
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
+      if (changeChannel) {
+        changeChannel.onmessage = null;
+        changeChannel.close();
+      }
       for (const controller of inFlight) controller.abort();
       inFlight.clear();
       for (const cancel of cancelRetries) cancel();
       cancelRetries.clear();
+      scheduledRecoveries.clear();
       scheduledRevisions.clear();
     },
   };
@@ -353,10 +684,14 @@ export function createDrawingOutbox(
 type StoredDrawingOutboxEntry = (
   | DrawingOutboxEntry
   | DrawingLegacyOutboxEntry
+  | DrawingAcknowledgedOutboxEntry
 ) & {
   clientOperationId: string;
   revisionId: string;
   createdAt: string;
+  recoveryClaimantId?: string;
+  recoveryClaimedAt?: number;
+  recoveryCommitted?: boolean;
 };
 
 function normalizeLegacyPersistedDrawingOperation(
@@ -414,7 +749,14 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 /** Native browser persistence; opening remains lazy so SSR never touches IndexedDB. */
 export function createIndexedDbDrawingOutboxAdapter(
   factory: IDBFactory | undefined = globalThis.indexedDB,
+  options: {
+    now?: () => number;
+    recoveryLeaseMs?: number;
+  } = {},
 ): DrawingOutboxAdapter {
+  const now = options.now ?? Date.now;
+  const recoveryLeaseMs =
+    options.recoveryLeaseMs ?? drawingRecoveryClaimLeaseMs;
   let database: Promise<IDBDatabase> | null = null;
   const open = () => {
     if (database) return database;
@@ -484,8 +826,16 @@ export function createIndexedDbDrawingOutboxAdapter(
       );
       const legacy = stored
         .filter(
-          (entry) =>
-            !entry.ownerId && entry.operation.revisionId === revisionId,
+          (
+            entry,
+          ): entry is DrawingLegacyOutboxEntry &
+            Pick<
+              StoredDrawingOutboxEntry,
+              "clientOperationId" | "revisionId" | "createdAt"
+            > =>
+            !entry.ownerId &&
+            entry.status !== "acked" &&
+            entry.operation.revisionId === revisionId,
         )
         .sort(
           (left, right) =>
@@ -532,6 +882,9 @@ export function createIndexedDbDrawingOutboxAdapter(
           clientOperationId: _id,
           revisionId: _revision,
           createdAt: _at,
+          recoveryClaimantId: _claimant,
+          recoveryClaimedAt: _claimedAt,
+          recoveryCommitted: _committed,
           ...entry
         }) => entry,
       );
@@ -560,12 +913,105 @@ export function createIndexedDbDrawingOutboxAdapter(
     async put(entry) {
       const db = await open();
       const transaction = db.transaction("operations", "readwrite");
-      transaction.objectStore("operations").put({
+      const store = transaction.objectStore("operations");
+      const existing = (await requestResult(
+        store.get(entry.operation.clientOperationId),
+      )) as StoredDrawingOutboxEntry | undefined;
+      store.put({
         ...entry,
         clientOperationId: entry.operation.clientOperationId,
         revisionId: entry.operation.revisionId,
         createdAt: entry.operation.createdAt,
+        ...(existing?.recoveryClaimantId
+          ? { recoveryClaimantId: existing.recoveryClaimantId }
+          : {}),
+        ...(existing?.recoveryClaimedAt !== undefined
+          ? { recoveryClaimedAt: existing.recoveryClaimedAt }
+          : {}),
+        ...(existing?.recoveryCommitted !== undefined
+          ? { recoveryCommitted: existing.recoveryCommitted }
+          : {}),
       } satisfies StoredDrawingOutboxEntry);
+      await transactionDone(transaction);
+    },
+    async claimRecovery(clientOperationId, claimantId) {
+      const db = await open();
+      const transaction = db.transaction("operations", "readwrite");
+      const store = transaction.objectStore("operations");
+      const current = (await requestResult(store.get(clientOperationId))) as
+        | StoredDrawingOutboxEntry
+        | undefined;
+      if (
+        !current ||
+        current.ownerId === undefined ||
+        current.status !== "pending"
+      ) {
+        await transactionDone(transaction);
+        return false;
+      }
+      if (current.recoveryCommitted) {
+        await transactionDone(transaction);
+        return false;
+      }
+      const claimedAt = current.recoveryClaimedAt;
+      const elapsed =
+        typeof claimedAt === "number" ? Math.max(0, now() - claimedAt) : null;
+      if (
+        current.recoveryClaimantId &&
+        elapsed !== null &&
+        elapsed < recoveryLeaseMs
+      ) {
+        await transactionDone(transaction);
+        return {
+          claimed: false,
+          retryAfterMs: Math.max(1, recoveryLeaseMs - elapsed),
+        };
+      }
+      store.put({
+        ...current,
+        recoveryClaimantId: claimantId,
+        recoveryClaimedAt: now(),
+        recoveryCommitted: false,
+      });
+      await transactionDone(transaction);
+      return true;
+    },
+    async commitRecovery(clientOperationId, claimantId) {
+      const db = await open();
+      const transaction = db.transaction("operations", "readwrite");
+      const store = transaction.objectStore("operations");
+      const current = (await requestResult(store.get(clientOperationId))) as
+        | StoredDrawingOutboxEntry
+        | undefined;
+      if (!current || current.recoveryClaimantId !== claimantId) {
+        await transactionDone(transaction);
+        throw new Error("Drawing recovery claim expired before commit.");
+      }
+      store.put({
+        ...current,
+        recoveryCommitted: true,
+      });
+      await transactionDone(transaction);
+    },
+    async releaseRecovery(clientOperationId, claimantId) {
+      const db = await open();
+      const transaction = db.transaction("operations", "readwrite");
+      const store = transaction.objectStore("operations");
+      const current = (await requestResult(store.get(clientOperationId))) as
+        | StoredDrawingOutboxEntry
+        | undefined;
+      if (
+        current?.recoveryClaimantId === claimantId &&
+        !current.recoveryCommitted
+      ) {
+        const {
+          recoveryClaimantId: _claimant,
+          recoveryClaimedAt: _claimedAt,
+          recoveryCommitted: _committed,
+          ...released
+        } = current;
+        store.put(released);
+      }
       await transactionDone(transaction);
     },
   };
@@ -1817,6 +2263,7 @@ export function drawingSaveStatus({
   online = true,
   storageError = false,
   volatileCount = 0,
+  localMutationCount = 0,
 }: {
   pending: number;
   conflicted?: boolean;
@@ -1824,8 +2271,9 @@ export function drawingSaveStatus({
   online?: boolean;
   storageError?: boolean;
   volatileCount?: number;
+  localMutationCount?: number;
 }): "저장됨" | "저장 중" | "오프라인 저장" | "충돌 검토 필요" {
-  if (volatileCount > 0) return "저장 중";
+  if (volatileCount > 0 || localMutationCount > 0) return "저장 중";
   if (conflicted) return "충돌 검토 필요";
   if (storageError) return "저장 중";
   if (!online) return "오프라인 저장";
@@ -1838,6 +2286,122 @@ type DrawingFetchResponse = {
   status: number;
   json(): Promise<unknown>;
 };
+
+function exactObject(
+  value: unknown,
+  keys: readonly string[],
+): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value);
+  return (
+    actual.length === keys.length && actual.every((key) => keys.includes(key))
+  );
+}
+
+/** Settles one exact causal conflict suffix through the authoritative action. */
+export async function sendDrawingConflictDiscard(
+  inputs: unknown[],
+  revisionId: string,
+  url: string,
+  fetcher: (
+    input: string,
+    init: {
+      method: "POST";
+      body: FormData;
+      headers: { Accept: string };
+    },
+  ) => Promise<DrawingFetchResponse> = fetch,
+): Promise<DrawingOutboxDisposition[]> {
+  if (
+    inputs.length < 1 ||
+    inputs.length > DRAWING_COLLABORATION_LIMITS.maxOperations
+  )
+    throw new Error("Drawing conflict suffix is outside the supported range.");
+  const operations = inputs.map((input) =>
+    DrawingOperationInputSchema.parse(input),
+  );
+  if (operations.some((operation) => operation.revisionId !== revisionId))
+    throw new Error("Drawing conflict suffix is outside the active revision.");
+  const dispositions: DrawingOutboxDisposition[] = [];
+  for (
+    let offset = 0;
+    offset < operations.length;
+    offset += DRAWING_COLLABORATION_LIMITS.maxActionItems
+  ) {
+    const batch = operations.slice(
+      offset,
+      offset + DRAWING_COLLABORATION_LIMITS.maxActionItems,
+    );
+    const form = new FormData();
+    form.set("intent", "discard_conflicted_operations");
+    form.set("revision_id", revisionId);
+    form.set("operations_json", JSON.stringify(batch));
+    const response = await fetcher(url, {
+      method: "POST",
+      body: form,
+      headers: { Accept: "application/json" },
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error =
+        body && typeof body === "object" && "error" in body
+          ? (body as { error?: unknown }).error
+          : null;
+      throw new Error(
+        typeof error === "string"
+          ? error
+          : "Drawing conflict suffix could not be settled.",
+      );
+    }
+    if (
+      !exactObject(body, ["ok", "kind", "error", "result"]) ||
+      body.ok !== true ||
+      body.kind !== "success" ||
+      body.error !== null ||
+      !exactObject(body.result, ["dispositions"]) ||
+      !Array.isArray(body.result.dispositions) ||
+      body.result.dispositions.length !== batch.length
+    )
+      throw new Error("Server conflict disposition response is invalid.");
+    dispositions.push(
+      ...body.result.dispositions.map((value, index) => {
+        if (
+          !exactObject(value, [
+            "clientOperationId",
+            "status",
+            "authoritativeSequence",
+            "resultVersions",
+          ]) ||
+          (value.status !== "acked" && value.status !== "rejected")
+        )
+          throw new Error("Server conflict disposition response is invalid.");
+        const parsed = DrawingCollaborationStatusSchema.safeParse({
+          operationId: value.clientOperationId,
+          status: value.status,
+          authoritativeSequence: value.authoritativeSequence,
+          resultVersions: value.resultVersions,
+        });
+        if (
+          !parsed.success ||
+          (parsed.data.status === "rejected" &&
+            Object.keys(parsed.data.resultVersions).length > 0)
+        )
+          throw new Error("Server conflict disposition response is invalid.");
+        if (parsed.data.operationId !== batch[index].clientOperationId)
+          throw new Error(
+            "Server conflict dispositions do not match the requested operations.",
+          );
+        return {
+          clientOperationId: parsed.data.operationId,
+          status: parsed.data.status,
+          authoritativeSequence: parsed.data.authoritativeSequence,
+          resultVersions: parsed.data.resultVersions,
+        } as DrawingOutboxDisposition;
+      }),
+    );
+  }
+  return dispositions;
+}
 
 /** Posts one canonical operation to the existing React Router action. */
 export async function sendDrawingOperation(
@@ -1869,13 +2433,33 @@ export async function sendDrawingOperation(
     kind?: string;
     error?: string;
     clientOperationId?: string;
+    result?: {
+      operationId?: unknown;
+      sequence?: unknown;
+      resultVersions?: unknown;
+    };
   } | null;
   if (response.ok && body?.ok) {
     if (body.clientOperationId !== operation.clientOperationId)
       throw new Error(
         "Server acknowledgement did not match the queued operation.",
       );
-    return { clientOperationId: body.clientOperationId, status: "acked" };
+    const acknowledgement = DrawingCollaborationStatusSchema.safeParse({
+      operationId: body.clientOperationId,
+      status: "acked",
+      authoritativeSequence: body.result?.sequence,
+      resultVersions: body.result?.resultVersions,
+    });
+    if (!acknowledgement.success)
+      throw new Error(
+        "Server acknowledgement sequence or result versions are invalid.",
+      );
+    return {
+      clientOperationId: body.clientOperationId,
+      status: "acked",
+      authoritativeSequence: acknowledgement.data.authoritativeSequence!,
+      resultVersions: acknowledgement.data.resultVersions,
+    };
   }
   if (body?.kind === "rpc")
     throw new Error(body.error ?? "Drawing operation could not be saved.");

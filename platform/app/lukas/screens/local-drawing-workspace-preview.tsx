@@ -1,9 +1,12 @@
 import type { Route } from "./+types/local-drawing-workspace-preview";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { data } from "react-router";
+import { data, useLocation } from "react-router";
+import { parseRegistrationRecord } from "~/lukas/components/drawing-native-start-preview";
 
 import DrawingWorkspaceClient from "~/lukas/components/drawing-workspace";
+import { DrawingPdfScreenPreview } from "~/lukas/components/drawing-pdf-screen-preview";
+import { ExternalRequestWorkspacePreview } from "~/lukas/components/external-request-workspace-preview";
 import { openDrawingCollaborationConnection } from "~/lukas/lib/drawing-collaboration-client";
 import {
   connectedDrawingWorkspaceRealtimeView,
@@ -15,10 +18,12 @@ import { validateDrawingStructureState } from "~/lukas/lib/drawing-structure";
 import {
   parseDrawingWorkspacePreviousPdfForm,
   parseWorkspaceMutation,
+  expectedOperationResultVersions,
   type DrawingWorkspace,
   type DrawingWorkspaceSourceBundle,
 } from "~/lukas/lib/drawing-workspace.server";
 import { parseDrawingWorkspaceViewState } from "~/lukas/lib/drawing-workspace-view";
+import { parseRelinkDrawingAnchorForm } from "~/lukas/lib/drawing-revision.server";
 import type {
   DrawingBlock,
   DrawingBlockInstance,
@@ -32,6 +37,7 @@ import type {
   DrawingStyleDefinition,
   DrawingStructureLayer,
   DrawingTable,
+  DrawingOperationInput,
 } from "~/lukas/lib/drawing-workspace.types";
 import { drawingAwarenessColor } from "~/lukas/lib/drawing-awareness";
 import { adaptIfcRenderBundleDescriptor } from "~/lukas/lib/ifc-render-descriptor";
@@ -88,9 +94,10 @@ const ids = {
 };
 
 const sourceSha256 = "a".repeat(64);
-const representativePdfByteSize = 62_602;
+// Public synthetic current PDF: scripts/generate-p5-current-pdf.mjs.
+const representativePdfByteSize = 8_289;
 const representativePdfSha256 =
-  "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326";
+  "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db";
 const representativePreviousPdfByteSize = 63_118;
 const representativePreviousPdfSha256 =
   "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc";
@@ -138,6 +145,7 @@ const previewNotApplicableDerivative = {
 };
 const previewPreviousPdfFileId = "00000000-0000-4000-8000-0000000000b1";
 const previewPdfRevisionEdgeId = "00000000-0000-4000-8000-0000000000b2";
+const previewRevisionAnchorId = "00000000-0000-4000-8000-0000000000b3";
 
 export function localP5SourceManifest() {
   return [
@@ -1254,14 +1262,18 @@ export function loader({ request }: Route.LoaderArgs) {
     new URL(request.url).searchParams.get("hiddenHostTest") === "1";
   const p5IfcTest = new URL(request.url).searchParams.get("p5IfcTest") === "1";
   const p5PdfTest = new URL(request.url).searchParams.get("p5PdfTest") === "1";
+  const p5RevisionRelinkTest =
+    new URL(request.url).searchParams.get("p5RevisionRelinkTest") === "1";
   const p5BaselineTest =
     new URL(request.url).searchParams.get("p5BaselineTest") === "1";
   const p5ReleaseTest =
     new URL(request.url).searchParams.get("p5ReleaseTest") === "1";
   const legacyPreviewTest = [
     "realtimeTest",
+    "connectionLifecycleTest",
     "collaborationRetryTest",
     "bootstrapReadOnlyTest",
+    "awarenessTest",
     "verticalTest",
     "localMultiplayerTest",
   ].some((name) => new URL(request.url).searchParams.get(name) === "1");
@@ -1270,6 +1282,7 @@ export function loader({ request }: Route.LoaderArgs) {
     !hiddenHostTest &&
     !p5IfcTest &&
     !p5PdfTest &&
+    !p5RevisionRelinkTest &&
     !p5ReleaseTest &&
     !legacyPreviewTest;
   const viewState = parseDrawingWorkspaceViewState(
@@ -1287,7 +1300,11 @@ export function loader({ request }: Route.LoaderArgs) {
     hiddenHostTest,
     p5IfcTest,
     p5Integrated:
-      performanceTest || canonicalP5 || p5BaselineTest || p5ReleaseTest,
+      performanceTest ||
+      canonicalP5 ||
+      p5BaselineTest ||
+      p5ReleaseTest ||
+      p5RevisionRelinkTest,
     p5PdfTest,
     p7PerformanceTest: performanceTest,
     selectedIfcFileId: viewState.ifcFileId,
@@ -1299,7 +1316,10 @@ export function loader({ request }: Route.LoaderArgs) {
         : undefined),
   });
   validateLocalDrawingWorkspacePreviewFixture(fixture);
+  const connectionLifecycleTest =
+    new URL(request.url).searchParams.get("connectionLifecycleTest") === "1";
   const realtimeTest =
+    connectionLifecycleTest ||
     new URL(request.url).searchParams.get("realtimeTest") === "1";
   const collaborationRetryTest =
     new URL(request.url).searchParams.get("collaborationRetryTest") === "1";
@@ -1314,9 +1334,37 @@ export function loader({ request }: Route.LoaderArgs) {
   const alternateUser =
     localMultiplayerTest &&
     new URL(request.url).searchParams.get("alternateUser") === "1";
+  const returnProject = new URL(request.url).searchParams.get("returnProject");
+  const projectPreviewReturn =
+    returnProject &&
+    /^00000000-0000-4000-(?:8000-00000000010[1-3]|9000-[0-9a-f]{12})$/.test(returnProject)
+      ? `/workspace-preview?project=${returnProject}`
+      : null;
+  const projectPreviewViewer =
+    new URL(request.url).searchParams.get("role") === "viewer";
+  const returnQuery = new URL(request.url).searchParams;
+  const returnPanel = returnQuery.get("returnPanel");
+  const workReturn = returnPanel === "project-quantities" || returnPanel === "project-materials" || returnPanel === "project-deliveries" || returnPanel === "project-reviews" ? `&panel=${returnPanel}` : "";
+  const returnRequestStatus=returnQuery.get("returnRequestStatus");
+  const requestStatusReturn=returnPanel==="project-reviews"&&returnRequestStatus&&["확인 대기","수정 요청","확인 완료","승인 확인"].includes(returnRequestStatus)?`&requestStatus=${encodeURIComponent(returnRequestStatus)}`:"";
+  const returnSourceDrawing = returnQuery.get("returnSourceDrawing");
+  const workSourceReturn = returnPanel === "project-materials" && returnSourceDrawing && /^[0-9a-f-]{36}$/i.test(returnSourceDrawing) ? `&sourceDrawing=${encodeURIComponent(returnSourceDrawing)}` : "";
+  const returnState = returnQuery.get("returnState");
+  const requestedScreenReviewState = returnQuery.get("reviewState");
+  const screenReviewState = ["requested", "changes", "approved"].includes(
+    requestedScreenReviewState ?? "",
+  )
+    ? (requestedScreenReviewState as "requested" | "changes" | "approved")
+    : undefined;
   const revision = fixture.workspace.document.revision;
   const payload = {
     ...fixture,
+    roomUrl: projectPreviewReturn
+      ? `${projectPreviewReturn}${projectPreviewViewer ? "&role=viewer" : ""}${returnQuery.get("returnEmpty") === "1" ? "&empty=1" : ""}${returnQuery.get("returnTab") === "files" ? "&tab=files" : ""}${workReturn}${workSourceReturn}${requestStatusReturn}`
+      : returnState === "empty" || returnState === "default"
+        ? `/workspace-preview?state=${returnState}`
+        : fixture.roomUrl,
+    capability: projectPreviewViewer ? ("viewer" as const) : fixture.capability,
     assignees: [
       { userId: ids.user, role: "estimator" },
       { userId: previewAlternateUserId, role: "reviewer" },
@@ -1330,7 +1378,7 @@ export function loader({ request }: Route.LoaderArgs) {
           revisionId: revision.id,
           actorId: previewAlternateUserId,
           action: "revert_operation",
-          detail: { type: "compound", actions: [{ type: "put_object" }] },
+          detail: { type: "compound", itemCount: 1 },
           provenance: {
             originalOperationId: "00000000-0000-4000-8000-000000000091",
           },
@@ -1341,7 +1389,33 @@ export function loader({ request }: Route.LoaderArgs) {
     },
     collaborationRoom: {
       issues: revision.issues,
-      anchors: [],
+      anchors: p5RevisionRelinkTest
+        ? [
+            {
+              id: previewRevisionAnchorId,
+              issue_id: ids.issue,
+              project_id: ids.project,
+              file_id: previewPreviousPdfFileId,
+              anchor_kind: "pdf_region" as const,
+              element_id: null,
+              ifc_global_id: null,
+              camera_json: null,
+              page_number: 1,
+              x: 0.12,
+              y: 0.18,
+              width: 0.2,
+              height: 0.15,
+              label: "이전 PDF 창호 영역",
+              active: true,
+              created_by: previewAlternateUserId,
+              created_at: createdAt,
+              deactivated_by: null,
+              deactivated_at: null,
+              deactivation_note: null,
+              replaces_anchor_id: null,
+            },
+          ]
+        : [],
       comments: [
         {
           id: "00000000-0000-4000-8000-000000000096",
@@ -1375,6 +1449,19 @@ export function loader({ request }: Route.LoaderArgs) {
         },
       ],
     },
+    revisionReview: p5RevisionRelinkTest
+      ? [
+          {
+            issueId: ids.issue,
+            issueTitle: "창호 치수 확인",
+            previousAnchorId: previewRevisionAnchorId,
+            previousFileId: previewPreviousPdfFileId,
+            sourceKind: "pdf_region" as const,
+            kind: "manual_reanchor_required" as const,
+            ifcGlobalId: null,
+          },
+        ]
+      : [],
     collaborationBootstrap: bootstrapReadOnlyTest
       ? {
           canonicalJson: {
@@ -1411,6 +1498,7 @@ export function loader({ request }: Route.LoaderArgs) {
       : undefined,
     previewLoaderNonce: realtimeTest ? crypto.randomUUID() : null,
     collaborationRetryTest,
+    connectionLifecycleTest,
     awarenessTest,
     realtimeTest,
     verticalTest,
@@ -1420,9 +1508,33 @@ export function loader({ request }: Route.LoaderArgs) {
     ifcLifecycleTest,
     p5IfcTest,
     p5PdfTest,
+    p5RevisionRelinkTest,
     p5BaselineTest,
     p5ReleaseTest,
     canonicalP5,
+    layoutPreview: new URL(request.url).searchParams.get("layout") === "pdf",
+    pdfHandoffToken: returnQuery.get("pdf"),
+    screenStartKind:
+      returnQuery.get("startKind") === "blank"
+        ? ("blank" as const)
+        : returnQuery.get("startKind") === "office"
+          ? ("office" as const)
+          : returnQuery.get("startKind") === "house"
+            ? ("house" as const)
+            : ("pdf" as const),
+    screenTitle: (returnQuery.get("title") ?? "").trim().slice(0, 80),
+    screenDocumentId: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(returnQuery.get("screenDocument") ?? "") ? returnQuery.get("screenDocument")! : undefined,
+    screenViewMode: returnQuery.get("view") === "3d" ? "3d" as const : returnQuery.get("view") === "split" ? "split" as const : "2d" as const,
+    screenReviewPreview: returnQuery.get("reviewPreview") === "1",
+    screenWorkflowPanel: ["review", "export", "share"].includes(returnQuery.get("workflowPanel") ?? "") ? returnQuery.get("workflowPanel") as "review" | "export" | "share" : undefined,
+    screenTakeoffPreview: returnQuery.get("takeoffPreview") === "1",
+    screenReviewState,
+    screenPaper:
+      returnQuery.get("paper") === "A4"
+        ? ("A4" as const)
+        : returnQuery.get("paper") === "A2"
+          ? ("A2" as const)
+          : ("A3" as const),
   };
   const loaderMs = finishLoaderStage();
   return data(
@@ -1435,9 +1547,71 @@ export function loader({ request }: Route.LoaderArgs) {
   );
 }
 
+const legacyPreviewSequenceCeiling = 2_147_483_646;
+
+/** Development-only receipt order that preserves the causal submit order. */
+export function createPreviewOperationReceiptSequencer() {
+  const receipts = new Map<
+    string,
+    { operationSignature: string; sequence: number }
+  >();
+  const lastSequenceByRevision = new Map<string, number>();
+
+  return {
+    issue(
+      operation: Pick<
+        DrawingOperationInput,
+        "clientOperationId" | "revisionId" | "createdAt"
+      >,
+    ) {
+      const key = `${operation.revisionId}:${operation.clientOperationId}`;
+      const operationSignature = JSON.stringify(operation);
+      const existing = receipts.get(key);
+      if (existing) {
+        if (existing.operationSignature !== operationSignature)
+          throw new Error(
+            "Local preview operation identity cannot be reused with different input.",
+          );
+        return existing.sequence;
+      }
+
+      // The timestamp floor keeps receipts created after a dev-server restart
+      // above the former UUID-hash range and normally above earlier sessions.
+      const timestampFloor = Date.parse(operation.createdAt) * 1_000;
+      if (!Number.isSafeInteger(timestampFloor) || timestampFloor < 1)
+        throw new Error("Local preview operation timestamp is invalid.");
+      const sequence = Math.max(
+        legacyPreviewSequenceCeiling + 1,
+        timestampFloor,
+        (lastSequenceByRevision.get(operation.revisionId) ?? 0) + 1,
+      );
+      if (!Number.isSafeInteger(sequence))
+        throw new Error("Local preview operation sequence is exhausted.");
+      receipts.set(key, { operationSignature, sequence });
+      lastSequenceByRevision.set(operation.revisionId, sequence);
+      return sequence;
+    },
+  };
+}
+
+const previewOperationReceipts = createPreviewOperationReceiptSequencer();
+
+function previewOperationResultVersions(operation: DrawingOperationInput) {
+  return Object.fromEntries(
+    Object.entries(expectedOperationResultVersions(operation)).map(
+      ([id, expectation]) => [
+        id,
+        expectation.kind === "deleted" ? null : expectation.version,
+      ],
+    ),
+  );
+}
+
 export async function action({ request }: Route.ActionArgs) {
   if (!isLocalPreviewRequest(request))
     return data({ ok: false, error: "Not Found" }, { status: 404 });
+  if (new URL(request.url).searchParams.get("layout") === "pdf")
+    return new Response("Screen preview is read-only.", { status: 405 });
   try {
     const form = await request.formData();
     const intent = form.get("intent");
@@ -1486,6 +1660,31 @@ export async function action({ request }: Route.ActionArgs) {
         },
       });
     }
+    if (
+      intent === "relink_anchor" &&
+      new URL(request.url).searchParams.get("p5RevisionRelinkTest") === "1"
+    ) {
+      const input = parseRelinkDrawingAnchorForm(form);
+      if (
+        input.previousAnchorId !== previewRevisionAnchorId ||
+        input.currentFileId !== ids.file ||
+        input.anchor.kind !== "pdf_region" ||
+        input.anchor.fileId !== ids.file
+      )
+        return data(
+          { ok: false, error: "개정 근거 후보가 일치하지 않습니다." },
+          { status: 409 },
+        );
+      return data({
+        ok: true as const,
+        kind: "revision_anchor_relinked" as const,
+        error: null,
+        result: {
+          previousAnchorId: input.previousAnchorId,
+          newAnchorId: input.newAnchorId,
+        },
+      });
+    }
     const mutation = parseWorkspaceMutation(form);
     if (
       mutation.intent === "request_review" &&
@@ -1523,6 +1722,11 @@ export async function action({ request }: Route.ActionArgs) {
     return data({
       ok: true,
       clientOperationId: mutation.operation.clientOperationId,
+      result: {
+        operationId: mutation.operation.clientOperationId,
+        sequence: previewOperationReceipts.issue(mutation.operation),
+        resultVersions: previewOperationResultVersions(mutation.operation),
+      },
     });
   } catch {
     return data(
@@ -1532,7 +1736,59 @@ export async function action({ request }: Route.ActionArgs) {
   }
 }
 
-export default function LocalDrawingWorkspacePreview({
+function previewRevisionRelinkResult(value: unknown) {
+  if (!value || typeof value !== "object" || !("result" in value)) return null;
+  const result = value.result;
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("previousAnchorId" in result) ||
+    typeof result.previousAnchorId !== "string" ||
+    !("newAnchorId" in result) ||
+    typeof result.newAnchorId !== "string"
+  )
+    return null;
+  return {
+    previousAnchorId: result.previousAnchorId,
+    newAnchorId: result.newAnchorId,
+  };
+}
+
+export default function LocalDrawingWorkspacePreview(
+  props: Route.ComponentProps,
+) {
+  const location = useLocation();
+  const [registrationHydrated, setRegistrationHydrated] = useState(false);
+  useEffect(() => { setRegistrationHydrated(true); }, []);
+  const registrationRecord = registrationHydrated ? parseRegistrationRecord(location.state?.registrationPreview) : null;
+  const requestParams=new URLSearchParams(location.search);
+  if(requestParams.has("externalRequest"))return <ExternalRequestWorkspacePreview key={`${requestParams.get("returnProject")}:${requestParams.get("screenDocument")}:${requestParams.get("externalRequest")}`} projectId={requestParams.get("returnProject")??""} documentId={requestParams.get("screenDocument")??""} requestId={requestParams.get("externalRequest")??""} viewer={props.loaderData.capability==="viewer"}/>;
+  if (props.loaderData.layoutPreview) {
+    return (
+      <DrawingPdfScreenPreview
+        key={`${props.loaderData.screenDocumentId}:${props.loaderData.pdfHandoffToken}:${props.loaderData.screenStartKind}:${props.loaderData.screenTitle}:${props.loaderData.screenReviewPreview}:${props.loaderData.screenReviewState ?? "draft"}:${props.loaderData.screenTakeoffPreview}:${props.loaderData.screenWorkflowPanel ?? "none"}:${new URLSearchParams(location.search).get("changeRound") ?? "current"}`}
+        documentId={props.loaderData.screenDocumentId}
+        initialRequestRound={new URLSearchParams(location.search).has("requestRound")?Number(new URLSearchParams(location.search).get("requestRound")):undefined}
+        changeRoundId={new URLSearchParams(location.search).has("changeRound") ? new URLSearchParams(location.search).get("changeRound") ?? "" : undefined}
+        registrationRecord={registrationRecord}
+        handoffToken={props.loaderData.pdfHandoffToken}
+        initialReviewState={props.loaderData.screenReviewState}
+        returnHref={props.loaderData.roomUrl}
+        startKind={props.loaderData.screenStartKind}
+        title={props.loaderData.screenTitle}
+        reviewPreview={props.loaderData.screenReviewPreview}
+        initialWorkflowPanel={props.loaderData.screenWorkflowPanel}
+        takeoffPreview={props.loaderData.screenTakeoffPreview}
+        paper={props.loaderData.screenPaper}
+        initialViewMode={props.loaderData.screenViewMode}
+        viewer={props.loaderData.capability === "viewer"}
+      />
+    );
+  }
+  return <LegacyDrawingWorkspacePreview {...props} />;
+}
+
+function LegacyDrawingWorkspacePreview({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
@@ -1541,6 +1797,9 @@ export default function LocalDrawingWorkspacePreview({
   const [realtimeInvalidations, setRealtimeInvalidations] = useState(0);
   const [alternateUser, setAlternateUser] = useState(false);
   const [viewer, setViewer] = useState(false);
+  const [heldConnections, setHeldConnections] = useState<number[]>([]);
+  const [openedConnections, setOpenedConnections] = useState(0);
+  const releaseConnectionsRef = useRef(new Map<number, () => void>());
   const [localResources, setLocalResources] = useState(0);
   const [providers, setProviders] = useState(0);
   const [retryLifecycle, setRetryLifecycle] = useState("starting");
@@ -1560,6 +1819,34 @@ export default function LocalDrawingWorkspacePreview({
     useState(false);
   const persistenceAttempts = useRef(0);
   const providerAttempts = useRef(0);
+  const lifecycleConnectionFactory = useMemo(() => {
+    let attempts = 0;
+    const connect = previewCollaborationConnectionFactory();
+    return async (
+      options: Parameters<typeof openDrawingCollaborationConnection>[0],
+    ) => {
+      const attempt = ++attempts;
+      if (attempt > 1) {
+        setHeldConnections((held) => [...held, attempt]);
+        await new Promise<void>((resolve) => {
+          releaseConnectionsRef.current.set(attempt, () => {
+            releaseConnectionsRef.current.delete(attempt);
+            setHeldConnections((held) => held.filter((id) => id !== attempt));
+            resolve();
+          });
+        });
+      }
+      const connection = await connect(options);
+      setOpenedConnections((opened) => opened + 1);
+      return connection;
+    };
+  }, []);
+  useEffect(
+    () => () => {
+      for (const release of releaseConnectionsRef.current.values()) release();
+    },
+    [],
+  );
   const realtimeAdapter = useMemo(() => createPreviewRealtimeAdapter(), []);
   const onInvalidate = useCallback(
     () => setRealtimeInvalidations((count) => count + 1),
@@ -1719,6 +2006,7 @@ export default function LocalDrawingWorkspacePreview({
         actionError={
           actionData && "error" in actionData ? actionData.error : undefined
         }
+        revisionRelinkResult={previewRevisionRelinkResult(actionData)}
         projectId={ids.project}
         capability={
           loaderData.realtimeTest && viewer ? "viewer" : loaderData.capability
@@ -1732,15 +2020,17 @@ export default function LocalDrawingWorkspacePreview({
         }
         previewMode
         collaborationConnectionFactory={
-          loaderData.collaborationRetryTest
-            ? retryConnectionFactory
-            : loaderData.localMultiplayerTest
-              ? localMultiplayerConnectionFactory
-              : previewCollaborationConnectionFactory(
-                  loaderData.awarenessTest,
-                  setLocalAwarenessPayload,
-                  loaderData.p5IfcTest,
-                )
+          loaderData.connectionLifecycleTest
+            ? lifecycleConnectionFactory
+            : loaderData.collaborationRetryTest
+              ? retryConnectionFactory
+              : loaderData.localMultiplayerTest
+                ? localMultiplayerConnectionFactory
+                : previewCollaborationConnectionFactory(
+                    loaderData.awarenessTest,
+                    setLocalAwarenessPayload,
+                    loaderData.p5IfcTest,
+                  )
         }
         collaborationPersistenceFactory={
           loaderData.collaborationRetryTest
@@ -1771,7 +2061,18 @@ export default function LocalDrawingWorkspacePreview({
                             ? awarenessPreviewHarness
                             : undefined
         }
-        workspaceNotice="합성 매핑 예제 · 원본 IFC 형상 아님"
+        workspaceNotice={
+          <>
+            합성 매핑 예제 · 원본 IFC 형상 아님 ·{" "}
+            <a
+              className="underline underline-offset-2"
+              href="/examples/IFC_FIXTURE_NOTICE.md"
+              rel="license"
+            >
+              오픈소스·출처
+            </a>
+          </>
+        }
       />
       <aside
         className={
@@ -1889,9 +2190,28 @@ export default function LocalDrawingWorkspacePreview({
           >
             실시간 갱신 시험
           </button>
-          <button onClick={() => setAlternateUser(true)} type="button">
+          <button
+            onClick={() => setAlternateUser((previous) => !previous)}
+            type="button"
+          >
             테스트 사용자 전환
           </button>
+          {loaderData.connectionLifecycleTest ? (
+            <>
+              <output aria-label="실제 미리보기 연결 횟수">
+                {openedConnections}
+              </output>
+              {heldConnections.map((attempt) => (
+                <button
+                  key={attempt}
+                  onClick={() => releaseConnectionsRef.current.get(attempt)?.()}
+                  type="button"
+                >
+                  연결 시도 {attempt} 허용
+                </button>
+              ))}
+            </>
+          ) : null}
           <button onClick={() => setViewer(true)} type="button">
             테스트 보기 권한
           </button>

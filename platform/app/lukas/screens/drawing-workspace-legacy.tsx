@@ -3,6 +3,7 @@ import type { Route } from "./+types/drawing-workspace-legacy";
 import { redirect } from "react-router";
 import { z } from "zod";
 
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import { drawingContext } from "~/lukas/lib/drawing-collaboration.server";
 import { drawingRoomPath } from "~/lukas/lib/drawing-entry";
 import {
@@ -56,12 +57,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.projectId!,
   );
-  const location = await resolveLegacyDrawingWorkspace(
-    client,
-    project.id,
-    params.fileId,
-  );
-  return redirect(location, { headers });
+  try {
+    const location = await resolveLegacyDrawingWorkspace(
+      client,
+      project.id,
+      params.fileId,
+    );
+    return redirect(location, { headers });
+  } catch (error) {
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
+  }
 }
 
 export default function DrawingWorkspaceLegacy() {

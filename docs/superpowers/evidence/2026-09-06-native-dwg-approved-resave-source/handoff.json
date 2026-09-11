@@ -1,0 +1,15 @@
+{
+  "goalStatus": "active",
+  "unitStatus": "complete-local-only",
+  "head": "9f5f56d93db325ff935772252f9d4fb64d69f98c",
+  "indexSha256": "ab8778babeb2aa04f070a609cbd1240760b3158cb5aa1e6ced3da34bb9a9f84c",
+  "deployed": false,
+  "committed": false,
+  "codeHashesVerified": true,
+  "runtimeFrozenBeforeBridge": true,
+  "unresolvedRuntimeNoise": [
+    "protected-state WebSocket closures",
+    "awareness P3A01",
+    "editor data request abort"
+  ]
+}

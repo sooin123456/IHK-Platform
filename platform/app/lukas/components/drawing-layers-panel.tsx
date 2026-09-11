@@ -91,15 +91,15 @@ export function DrawingLayersPanel({
         <h2 className="text-sm font-bold" id="drawing-layers-title">
           레이어
         </h2>
-        <p className="mt-3 text-xs text-slate-400">읽기 전용 레이어 목록</p>
+        <p className="mt-3 text-xs text-slate-500">읽기 전용 레이어 목록</p>
         <ul className="mt-4 space-y-2 text-sm">
           {layers.map((layer) => (
             <li
-              className="rounded-md border border-white/10 bg-white/5 p-2"
+              className="rounded-md border border-slate-200 bg-slate-50 p-2"
               key={layer.id}
             >
               <p className="font-medium">{layer.name}</p>
-              <p className="mt-2 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-slate-500">
                 {layer.visible ? "표시" : "숨김"} ·{" "}
                 {layer.locked ? "잠금" : "잠금 해제"}
                 {layer.systemKind === "source" ? " · 원본 레이어" : ""}
@@ -115,8 +115,8 @@ export function DrawingLayersPanel({
       <h2 className="text-sm font-bold" id="drawing-layers-title">
         레이어
       </h2>
-      <details className="mt-3 rounded-md border border-white/10 p-2">
-        <summary className="cursor-pointer text-xs font-semibold text-indigo-300">
+      <details className="mt-3 rounded-md border border-slate-200 p-2">
+        <summary className="cursor-pointer text-xs font-semibold text-indigo-600">
           레이어 만들기
         </summary>
         <form
@@ -124,17 +124,17 @@ export function DrawingLayersPanel({
           data-drawing-shortcuts="ignore"
           onSubmit={createLayer}
         >
-          <label className="text-xs text-slate-300" htmlFor="new-layer-name">
+          <label className="text-xs text-slate-700" htmlFor="new-layer-name">
             새 레이어 이름
           </label>
           <input
-            className="min-h-10 min-w-0 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+            className="min-h-10 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-sm"
             id="new-layer-name"
             maxLength={255}
             name="layer_name"
           />
           <button
-            className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
+            className="min-h-10 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white"
             type="submit"
           >
             레이어 추가
@@ -142,7 +142,7 @@ export function DrawingLayersPanel({
         </form>
       </details>
       {error ? (
-        <p className="mt-3 text-xs text-red-300" role="alert">
+        <p className="mt-3 text-xs text-red-700" role="alert">
           {error}
         </p>
       ) : null}
@@ -155,7 +155,7 @@ export function DrawingLayersPanel({
           );
           return (
             <li
-              className="rounded-md border border-white/10 bg-white/5 p-2"
+              className="rounded-md border border-slate-200 bg-slate-50 p-2"
               key={layer.id}
             >
               {source ? (
@@ -174,7 +174,7 @@ export function DrawingLayersPanel({
                     레이어 이름: {layer.name}
                   </label>
                   <input
-                    className="min-h-9 min-w-0 flex-1 rounded border border-white/10 bg-slate-950 px-2"
+                    className="min-h-9 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2"
                     defaultValue={layer.name}
                     id={`layer-name-${layer.id}`}
                     key={`${layer.id}:${layer.version}:name`}
@@ -186,7 +186,7 @@ export function DrawingLayersPanel({
                   />
                 </div>
               )}
-              <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-300">
+              <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-700">
                 {!source ? (
                   <label className="inline-flex min-h-8 items-center gap-1">
                     <input

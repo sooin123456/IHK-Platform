@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -17,6 +18,9 @@ import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { unzipSync } from "fflate";
+
+import * as m1Harness from "../scripts/run-drawing-workspace-m1-e2e.mjs";
 import {
   assertDisposableCleanupTarget,
   assertM1LoopbackEnvironment,
@@ -42,8 +46,233 @@ const repositoryConfig = readFileSync(
   new URL("../supabase/config.toml", import.meta.url),
   "utf8",
 );
+const harnessSource = readFileSync(
+  new URL("../scripts/run-drawing-workspace-m1-e2e.mjs", import.meta.url),
+  "utf8",
+);
 const ownedConfig = (projectId, portBase = 55431) =>
   renderDisposableSupabaseConfig({ projectId, portBase, repositoryConfig });
+
+test("runner profile parsing is strict before resource startup", () => {
+  assert.equal(m1Harness.parseRunnerProfile([]), "m1");
+  assert.equal(m1Harness.parseRunnerProfile(["--profile=p3"]), "p3");
+  assert.equal(
+    m1Harness.parseRunnerProfile(["--profile=dwg-source"]),
+    "dwg-source",
+  );
+  assert.equal(
+    m1Harness.parseRunnerProfile(["--profile=dwg-resave"]),
+    "dwg-resave",
+  );
+  for (const args of [
+    ["--profile=m1"],
+    ["--profile=unknown"],
+    ["--profile=p3", "extra"],
+    ["extra"],
+  ])
+    assert.throws(
+      () => m1Harness.parseRunnerProfile(args),
+      /profile|argument/i,
+    );
+});
+
+test("runner profiles select only their exact Playwright target", () => {
+  const suffix = [
+    "--config=playwright.m1.config.ts",
+    "--project=chromium",
+    "--workers=1",
+  ];
+  assert.deepEqual(m1Harness.drawingWorkspacePlaywrightArgs("m1"), [
+    "test",
+    "e2e/drawing-workspace-m1-estimator.spec.ts",
+    ...suffix,
+  ]);
+  assert.deepEqual(m1Harness.drawingWorkspacePlaywrightArgs("p3"), [
+    "test",
+    "e2e/drawing-workspace-p3.spec.ts",
+    ...suffix,
+  ]);
+  assert.deepEqual(m1Harness.drawingWorkspacePlaywrightArgs("dwg-source"), [
+    "test",
+    "e2e/drawing-dwg-source-ingestion.spec.ts",
+    ...suffix,
+  ]);
+  assert.deepEqual(m1Harness.drawingWorkspacePlaywrightArgs("dwg-resave"), [
+    "test",
+    "e2e/drawing-native-dwg-resave.spec.ts",
+    ...suffix,
+  ]);
+});
+
+test("M1 disposable release runner requires M1 M2 and M5 real PostgreSQL proofs", () => {
+  assert.match(
+    harnessSource,
+    /drawing-workspace-m1-real-database\.test\.mjs[\s\S]*M1_REAL_POSTGRES_REQUIRED:\s*"1"/,
+  );
+  assert.match(
+    harnessSource,
+    /drawing-workspace-m2-pdf-attach-real-database\.test\.mjs[\s\S]*M2_PDF_ATTACH_REAL_POSTGRES_REQUIRED:\s*"1"/,
+  );
+  assert.match(
+    harnessSource,
+    /drawing-workspace-m5-storage-real-database\.test\.mjs[\s\S]*M5_STORAGE_REAL_POSTGRES_REQUIRED:\s*"1"/,
+  );
+});
+
+test("M1 Revit release fixture serves a deterministic verified ZIP download", async () => {
+  const fixture = await m1Harness.startM1ReleaseFixture({ port: 0 });
+  try {
+    const response = await fetch(fixture.url, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "application/zip");
+    assert.equal(
+      response.headers.get("content-disposition"),
+      'attachment; filename="1HK-Revit-2025-M1.zip"',
+    );
+    assert.equal(response.headers.get("content-length"), "428");
+    const archive = new Uint8Array(await response.arrayBuffer());
+    const entries = unzipSync(archive);
+    assert.deepEqual(Object.keys(entries), ["Lukas.Qto.addin"]);
+    assert.deepEqual(
+      Buffer.from(entries["Lukas.Qto.addin"]),
+      readFileSync(new URL("../../addin/Lukas.Qto.addin", import.meta.url)),
+    );
+    assert.equal(
+      Object.keys(entries).some((name) => name.toLowerCase().endsWith(".dll")),
+      false,
+    );
+    assert.equal(
+      fixture.sha256,
+      "E8770AA7868D6556FBDBBA16A75EA3A71E0116A62453E928C821CC63DDF51C09",
+    );
+    assert.equal(fixture.version, "M1-E2E");
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("M1 runtime environment binds the verified loopback Revit release", () => {
+  const environment = m1Harness.exactRuntimeEnvironment(
+    {
+      M1_E2E_P3_DISPOSABLE: "1",
+      E2E_BASE_URL: "https://stale.example.test",
+      P3_E2E_DATABASE_ADMIN_URL: "postgresql://stale.example.test/postgres",
+      P3_E2E_RUN_ID: "stale-release-run",
+    },
+    {
+      anonKey: validEnvironment.SUPABASE_ANON_KEY,
+      databaseUrl: validEnvironment.M1_REAL_POSTGRES_DATABASE_URL,
+      serviceRoleKey: validEnvironment.SUPABASE_SERVICE_ROLE_KEY,
+      supabaseUrl: validEnvironment.SUPABASE_URL,
+    },
+    validEnvironment.M1_E2E_DISPOSABLE_WORKDIR,
+    validEnvironment.M1_E2E_DISPOSABLE_PROJECT_ID,
+    {
+      url: "http://127.0.0.1:12350/revit-2025.zip",
+      sha256:
+        "8739C76E681F900923B900C9DF0EF75CF421D39CABB54650C4B9AD19B6A76D85",
+      version: "M1-E2E",
+    },
+  );
+
+  assert.equal(
+    environment.VITE_REVIT_2025_BETA_URL,
+    "http://127.0.0.1:12350/revit-2025.zip",
+  );
+  assert.equal(
+    environment.VITE_REVIT_2025_BETA_SHA256,
+    "8739C76E681F900923B900C9DF0EF75CF421D39CABB54650C4B9AD19B6A76D85",
+  );
+  assert.equal(environment.VITE_REVIT_2025_BETA_VERSION, "M1-E2E");
+  assert.equal(environment.VITE_M1_E2E_ALLOW_LOOPBACK_RELEASE, "1");
+  assert.equal("M1_E2E_P3_DISPOSABLE" in environment, false);
+  assert.equal("E2E_BASE_URL" in environment, false);
+  assert.equal("P3_E2E_DATABASE_ADMIN_URL" in environment, false);
+  assert.equal("P3_E2E_RUN_ID" in environment, false);
+});
+
+test("P3 runtime environment adds only explicit disposable P3 authority", () => {
+  const environment = m1Harness.exactRuntimeEnvironment(
+    {},
+    {
+      anonKey: validEnvironment.SUPABASE_ANON_KEY,
+      databaseUrl: validEnvironment.M1_REAL_POSTGRES_DATABASE_URL,
+      serviceRoleKey: validEnvironment.SUPABASE_SERVICE_ROLE_KEY,
+      supabaseUrl: validEnvironment.SUPABASE_URL,
+    },
+    validEnvironment.M1_E2E_DISPOSABLE_WORKDIR,
+    validEnvironment.M1_E2E_DISPOSABLE_PROJECT_ID,
+    {
+      url: "http://127.0.0.1:12350/revit-2025.zip",
+      sha256:
+        "E8770AA7868D6556FBDBBA16A75EA3A71E0116A62453E928C821CC63DDF51C09",
+      version: "M1-E2E",
+    },
+    "p3",
+  );
+  assert.equal(environment.M1_E2E_P3_DISPOSABLE, "1");
+  assert.equal(environment.E2E_BASE_URL, "http://127.0.0.1:4000");
+  assert.equal(
+    environment.P3_E2E_DATABASE_ADMIN_URL,
+    environment.M1_REAL_POSTGRES_DATABASE_URL,
+  );
+  assert.match(
+    environment.P3_E2E_RUN_ID,
+    /^1hk-m1-[0-9a-f]{8}-p3-[0-9a-f]{8}$/,
+  );
+});
+
+test("DWG source profile reuses the ordinary disposable runtime authority", () => {
+  const environment = m1Harness.exactRuntimeEnvironment(
+    {},
+    {
+      anonKey: validEnvironment.SUPABASE_ANON_KEY,
+      databaseUrl: validEnvironment.M1_REAL_POSTGRES_DATABASE_URL,
+      serviceRoleKey: validEnvironment.SUPABASE_SERVICE_ROLE_KEY,
+      supabaseUrl: validEnvironment.SUPABASE_URL,
+    },
+    validEnvironment.M1_E2E_DISPOSABLE_WORKDIR,
+    validEnvironment.M1_E2E_DISPOSABLE_PROJECT_ID,
+    {
+      url: "http://127.0.0.1:12350/revit-2025.zip",
+      sha256:
+        "E8770AA7868D6556FBDBBA16A75EA3A71E0116A62453E928C821CC63DDF51C09",
+      version: "M1-E2E",
+    },
+    "dwg-source",
+  );
+  assert.equal(environment.M1_E2E_DISPOSABLE, "1");
+  assert.equal("M1_E2E_P3_DISPOSABLE" in environment, false);
+  assert.equal("P3_E2E_DATABASE_ADMIN_URL" in environment, false);
+  assert.equal("P3_E2E_RUN_ID" in environment, false);
+});
+
+test("DWG resave profile reuses the ordinary disposable runtime authority", () => {
+  const environment = m1Harness.exactRuntimeEnvironment(
+    {},
+    {
+      anonKey: validEnvironment.SUPABASE_ANON_KEY,
+      databaseUrl: validEnvironment.M1_REAL_POSTGRES_DATABASE_URL,
+      serviceRoleKey: validEnvironment.SUPABASE_SERVICE_ROLE_KEY,
+      supabaseUrl: validEnvironment.SUPABASE_URL,
+    },
+    validEnvironment.M1_E2E_DISPOSABLE_WORKDIR,
+    validEnvironment.M1_E2E_DISPOSABLE_PROJECT_ID,
+    {
+      url: "http://127.0.0.1:12350/revit-2025.zip",
+      sha256:
+        "E8770AA7868D6556FBDBBA16A75EA3A71E0116A62453E928C821CC63DDF51C09",
+      version: "M1-E2E",
+    },
+    "dwg-resave",
+  );
+  assert.equal(environment.M1_E2E_DISPOSABLE, "1");
+  assert.equal("M1_E2E_P3_DISPOSABLE" in environment, false);
+  assert.equal("P3_E2E_DATABASE_ADMIN_URL" in environment, false);
+  assert.equal("P3_E2E_RUN_ID" in environment, false);
+});
 
 test("M1 authority accepts only its concrete loopback Supabase and PostgreSQL endpoints", () => {
   assert.deepEqual(assertM1LoopbackEnvironment(validEnvironment), {
@@ -82,6 +311,75 @@ test("disposable Supabase config uses the exact project and free port block", ()
   assert.match(rendered, /site_url = "http:\/\/127\.0\.0\.1:4000"/);
   assert.match(rendered, /\[functions\.lukas-qto-upload-verify\]/);
   assert.doesNotMatch(rendered, /5432[0-9]/);
+});
+
+test("disposable project enables Edge runtime and owns exactly the upload verifier files", () => {
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "1hk-m1-supabase-edge-runtime-")),
+  );
+  const projectId = "1hk-m1-1234abcd";
+  try {
+    m1Harness.createDisposableProject(root, projectId, 55431);
+
+    const destination = path.join(root, "supabase");
+    const functionRoot = path.join(destination, "functions");
+    const config = readFileSync(path.join(destination, "config.toml"), "utf8");
+    assert.match(config, /\[edge_runtime\]\nenabled = true/);
+    assert.match(
+      config,
+      /\[functions\.lukas-qto-upload-verify\]\nenabled = true/,
+    );
+    assert.match(
+      config,
+      /import_map = "\.\/functions\/lukas-qto-upload-verify\/deno\.json"/,
+    );
+    assert.match(
+      config,
+      /entrypoint = "\.\/functions\/lukas-qto-upload-verify\/index\.ts"/,
+    );
+    assert.deepEqual(readdirSync(functionRoot), ["lukas-qto-upload-verify"]);
+    for (const name of ["deno.json", "index.ts"])
+      assert.equal(
+        readFileSync(
+          path.join(functionRoot, "lukas-qto-upload-verify", name),
+          "utf8",
+        ),
+        readFileSync(
+          new URL(
+            `../supabase/functions/lukas-qto-upload-verify/${name}`,
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      );
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("disposable runner root lives in the Docker-shareable workspace cache", () => {
+  const root = m1Harness.createDisposableRoot();
+  try {
+    const sharedRoot = realpathSync(
+      path.resolve("node_modules/.cache/1hk-m1-e2e"),
+    );
+    const relative = path.relative(sharedRoot, root);
+    assert.equal(relative.startsWith("..") || path.isAbsolute(relative), false);
+    assert.match(path.basename(root), /^1hk-m1-supabase-/);
+    assert.equal(realpathSync(root), root);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("disposable Supabase start command keeps Edge runtime enabled", () => {
+  assert.deepEqual(m1Harness.disposableSupabaseStartArgs("/tmp/m1-owned"), [
+    "start",
+    "--workdir",
+    "/tmp/m1-owned",
+    "--exclude",
+    "studio,mailpit,imgproxy,logflare,vector,supavisor",
+  ]);
 });
 
 test("Playwright authority verifies status for the exact workdir and rejects endpoint or key drift", () => {

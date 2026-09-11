@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1hk-native-dwg-import-continuity-evidence/1",
+  "qualification": "experimental-unqualified",
+  "persistenceAuthority": "not-issued",
+  "source": {
+    "sha256": "c5356b42d65e393fa660c1515fcad56d684050addd6201d66d2c94a56c768cfa",
+    "byteSize": 10987,
+    "headerVersion": "AC1024"
+  },
+  "resaved": {
+    "sha256": "659f363773cfa80e4ec6a0b4db4882a8429fb35e60aade4b034191b68ea4c7fd",
+    "byteSize": 10987,
+    "headerVersion": "AC1024"
+  },
+  "engineBuildSha256": "3d912143bbd1a4fcd2b3c0f798d8dbc6c3420490d94de415f978a4dcfe82df3a",
+  "coverage": {
+    "modelSpaceEntities": 6,
+    "importedEntities": 5,
+    "unsupportedEntities": 1,
+    "nonModelSpaceEntities": 3
+  },
+  "projectedObjects": 5,
+  "selected": [
+    {
+      "handle": "4A",
+      "type": "LINE",
+      "start": [
+        10,
+        -5,
+        0
+      ],
+      "end": [
+        137.5,
+        25,
+        0
+      ]
+    },
+    {
+      "handle": "4E",
+      "type": "TEXT",
+      "text": "현장수정 A-101"
+    }
+  ],
+  "originalBytesPreserved": true,
+  "deterministicProjection": true,
+  "sameEngineComparison": "passed-with-inventory-gaps",
+  "resaveComparisonFailures": [],
+  "independentCadVerification": "not-performed",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "browserPersistenceVerification": "not-performed"
+}

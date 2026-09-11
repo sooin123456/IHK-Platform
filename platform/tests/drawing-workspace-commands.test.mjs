@@ -2600,6 +2600,28 @@ test("workspace duplicate preserves a referenced style within its document", asy
   });
 });
 
+test("workspace storage failures expose a bounded diagnostic without dumping arbitrary values", async () => {
+  const shell = await vite.ssrLoadModule(
+    "/app/lukas/components/drawing-workspace.tsx",
+  );
+  assert.equal(
+    shell.drawingStorageFailureDetail(
+      Object.assign(new Error("  IndexedDB transaction aborted  "), {
+        name: "AbortError",
+      }),
+    ),
+    "AbortError: IndexedDB transaction aborted",
+  );
+  assert.equal(shell.drawingStorageFailureDetail("secret string"), null);
+  assert.equal(
+    shell.drawingStorageFailureDetail({
+      name: "ConstraintError",
+      message: "x".repeat(400),
+    }).length,
+    240,
+  );
+});
+
 test("workspace block mutation adapter no-ops hidden, locked, and mixed selections until every owning layer is editable", async () => {
   const shell = await vite.ssrLoadModule(
     "/app/lukas/components/drawing-workspace.tsx",
@@ -2707,6 +2729,7 @@ test("workspace block mutation adapter no-ops hidden, locked, and mixed selectio
       onCommand(command) {
         dispatched.push(command);
         outboxWrites += 1;
+        return true;
       },
       onSelectionChange(ids) {
         selected.push(ids);
@@ -2795,6 +2818,29 @@ test("workspace block mutation adapter no-ops hidden, locked, and mixed selectio
   assert.equal(dispatched.length, 0);
   assert.equal(outboxWrites, 0);
   assert.equal(selected.length, 0);
+
+  const rejectedSelections = [];
+  const rejected = shell.createDrawingWorkspaceBlockMutationAdapter({
+    activeCanvasId,
+    actorId: "actor-a",
+    canEdit: true,
+    createId: () => "00000000-0000-4000-8000-000000000054",
+    onCommand: () => false,
+    onSelectionChange(ids) {
+      rejectedSelections.push(ids);
+    },
+    selectedIds: [instanceId],
+    state: makeState({
+      visible: true,
+      locked: false,
+      systemKind: "work",
+      version: 2,
+    }),
+  });
+  assert.equal(rejected.moveSelection({ x: 1, y: 0 }), false);
+  assert.equal(rejected.duplicateSelection(), false);
+  assert.equal(rejected.deleteSelection(), false);
+  assert.deepEqual(rejectedSelections, []);
 
   const editable = createAdapter(
     makeState({

@@ -1,15 +1,132 @@
 import type {
   Bounds,
   DrawingGeometry,
+  DrawingLayer,
   DrawingObject,
   PdfCalibration,
   Point,
   Viewport,
 } from "./drawing-workspace.types.ts";
+import { DrawingGeometrySchema } from "./drawing-workspace.types.ts";
 import {
+  DRAWING_SEMANTIC_ABSOLUTE_MAX,
   drawingSemanticScaledInteger,
   resolveDrawingOpening,
 } from "./drawing-semantic-geometry.ts";
+import { validateDrawingSemanticReferences } from "./drawing-structure.ts";
+
+// Native drawings use full-size millimetres, so paper fit can be below 5%.
+export const DRAWING_MIN_ZOOM = 0.001;
+
+export type DrawingPreciseGeometryInput = {
+  startXMillimeters: unknown;
+  startYMillimeters: unknown;
+  endXMillimeters: unknown;
+  endYMillimeters: unknown;
+  offsetMillimeters?: unknown;
+};
+
+type DrawingPreciseGeometryState = {
+  layers: Readonly<Record<string, DrawingLayer>>;
+  objects: Readonly<Record<string, DrawingObject>>;
+};
+
+const DRAWING_MILLIMETER_SCALE = 1_000_000n;
+const DRAWING_MILLIMETER_MAX_SCALED =
+  BigInt(DRAWING_SEMANTIC_ABSOLUTE_MAX) * DRAWING_MILLIMETER_SCALE;
+
+function exactDrawingMillimeterString(value: string): bigint | null {
+  const normalized = value.trim();
+  if (normalized.length === 0 || normalized.length > 128) return null;
+  const match = normalized.match(
+    /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:e([+-]?\d+))?$/i,
+  );
+  if (!match || (match[5]?.length ?? 0) > 4) return null;
+  const fraction = match[3] ?? match[4] ?? "";
+  const coefficient = BigInt(`${match[2] ?? "0"}${fraction}`);
+  const exponent = Number(match[5] ?? 0);
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 100) return null;
+  const decimalPlaces = fraction.length - exponent;
+  let scaled: bigint;
+  if (decimalPlaces <= 6) {
+    scaled = coefficient * 10n ** BigInt(6 - decimalPlaces);
+  } else {
+    const divisor = 10n ** BigInt(decimalPlaces - 6);
+    if (coefficient % divisor !== 0n) return null;
+    scaled = coefficient / divisor;
+  }
+  return match[1] === "-" ? -scaled : scaled;
+}
+
+function exactDrawingMillimeters(value: unknown, label: string): number {
+  if (
+    (typeof value !== "number" && typeof value !== "string") ||
+    (typeof value === "string" && value.trim() === "")
+  )
+    throw new RangeError(`${label} 밀리미터 값은 숫자여야 합니다.`);
+  const parsed = typeof value === "number" ? value : Number(value.trim());
+  const authoredScaled =
+    typeof value === "number"
+      ? drawingSemanticScaledInteger(value)
+      : exactDrawingMillimeterString(value);
+  const parsedScaled = drawingSemanticScaledInteger(parsed);
+  if (
+    authoredScaled === null ||
+    parsedScaled === null ||
+    authoredScaled > DRAWING_MILLIMETER_MAX_SCALED ||
+    authoredScaled < -DRAWING_MILLIMETER_MAX_SCALED ||
+    parsedScaled !== authoredScaled
+  )
+    throw new RangeError(
+      `${label} 밀리미터 원문은 반올림 없이 보존되는 정밀도와 허용 범위 안의 숫자여야 합니다.`,
+    );
+  return parsed;
+}
+
+/**
+ * Builds one canonical versioned update for authored wall/dimension millimeters.
+ * Hosted-opening fit is checked against the completed candidate graph before the
+ * command enters the shared update_objects/outbox path.
+ */
+export function createDrawingPreciseGeometryUpdate(
+  object: DrawingObject,
+  input: DrawingPreciseGeometryInput,
+  state: DrawingPreciseGeometryState,
+) {
+  if (object.geometry.type !== "wall" && object.geometry.type !== "dimension")
+    throw new TypeError("정밀 위치 편집은 벽과 치수 객체만 지원합니다.");
+
+  const geometry = DrawingGeometrySchema.parse({
+    ...object.geometry,
+    start: {
+      x: exactDrawingMillimeters(input.startXMillimeters, "시작 X"),
+      y: exactDrawingMillimeters(input.startYMillimeters, "시작 Y"),
+    },
+    end: {
+      x: exactDrawingMillimeters(input.endXMillimeters, "끝 X"),
+      y: exactDrawingMillimeters(input.endYMillimeters, "끝 Y"),
+    },
+    ...(object.geometry.type === "dimension"
+      ? {
+          offset: exactDrawingMillimeters(
+            input.offsetMillimeters,
+            "치수 오프셋",
+          ),
+        }
+      : {}),
+  });
+
+  const candidate = { ...object, geometry };
+  validateDrawingSemanticReferences({
+    layers: { ...state.layers },
+    objects: { ...state.objects, [object.id]: candidate },
+  });
+  return {
+    objectId: object.id,
+    baseVersion: object.version,
+    patch: { geometry },
+  };
+}
 
 type SnapOptions = {
   gridSize: number;
@@ -322,8 +439,14 @@ export function drawingPolygonCentroid(points: readonly Point[]): Point {
 export function drawingSemanticLabelLayout(
   geometry: Extract<DrawingGeometry, { type: "space" | "area" | "grid" }>,
   objectName: string,
+  resolvedFontSize: number = DRAWING_SEMANTIC_RENDER_METRICS.labelFontSize,
 ) {
   const metrics = DRAWING_SEMANTIC_RENDER_METRICS;
+  if (!Number.isFinite(resolvedFontSize) || resolvedFontSize <= 0)
+    throw new RangeError("Drawing annotation font size must be positive.");
+  const metricScale = resolvedFontSize / metrics.labelFontSize;
+  const labelWidth = (width: number) => width * metricScale;
+  const labelOffset = metrics.labelYOffset * metricScale;
   const text =
     geometry.type === "space"
       ? [geometry.number, objectName].filter(Boolean).join(" · ") || "공간"
@@ -340,41 +463,70 @@ export function drawingSemanticLabelLayout(
       Math.PI;
     const lines = wrapSemanticLabel(
       text,
-      metrics.gridLabelWidth,
-      metrics.labelFontSize,
+      labelWidth(metrics.gridLabelWidth),
+      resolvedFontSize,
       1,
     );
     return {
-      fontSize: metrics.labelFontSize,
-      height: metrics.labelFontSize * metrics.labelLineHeight,
+      fontSize: resolvedFontSize,
+      height: resolvedFontSize * metrics.labelLineHeight,
       lineHeight: metrics.labelLineHeight,
       lines,
       rotation: angle > 90 || angle < -90 ? angle + 180 : angle,
       text,
-      width: metrics.gridLabelWidth,
-      x: geometry.end.x - metrics.gridLabelWidth / 2,
-      y: geometry.end.y - metrics.labelYOffset,
+      width: labelWidth(metrics.gridLabelWidth),
+      x: geometry.end.x - labelWidth(metrics.gridLabelWidth) / 2,
+      y: geometry.end.y - labelOffset,
     };
   }
   const centroid = drawingPolygonCentroid(geometry.boundary);
-  const width = metrics.spaceLabelWidth;
+  const width = labelWidth(metrics.spaceLabelWidth);
   const lines = wrapSemanticLabel(
     text,
     width,
-    metrics.labelFontSize,
+    resolvedFontSize,
     metrics.spaceLabelMaxLines,
   );
   return {
-    fontSize: metrics.labelFontSize,
-    height: lines.length * metrics.labelFontSize * metrics.labelLineHeight,
+    fontSize: resolvedFontSize,
+    height: lines.length * resolvedFontSize * metrics.labelLineHeight,
     lineHeight: metrics.labelLineHeight,
     lines,
     rotation: 0,
     text,
     width,
     x: centroid.x - width / 2,
-    y: centroid.y - metrics.labelYOffset,
+    y: centroid.y - labelOffset,
   };
+}
+
+export function drawingSemanticLabelHitTest(
+  geometry: Extract<DrawingGeometry, { type: "space" | "area" | "grid" }>,
+  objectName: string,
+  point: Point,
+  tolerance: number,
+  resolvedFontSize?: number,
+) {
+  if (!Number.isFinite(tolerance) || tolerance < 0)
+    throw new RangeError("Drawing label hit tolerance must be nonnegative.");
+  const layout = drawingSemanticLabelLayout(
+    geometry,
+    objectName,
+    resolvedFontSize,
+  );
+  const radians = (layout.rotation * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const dx = point.x - layout.x;
+  const dy = point.y - layout.y;
+  const localX = dx * cosine + dy * sine;
+  const localY = -dx * sine + dy * cosine;
+  return (
+    localX >= -tolerance &&
+    localX <= layout.width + tolerance &&
+    localY >= -tolerance &&
+    localY <= layout.height + tolerance
+  );
 }
 
 function pointToSegmentDistance(point: Point, start: Point, end: Point) {
@@ -542,7 +694,7 @@ export function zoomViewportAroundPointer(
     throw new Error("확대 기준점이 올바르지 않습니다.");
   }
   const worldPoint = screenToWorld(pointer, viewport);
-  const zoom = Math.min(32, Math.max(0.05, requestedZoom));
+  const zoom = Math.min(32, Math.max(DRAWING_MIN_ZOOM, requestedZoom));
   const scaledPoint = worldToScreen(worldPoint, { x: 0, y: 0, zoom });
   return {
     x: pointer.x - scaledPoint.x,

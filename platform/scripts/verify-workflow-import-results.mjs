@@ -1,0 +1,52 @@
+import {chromium,expect} from '@playwright/test';
+const browser=await chromium.launch();
+try {
+ const page=await browser.newPage({viewport:{width:390,height:844}});
+ page.setDefaultTimeout(5000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=documents&scenario=architecture&scope=sample',{waitUntil:'networkidle'});
+ await page.getByRole('button',{name:'원본 형식·호환성 확인',exact:true}).click();
+ const panel=page.getByRole('region',{name:'파일 가져오기 준비'});
+ await panel.getByLabel('가져올 형식',{exact:true}).selectOption('DWG');
+ await panel.getByRole('button',{name:'설정 확인으로',exact:true}).click();
+ await panel.getByRole('button',{name:'주의사항 확인',exact:true}).click();
+ await panel.getByRole('checkbox').check();
+ await panel.getByRole('button',{name:'처리 흐름 체험 시작',exact:true}).click();
+ await expect(panel.getByRole('status')).toContainText('처리 중');
+ await expect(panel.getByRole('button',{name:'예시 작업실 열기',exact:true})).toHaveCount(0);
+ await panel.getByLabel('체험할 처리 결과').selectOption('failed');
+ await panel.getByRole('button',{name:'선택한 결과 확인',exact:true}).click();
+ await expect(panel.getByRole('alert')).toContainText('실패');
+ await expect(panel.getByRole('button',{name:'예시 작업실 열기',exact:true})).toHaveCount(0);
+ await panel.getByRole('button',{name:'다시 처리 체험',exact:true}).click();
+ await panel.getByLabel('체험할 처리 결과').selectOption('partial');
+ await panel.getByRole('button',{name:'선택한 결과 확인',exact:true}).click();
+ const open=panel.getByRole('button',{name:'예시 작업실 열기',exact:true});
+ await expect(open).toBeDisabled();
+ await expect(panel.getByText('DWG 재저장·납품: 검증되지 않음',{exact:true})).toBeVisible();
+ await panel.getByLabel('누락 가능 항목을 확인하고 예시만 열겠습니다').check();
+ await expect(open).toBeEnabled();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await panel.screenshot({path:'/tmp/1hk-import-results.png'});
+ await open.click();await expect(page).toHaveURL(/page=workspace/);
+ for(const format of ['IFC','PDF']) {
+  await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=documents&scenario=architecture&scope=sample',{waitUntil:'networkidle'});
+  await page.getByRole('button',{name:'원본 형식·호환성 확인',exact:true}).click();
+  await panel.getByLabel('가져올 형식',{exact:true}).selectOption(format);
+  await panel.getByRole('button',{name:'설정 확인으로',exact:true}).click();
+  await panel.getByRole('button',{name:'주의사항 확인',exact:true}).click();
+  await panel.getByRole('checkbox').check();
+  await panel.getByRole('button',{name:'처리 흐름 체험 시작',exact:true}).click();
+  await panel.getByRole('button',{name:'처리 체험 취소',exact:true}).click();
+  await expect(panel.getByRole('heading',{name:`${format} 호환성 확인 목록 · 예시`,exact:true})).toBeVisible();
+  await panel.getByRole('button',{name:'처리 흐름 체험 시작',exact:true}).click();
+  await panel.getByLabel('체험할 처리 결과').selectOption('ready');
+  await panel.getByRole('button',{name:'선택한 결과 확인',exact:true}).click();
+  await expect(panel.getByRole('status')).toContainText('정상 처리 예시');
+  await expect(panel.getByRole('checkbox')).toHaveCount(0);
+  await panel.getByRole('button',{name:'예시 작업실 열기',exact:true}).click();
+  await expect(page).toHaveURL(/page=workspace/);
+ }
+ expect(errors).toEqual([]);
+ console.log('PASS DWG failure/retry/partial gate, IFC/PDF cancel/success, no unverified delivery claim, mobile and workspace handoff');
+} finally {await browser.close();}

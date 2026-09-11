@@ -1,6 +1,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -11,8 +12,7 @@ import {
   createDrawingPageCommand,
   deleteDrawingCanvasCommand,
   deleteDrawingPageCommand,
-  drawingCanvasDeletionReason,
-  drawingPageDeletionReason,
+  drawingStructureDeletionReasons,
   renameDrawingCanvasCommand,
   renameDrawingPageCommand,
   reorderDrawingCanvasCommand,
@@ -85,6 +85,13 @@ export function DrawingPagesPanel({
     if (focusIntent) canvasButtons.current.get(focusIntent.canvasId)?.focus();
   }, [focusIntent]);
   const structure = state.structure;
+  const deletionReasons = useMemo(
+    () =>
+      state.structure
+        ? drawingStructureDeletionReasons(state)
+        : { canvases: {}, pages: {} },
+    [state.layers, state.revisionId, state.structure],
+  );
   if (!structure) return null;
   const pages = ordered(Object.values(structure.pages));
 
@@ -180,8 +187,8 @@ export function DrawingPagesPanel({
         페이지 및 캔버스
       </h2>
       {canEdit ? (
-        <details className="mt-3 rounded-md border border-white/10 p-2">
-          <summary className="cursor-pointer text-xs font-semibold text-indigo-300">
+        <details className="mt-3 rounded-md border border-slate-200 p-2">
+          <summary className="cursor-pointer text-xs font-semibold text-indigo-600">
             페이지 만들기
           </summary>
           <form
@@ -189,17 +196,17 @@ export function DrawingPagesPanel({
             data-drawing-shortcuts="ignore"
             onSubmit={createPage}
           >
-            <label className="text-xs text-slate-300" htmlFor="new-page-name">
+            <label className="text-xs text-slate-700" htmlFor="new-page-name">
               새 페이지 이름
             </label>
             <input
-              className="min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm"
+              className="min-h-10 rounded-md border border-slate-200 bg-white px-2 text-sm"
               id="new-page-name"
               maxLength={255}
               name="page_name"
             />
             <button
-              className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
+              className="min-h-10 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white"
               type="submit"
             >
               페이지 추가
@@ -208,7 +215,7 @@ export function DrawingPagesPanel({
         </details>
       ) : null}
       {error ? (
-        <p className="mt-3 text-xs text-red-300" role="alert">
+        <p className="mt-3 text-xs text-red-700" role="alert">
           {error}
         </p>
       ) : null}
@@ -220,18 +227,18 @@ export function DrawingPagesPanel({
             ),
           );
           const pageDeleteReason = translatedReason(
-            drawingPageDeletionReason(state, page.id),
+            deletionReasons.pages[page.id] ?? null,
           );
           return (
             <li key={page.id}>
-              <div className="rounded-md border border-white/10 bg-white/5 p-2">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
                 {canEdit ? (
                   <div className="flex min-w-0 flex-wrap items-center gap-1 [&>button]:shrink-0">
                     <label className="sr-only" htmlFor={`page-name-${page.id}`}>
                       페이지 이름: {page.name}
                     </label>
                     <input
-                      className="min-h-9 min-w-0 flex-1 rounded border border-white/10 bg-slate-950 px-2 text-sm"
+                      className="min-h-9 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-sm"
                       defaultValue={page.name}
                       id={`page-name-${page.id}`}
                       key={`${page.id}:${page.version}`}
@@ -302,7 +309,7 @@ export function DrawingPagesPanel({
                     </button>
                     {pageDeleteReason ? (
                       <p
-                        className="mt-2 w-full shrink-0 basis-full text-xs leading-5 text-slate-400"
+                        className="mt-2 w-full shrink-0 basis-full text-xs leading-5 text-slate-500"
                         id={`page-delete-reason-${page.id}`}
                       >
                         {pageDeleteReason}
@@ -329,10 +336,10 @@ export function DrawingPagesPanel({
                   </div>
                 ) : null}
               </div>
-              <ul className="ml-3 mt-2 space-y-2 border-l border-white/10 pl-3">
+              <ul className="ml-3 mt-2 space-y-2 border-l border-slate-200 pl-3">
                 {canvases.map((canvas) => {
                   const reason = translatedReason(
-                    drawingCanvasDeletionReason(state, canvas.id),
+                    deletionReasons.canvases[canvas.id] ?? null,
                   );
                   const defaultCanvas =
                     canvas.spaceKind === "paper" && canvas.sortOrder === 0;
@@ -353,7 +360,7 @@ export function DrawingPagesPanel({
                       : null;
                   return (
                     <li key={canvas.id}>
-                      <div className="rounded-md border border-white/10 p-2">
+                      <div className="rounded-md border border-slate-200 p-2">
                         <button
                           aria-current={
                             activeCanvasId === canvas.id ? "page" : undefined
@@ -368,7 +375,7 @@ export function DrawingPagesPanel({
                           type="button"
                         >
                           {canvas.name}{" "}
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-slate-500">
                             ({canvas.spaceKind === "paper" ? "용지" : "모델"})
                           </span>
                         </button>
@@ -381,7 +388,7 @@ export function DrawingPagesPanel({
                               캔버스 이름: {canvas.name}
                             </label>
                             <input
-                              className="min-h-8 min-w-0 flex-1 rounded border border-white/10 bg-slate-950 px-2 text-xs"
+                              className="min-h-8 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs"
                               defaultValue={canvas.name}
                               id={`canvas-name-${canvas.id}`}
                               key={`${canvas.id}:${canvas.version}`}
@@ -470,7 +477,7 @@ export function DrawingPagesPanel({
                               <div className="mt-2 w-full shrink-0 basis-full space-y-1">
                                 {reason ? (
                                   <p
-                                    className="w-full text-xs leading-5 text-slate-400"
+                                    className="w-full text-xs leading-5 text-slate-500"
                                     id={`canvas-delete-reason-${canvas.id}`}
                                   >
                                     {reason}
@@ -478,7 +485,7 @@ export function DrawingPagesPanel({
                                 ) : null}
                                 {orderReason ? (
                                   <p
-                                    className="w-full text-xs leading-5 text-slate-400"
+                                    className="w-full text-xs leading-5 text-slate-500"
                                     id={`canvas-order-reason-${canvas.id}`}
                                   >
                                     {orderReason}

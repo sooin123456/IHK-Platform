@@ -1,0 +1,857 @@
+✔ reader rejects mismatched original-byte identity through a bounded public failure (1.067458ms)
+✔ reader rejects high-bit aliases of the six ASCII header bytes before native execution (6.437083ms)
+✔ actual native process errors stay bounded and clean the owned temporary directory (216.878542ms)
+✔ reader refuses to delete a replacement directory at its former owned path (459.068084ms)
+✔ actual .NET reader returns an original-byte report consumable by the real projector (916.6075ms)
+✔ encoder snapshots exact bytes with a literal big endian 16 byte header and frozen identities (66.893083ms)
+✔ encoder rejects unbound source, malformed metadata, handles, types, UTF8, BOM and bounded lengths (24.224625ms)
+✔ encoder preserves native geometry and duplicate-key validation bytes without reserialization (0.246166ms)
+✔ decoder accepts strict literal success frame and exact output identities (0.345375ms)
+✔ decoder rejects malformed framing, UTF8/BOM, lengths, altered DWG and trailing bytes (1.871ms)
+✔ decoder rejects extra shape, changed bindings, handle order/count and authority-bearing status (1.158334ms)
+✔ resaver fixes command, ownership and 2GiB without accepting profile overrides (71.620042ms)
+✖ success streams literal frame and returns only verified bytes after both cleanup stages (2.884833ms)
+✖ request and source mismatches, host configuration and abort fail before Docker spawn (2.996208ms)
+✖ resaver refuses wrong image protocol and unenforced resources before create (1.689834ms)
+✖ actual receipt deviations prevent start and clean exact owned identity (1.476417ms)
+✖ stderr, nonzero, OOM, overflow, malformed and mismatched reports fail closed (2.101083ms)
+✖ uncertain create outcomes reconcile by owned name and foreign identity is preserved (1.753667ms)
+✖ source-mutation at start prevents publication after owned cleanup (1.177375ms)
+✖ request-mutation at start prevents publication after owned cleanup (0.494042ms)
+✖ abort at start prevents publication after owned cleanup (0.604083ms)
+✖ source-mutation at removal prevents publication after owned cleanup (1.073834ms)
+✖ request-mutation at removal prevents publication after owned cleanup (1.336917ms)
+✖ abort at removal prevents publication after owned cleanup (0.870709ms)
+✖ source-mutation at config-cleanup prevents publication after owned cleanup (0.634917ms)
+✖ request-mutation at config-cleanup prevents publication after owned cleanup (0.787416ms)
+✖ abort at config-cleanup prevents publication after owned cleanup (0.844084ms)
+✖ bounded outer deadline still performs independent cleanup (2.016167ms)
+✖ replaced private CLI directory is preserved and resave fails (0.405542ms)
+✔ approved cloned LINE uses source handle and frozen centimeters; empty default layer and no-op survive (10.641208ms)
+▶ rehashed malicious anchors and unsupported canonical edits fail instead of being normalized
+  ✔ handle (1.45875ms)
+  ✔ ownerHandle (2.596875ms)
+  ✔ layerHandle (1.071667ms)
+  ✔ entityType (0.967292ms)
+  ✔ sourceLayer (1.002208ms)
+  ✔ unitCode (1.216083ms)
+  ✔ unitSource (1.24925ms)
+  ✔ analysisJobId (1.261667ms)
+  ✔ reportSha256 (1.15225ms)
+  ✔ sourceFileId (1.547375ms)
+  ✔ sourceSha256 (1.433375ms)
+  ✔ revisionId (0.349708ms)
+  ✔ importerVersion (0.491875ms)
+  ✔ missing source (1.320458ms)
+  ✔ duplicate source (2.8405ms)
+  ✔ missing object (0.35775ms)
+  ✔ added object (1.11425ms)
+  ✔ wrong object anchor (0.323792ms)
+  ✔ renamed layer (1.05075ms)
+  ✔ layer visibility (0.969917ms)
+  ✔ layer lock (1.353959ms)
+  ✔ layer kind (1.146959ms)
+  ✔ layer order (1.257208ms)
+  ✔ object relayer (0.969666ms)
+  ✔ renamed object (1.113166ms)
+  ✔ object style (1.206375ms)
+  ✔ background (0.31125ms)
+  ✔ extra page (0.428667ms)
+✔ rehashed malicious anchors and unsupported canonical edits fail instead of being normalized (32.844125ms)
+▶ strict envelopes, snapshot/report hashes, approval and source scope are required
+  ✔ snapshot bytes (0.144208ms)
+  ✔ report bytes (0.135958ms)
+  ✔ report size (0.108292ms)
+  ✔ draft (0.125375ms)
+  ✔ unapproved (0.109334ms)
+  ✔ foreign project (0.103541ms)
+  ✔ wrong requested canvas (0.113542ms)
+  ✔ wrong requested version (0.098084ms)
+  ✔ unit override (0.422834ms)
+  ✔ private source descriptor (0.124958ms)
+  ✔ caller edits (0.069125ms)
+✔ strict envelopes, snapshot/report hashes, approval and source scope are required (1.850875ms)
+✔ RPC loader forwards only validated scope and returns compiled results or a bounded error (1.298917ms)
+▶ same analysis revision requires exact native layer, object and source identities after rehashing
+  ✔ layer (7.861ms)
+  ✔ object (2.426166ms)
+  ✔ source (2.250291ms)
+  ✔ all (2.080209ms)
+  ✔ document (1.770917ms)
+  ✔ canvas (3.7325ms)
+✔ same analysis revision requires exact native layer, object and source identities after rehashing (20.427625ms)
+✔ approved original and clone compile all five geometry types with native handle ordering (20.659792ms)
+✔ production create argv fixes confinement and the native command (70.719417ms)
+✖ configuration, abort and exact raw source validation happen before Docker spawn (4.898958ms)
+✖ successful transport requires owned stopped receipt, exact bytes and clean CLI environment (2.567542ms)
+✖ daemon profile deviations fail before start and remove only the owned container (0.861833ms)
+✖ live, nonzero, OOM, malformed, overflowing and source-mismatched reports never succeed (2.2505ms)
+✖ lost or malformed create receipts reconcile exact name once and clean owned identity (1.70125ms)
+✖ outer deadline and cancellation use separate cleanup authority (0.844625ms)
+✖ caller bytes are snapshotted before awaits and mutation prevents publication (1.183167ms)
+✖ foreign ownership is never permission to start or delete (1.184791ms)
+✖ unenforced daemon limits and image-provided volumes are refused before create (0.545042ms)
+✖ validated Docker configuration is captured before caller mutation (1.1025ms)
+✖ unexpected stderr, BOM and overflowing metadata fail closed (0.555625ms)
+✖ caller mutation while cleanup runs still prevents report publication (0.756375ms)
+✖ an extra network attachment or changed shared-memory limit prevents start (1.308416ms)
+✖ every CLI command uses a private empty config, avoiding hostile home fallback and cleaning on failure (0.482292ms)
+✖ replacement of the owned CLI config directory is preserved and fails the read (0.571958ms)
+✖ caller mutation during private config cleanup prevents publication (1.477625ms)
+✖ caller cancellation during private config cleanup prevents publication (0.517125ms)
+✔ converts only a changed centimeter LINE endpoint back to the original handle and native units (10.255166ms)
+✔ retains an unchanged raw native endpoint instead of reconstructing it from six-decimal display geometry (4.872334ms)
+✔ emits v2 CIRCLE geometry and converts a changed centimeter radius (3.680417ms)
+✔ retains unchanged raw LWPOLYLINE vertices while converting changed vertices and closed (1.7045ms)
+✔ rejects distinct projected LWPOLYLINE points that collapse to one native point (1.394583ms)
+✔ retains raw ARC angle pairs for geometry-only edits, including wrapped angles (3.472667ms)
+✔ converts edited ARC angles to a positive non-normalized full turn (1.779958ms)
+✔ emits changed TEXT insert, height, and text in native units (3.893708ms)
+✔ compiles a nonzero-start full turn within the strict native angle bound (3.119084ms)
+▶ rejects prospective TEXT content and height extents with frozen units without mutating a batch
+  ✔ millimeter content growth (1.475125ms)
+  ✔ millimeter height growth (1.564875ms)
+  ✔ declared centimeter content growth (1.385833ms)
+  ✔ selected centimeter height growth (1.452792ms)
+✔ rejects prospective TEXT content and height extents with frozen units without mutating a batch (6.300042ms)
+✔ uses the frozen inch projection when compiling changed geometry (2.703875ms)
+✔ emits null for an unchanged projection even when object order changes or versions increase (0.951333ms)
+✔ a valid TEXT value change retains raw placement and edits sort by numeric native handle (1.589666ms)
+▶ rejects new, missing, and duplicate object identities
+  ✔ new object (0.788083ms)
+  ✔ missing object (0.772875ms)
+  ✔ duplicate object (2.116917ms)
+✔ rejects new, missing, and duplicate object identities (4.27875ms)
+▶ rejects immutable object metadata and geometry-kind changes
+  ✔ name (0.594958ms)
+  ✔ layer (0.531916ms)
+  ✔ style (0.504167ms)
+  ✔ style binding (0.522791ms)
+  ✔ geometry kind (0.570708ms)
+✔ rejects immutable object metadata and geometry-kind changes (3.381875ms)
+✔ rejects TEXT width changes atomically after an otherwise valid edit (0.844833ms)
+▶ rejects negative edited ARC sweeps and non-font TEXT style changes atomically
+  ✔ negative sweep (0.545417ms)
+  ✔ TEXT stroke (2.253417ms)
+✔ rejects negative edited ARC sweeps and non-font TEXT style changes atomically (3.212042ms)
+▶ rejects decreasing versions and invalid edited-object schema before compiling any request
+  ✔ decreased version (0.804083ms)
+  ✔ unknown object field (0.739458ms)
+  ✔ zero-length LINE (0.766542ms)
+✔ rejects decreasing versions and invalid edited-object schema before compiling any request (2.939167ms)
+▶ rejects invalid selected-DWG plain TEXT values
+  ✔ empty (0.85375ms)
+  ✔ too long (0.767708ms)
+  ✔ unpaired surrogate (0.635875ms)
+  ✔ terminal high surrogate (0.577625ms)
+  ✔ control (0.806875ms)
+  ✔ line separator (0.788334ms)
+  ✔ CAD percent escape (0.719959ms)
+  ✔ CAD field (0.91275ms)
+✔ rejects invalid selected-DWG plain TEXT values (6.877917ms)
+✔ rejects edited geometry outside the projected extent (1.317625ms)
+✔ rejects more than 100,000 aggregate edited LWPOLYLINE vertices (145.537042ms)
+✔ rejects a compact UTF-8 request above the native consumer's 2 MiB limit (14.677292ms)
+✔ approved native template returns an unchanged CAD manifest and separate deterministic authority lineage (22.476125ms)
+✔ approved native lineage orders same-id issue links by object id independently of input order (9.330917ms)
+✔ approved literal canonical line projects exact independent CAD geometry (3.96575ms)
+✔ loader calls the authenticated read-only RPC once with only exact named scope (4.687708ms)
+▶ request and returned authority scope must match exactly
+  ✔ project (1.074583ms)
+  ✔ document (0.635209ms)
+  ✔ revision (0.56425ms)
+  ✔ version (0.546709ms)
+  ✔ canvas (0.554292ms)
+  ✔ digest (0.584875ms)
+✔ request and returned authority scope must match exactly (4.372375ms)
+▶ tampered or malformed PostgreSQL text never becomes an approved source
+  ✔ tampered text (0.892667ms)
+  ✔ wrong hash (0.653542ms)
+  ✔ malformed hashed JSON (0.534625ms)
+✔ tampered or malformed PostgreSQL text never becomes an approved source (2.319875ms)
+▶ revision, approval and canonical identity must remain approved and exact
+  ✔ reviewed status (0.691541ms)
+  ✔ draft status (0.470917ms)
+  ✔ wrong decision (0.427166ms)
+  ✔ revision sequence (0.600458ms)
+  ✔ operation sequence (0.576167ms)
+  ✔ canonical project (0.561084ms)
+  ✔ canonical document (0.581583ms)
+✔ revision, approval and canonical identity must remain approved and exact (4.200667ms)
+▶ native projection rejects missing profiles, sources, backgrounds, extra canvases and unsupported geometry
+  ✔ missing persisted profile (0.913541ms)
+  ✔ object source (2.084417ms)
+  ✔ canvas background (4.248ms)
+  ✔ additional canvas (1.1075ms)
+  ✔ unsupported entity (0.95925ms)
+✔ native projection rejects missing profiles, sources, backgrounds, extra canvases and unsupported geometry (9.555916ms)
+✔ canonical preimage is bounded before parsing (32.453833ms)
+▶ strict malformed requests and payloads fail without calling RPC
+  ✔ request 1 (0.145875ms)
+  ✔ request 2 (0.061916ms)
+  ✔ request 3 (0.1185ms)
+  ✔ request 4 (0.123375ms)
+  ✔ request 5 (0.053166ms)
+✔ strict malformed requests and payloads fail without calling RPC (2.830667ms)
+▶ RPC exceptions, returned errors, nulls and malformed payloads use one bounded error with no fallback
+  ✔ exception (0.117875ms)
+  ✔ returned error (0.079417ms)
+  ✔ null (0.09075ms)
+  ✔ malformed (0.141625ms)
+✔ RPC exceptions, returned errors, nulls and malformed payloads use one bounded error with no fallback (1.037958ms)
+ℹ tests 186
+ℹ suites 0
+ℹ pass 152
+ℹ fail 34
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1764.814208
+
+✖ failing tests:
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:114:1
+✖ success streams literal frame and returns only verified bytes after both cleanup stages (2.884833ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-cNwNvQ/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:116:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-cNwNvQ/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:144:1
+✖ request and source mismatches, host configuration and abort fail before Docker spawn (2.996208ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-Ei5LjT/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:146:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-Ei5LjT/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:164:1
+✖ resaver refuses wrong image protocol and unenforced resources before create (1.689834ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-Y9AnL5/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:181:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-Y9AnL5/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:190:1
+✖ actual receipt deviations prevent start and clean exact owned identity (1.476417ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-nEl9CD/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:203:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-nEl9CD/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:213:1
+✖ stderr, nonzero, OOM, overflow, malformed and mismatched reports fail closed (2.101083ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-JlGpHZ/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:241:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-JlGpHZ/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:247:1
+✖ uncertain create outcomes reconcile by owned name and foreign identity is preserved (1.753667ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-Etgo0L/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:255:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-Etgo0L/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ source-mutation at start prevents publication after owned cleanup (1.177375ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-KSISMc/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-KSISMc/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ request-mutation at start prevents publication after owned cleanup (0.494042ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-l6cimw/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-l6cimw/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ abort at start prevents publication after owned cleanup (0.604083ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-QETfn7/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-QETfn7/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ source-mutation at removal prevents publication after owned cleanup (1.073834ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-mSYhd9/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-mSYhd9/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ request-mutation at removal prevents publication after owned cleanup (1.336917ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-4KF6Ef/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-4KF6Ef/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ abort at removal prevents publication after owned cleanup (0.870709ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-ViPCGf/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-ViPCGf/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ source-mutation at config-cleanup prevents publication after owned cleanup (0.634917ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-aCPDex/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-aCPDex/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ request-mutation at config-cleanup prevents publication after owned cleanup (0.787416ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-yKFf35/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-yKFf35/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:279:5
+✖ abort at config-cleanup prevents publication after owned cleanup (0.844084ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-HcyLuC/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:284:20)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-HcyLuC/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:351:1
+✖ bounded outer deadline still performs independent cleanup (2.016167ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-0dd3c3/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:353:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-0dd3c3/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:363:1
+✖ replaced private CLI directory is preserved and resave fails (0.405542ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-iuelNt/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:365:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-iuelNt/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:82:1
+✖ configuration, abort and exact raw source validation happen before Docker spawn (4.898958ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-uKQUoj/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:84:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-uKQUoj/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:113:1
+✖ successful transport requires owned stopped receipt, exact bytes and clean CLI environment (2.567542ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-w7lVW9/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:115:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-w7lVW9/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:144:1
+✖ daemon profile deviations fail before start and remove only the owned container (0.861833ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-nM2MAS/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:161:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-nM2MAS/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:173:1
+✖ live, nonzero, OOM, malformed, overflowing and source-mismatched reports never succeed (2.2505ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-M8CT7e/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:190:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-M8CT7e/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:198:1
+✖ lost or malformed create receipts reconcile exact name once and clean owned identity (1.70125ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-saoLIR/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:201:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-saoLIR/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:218:1
+✖ outer deadline and cancellation use separate cleanup authority (0.844625ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-8j3bEz/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:221:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-8j3bEz/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:240:1
+✖ caller bytes are snapshotted before awaits and mutation prevents publication (1.183167ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-d9NIgD/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:242:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-d9NIgD/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:252:1
+✖ foreign ownership is never permission to start or delete (1.184791ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-mwyVys/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:258:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-mwyVys/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:270:1
+✖ unenforced daemon limits and image-provided volumes are refused before create (0.545042ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-dpWHBx/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:291:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-dpWHBx/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:302:1
+✖ validated Docker configuration is captured before caller mutation (1.1025ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-PMTadH/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:304:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-PMTadH/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:312:1
+✖ unexpected stderr, BOM and overflowing metadata fail closed (0.555625ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-tnByjA/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:315:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-tnByjA/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:323:1
+✖ caller mutation while cleanup runs still prevents report publication (0.756375ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-AjfWu7/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:328:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-AjfWu7/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:348:1
+✖ an extra network attachment or changed shared-memory limit prevents start (1.308416ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-dJbpkd/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:354:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-dJbpkd/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:366:1
+✖ every CLI command uses a private empty config, avoiding hostile home fallback and cleaning on failure (0.482292ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-PTH4IY/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:370:16)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-PTH4IY/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:391:1
+✖ replacement of the owned CLI config directory is preserved and fails the read (0.571958ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-ZvDPzB/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:393:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-ZvDPzB/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:411:3
+✖ caller mutation during private config cleanup prevents publication (1.477625ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-AI3Cih/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:416:18)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-AI3Cih/docker.sock',
+    port: -1
+  }
+
+test at tests/drawing-native-dwg-sandbox.test.mjs:411:3
+✖ caller cancellation during private config cleanup prevents publication (0.517125ms)
+  Error: listen EINVAL: invalid argument /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-EjJXsU/docker.sock
+      at Server.setupListenHandle [as _listen2] (node:net:2145:21)
+      at listenInCluster (node:net:2224:12)
+      at Server.listen (node:net:2361:5)
+      at file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:49:12
+      at new Promise (<anonymous>)
+      at transport (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs:47:9)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-sandbox.test.mjs:416:18)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    code: 'EINVAL',
+    errno: -22,
+    syscall: 'listen',
+    address: '/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/dwg-sandbox-test-EjJXsU/docker.sock',
+    port: -1
+  }

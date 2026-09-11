@@ -1,0 +1,48 @@
+{
+  "results": [
+    {
+      "command": [
+        "node",
+        "--test",
+        "tests/drawing-native-dwg-resave-source.test.mjs",
+        "tests/drawing-native-dwg-source.test.mjs",
+        "tests/drawing-native-dwg-selected-edits.test.mjs"
+      ],
+      "exitCode": 0,
+      "durationMs": 600
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "exitCode": 0,
+      "durationMs": 12802
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "durationMs": 132
+    }
+  ],
+  "codeStable": true,
+  "before": {
+    "platform/supabase/migrations/20260906043637_drawing_native_dwg_resave_source_authority.sql": "6cd28cff0d714bd670e3a224d72475a9e5b4cd7b804caeb6c9de790ae2853ca5",
+    "platform/app/lukas/lib/drawing-native-dwg-resave-source.server.ts": "2da86f08e24ffb922cc9b8a13c69c8dad9f691aec62cf3f98cc59f82e13dde64",
+    "platform/tests/drawing-native-dwg-resave-source.test.mjs": "93f94087a5754f470ae0528ec1e51d5c5bfbf6c0aedf3bb5d8ea6a9b4581e8e6",
+    "platform/tests/fixtures/drawing-native-dwg-resave-source-database.mjs": "b5d8e172cd1047b81fcf0f79ac966035095c42a5644ab4a1fb507a9e9d420557",
+    "platform/tests/fixtures/drawing-native-dwg-canonical-import-database.mjs": "21b12f94e47adc511a27bb6731acac05e2abf82858b920e85162cd03937bbbbc"
+  },
+  "after": {
+    "platform/supabase/migrations/20260906043637_drawing_native_dwg_resave_source_authority.sql": "6cd28cff0d714bd670e3a224d72475a9e5b4cd7b804caeb6c9de790ae2853ca5",
+    "platform/app/lukas/lib/drawing-native-dwg-resave-source.server.ts": "2da86f08e24ffb922cc9b8a13c69c8dad9f691aec62cf3f98cc59f82e13dde64",
+    "platform/tests/drawing-native-dwg-resave-source.test.mjs": "93f94087a5754f470ae0528ec1e51d5c5bfbf6c0aedf3bb5d8ea6a9b4581e8e6",
+    "platform/tests/fixtures/drawing-native-dwg-resave-source-database.mjs": "b5d8e172cd1047b81fcf0f79ac966035095c42a5644ab4a1fb507a9e9d420557",
+    "platform/tests/fixtures/drawing-native-dwg-canonical-import-database.mjs": "21b12f94e47adc511a27bb6731acac05e2abf82858b920e85162cd03937bbbbc"
+  }
+}

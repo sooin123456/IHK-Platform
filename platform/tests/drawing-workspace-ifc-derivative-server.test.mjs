@@ -191,7 +191,13 @@ const file = {
   created_at: "2026-08-28T00:00:00Z",
 };
 
-function clientFor({ derivatives, bindings = [], objects = {} }) {
+function clientFor({
+  derivatives,
+  bindings = [],
+  objects = {},
+  jobStatus = null,
+  jobStatusError = null,
+}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push(["fetch", url, init]);
@@ -209,6 +215,10 @@ function clientFor({ derivatives, bindings = [], objects = {} }) {
   return {
     calls,
     fetchImpl,
+    async rpc(name, arguments_) {
+      calls.push(["rpc", name, arguments_]);
+      return { data: jobStatus, error: jobStatusError };
+    },
     from(table) {
       const filters = [];
       let descending = false;
@@ -447,6 +457,116 @@ test("a draft exposes the latest failed status when no ready derivative exists",
   });
 });
 
+test("a draft prefers queued generation 2 over immutable failed v1 evidence", async () => {
+  const failedV1 = {
+    ...artifact(1).row,
+    status: "failed",
+    manifest_json: null,
+    manifest_storage_path: null,
+    manifest_byte_size: null,
+    manifest_sha256: null,
+    geometry_storage_path: null,
+    geometry_byte_size: null,
+    geometry_sha256: null,
+  };
+  const client = clientFor({
+    derivatives: [failedV1],
+    jobStatus: {
+      state: "queued",
+      generation: 2,
+      targetVersion: 2,
+      attemptCount: 0,
+      availableAt: "2026-09-03T08:00:00.000Z",
+      updatedAt: "2026-09-03T07:59:00.000Z",
+      errorCode: null,
+    },
+  });
+  const loaded = await loadDrawingIfcDerivative(client, file, {
+    id: ids.revision,
+    status: "draft",
+    version: 7,
+  });
+  assert.equal(loaded.status, "queued");
+  assert.equal(loaded.version, null);
+});
+
+test("a draft reports not_queued instead of inventing pending when no job exists", async () => {
+  const client = clientFor({ derivatives: [] });
+  const loaded = await loadDrawingIfcDerivative(client, file, {
+    id: ids.revision,
+    status: "draft",
+    version: 7,
+  });
+  assert.deepEqual(loaded, {
+    status: "not_queued",
+    version: null,
+    sourceSha256: sourceSha,
+    manifestByteSize: null,
+    geometryByteSize: null,
+    manifestSha256: null,
+    geometrySha256: null,
+    manifestSignedUrl: null,
+    geometrySignedUrl: null,
+  });
+  assert.deepEqual(
+    client.calls.filter(([kind]) => kind === "rpc"),
+    [
+      [
+        "rpc",
+        "lukas_drawing_ifc_derivative_job_status",
+        { p_source_file_id: ids.source, p_source_sha256: sourceSha },
+      ],
+    ],
+  );
+});
+
+test("a draft exposes the authenticated queue state while no derivative exists", async () => {
+  for (const state of [
+    "queued",
+    "processing",
+    "retry_wait",
+    "failed",
+    "completed",
+  ]) {
+    const client = clientFor({
+      derivatives: [],
+      jobStatus: {
+        state,
+        attemptCount: state === "queued" ? 0 : 1,
+        availableAt: "2026-09-03T08:00:00.000Z",
+        updatedAt: "2026-09-03T07:59:00.000Z",
+        errorCode: state === "failed" ? "conversion_failed" : null,
+      },
+    });
+    const loaded = await loadDrawingIfcDerivative(client, file, {
+      id: ids.revision,
+      status: "draft",
+      version: 7,
+    });
+    assert.equal(loaded.status, state);
+    assert.equal(loaded.version, null);
+  }
+});
+
+test("a malformed or unreadable queue status fails closed", async () => {
+  for (const client of [
+    clientFor({ derivatives: [], jobStatus: { state: "mystery" } }),
+    clientFor({
+      derivatives: [],
+      jobStatusError: new Error("private database detail"),
+    }),
+  ]) {
+    await assert.rejects(
+      loadDrawingIfcDerivative(client, file, {
+        id: ids.revision,
+        status: "draft",
+        version: 7,
+      }),
+      (error) => error instanceof Response && [409, 500].includes(error.status),
+    );
+  }
+});
+
 test("GLB node identity requires canonical extras and every primitive claim", async (context) => {
   const base = artifact(1);
   const outOfRange = withManifestElements(base, [
@@ -506,6 +626,94 @@ test("GLB node identity requires canonical extras and every primitive claim", as
         /managed publication failed/i,
       );
     });
+});
+
+test("managed publication accepts only reachable Mesh and LineSegments primitives", async (context) => {
+  await context.test(
+    "a claimed mesh in a non-default scene is rejected",
+    async () => {
+      const selected = artifact(1, {
+        geometryBytes: validGeometryGlb({
+          scenes: [{ nodes: [] }, { nodes: [0] }],
+          scene: 0,
+        }),
+      });
+      await assert.rejects(
+        validateManagedIfcDerivativePair({
+          sourceFileId: ids.source,
+          sourceSha256: sourceSha,
+          manifestBytes: selected.manifestBytes,
+          geometryBytes: selected.geometryBytes,
+        }),
+        /managed publication failed/i,
+      );
+    },
+  );
+
+  for (const [name, mode] of [
+    ["POINTS", 0],
+    ["LINE_STRIP", 3],
+  ])
+    await context.test(`${name} primitives are rejected`, async () => {
+      const selected = artifact(1, {
+        geometryBytes: validGeometryGlb({
+          meshes: [{ primitives: [{ attributes: { POSITION: 0 }, mode }] }],
+        }),
+      });
+      await assert.rejects(
+        validateManagedIfcDerivativePair({
+          sourceFileId: ids.source,
+          sourceSha256: sourceSha,
+          manifestBytes: selected.manifestBytes,
+          geometryBytes: selected.geometryBytes,
+        }),
+        /managed publication failed/i,
+      );
+    });
+
+  await context.test("an orphan mesh is rejected", async () => {
+    const selected = artifact(1, {
+      geometryBytes: validGeometryGlb({
+        meshes: [
+          { primitives: [{ attributes: { POSITION: 0 } }] },
+          { primitives: [{ attributes: { POSITION: 0 } }] },
+        ],
+      }),
+    });
+    await assert.rejects(
+      validateManagedIfcDerivativePair({
+        sourceFileId: ids.source,
+        sourceSha256: sourceSha,
+        manifestBytes: selected.manifestBytes,
+        geometryBytes: selected.geometryBytes,
+      }),
+      /managed publication failed/i,
+    );
+  });
+
+  await context.test(
+    "a mesh reached through node children remains valid",
+    async () => {
+      const selected = artifact(1, {
+        geometryBytes: validGeometryGlb({
+          nodes: [
+            { children: [1] },
+            { extras: { ifcNodeId: "ifc-42", ifcExpressId: 42 }, mesh: 0 },
+          ],
+          scenes: [{ nodes: [0] }],
+          scene: 0,
+        }),
+      });
+      await assert.doesNotReject(
+        validateManagedIfcDerivativePair({
+          sourceFileId: ids.source,
+          sourceSha256: sourceSha,
+          manifestBytes: selected.manifestBytes,
+          geometryBytes: selected.geometryBytes,
+        }),
+      );
+    },
+  );
 });
 
 test("GLB ifcExpressId matches the complete primitive ownership of a node", async (context) => {

@@ -1,0 +1,189 @@
+# Exact dirty-worktree delta; HEAD is unchanged, no commits
+
+## platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline-task3-fix1/platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs
+index b4a1ab9..a44d0dc 100644
+--- a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline-task3-fix1/platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs
+@@ -64,70 +64,83 @@ async function createRuntime(targetUrl, ids, instanceId) {
+     });
+     const runtime = createDrawingCollaborationServer({
+       config: {
+         port: 0,
+         instanceId,
+         supabaseUrl: "http://127.0.0.1",
+         databaseUrl: targetUrl,
+         allowedOrigins: new Set([allowedOrigin]),
+         internalSecret: "i".repeat(32),
+         freezeSecret: "f".repeat(32),
+         authorizationIntervalMs: 30_000,
+         debounceMs: 10,
+         maxDebounceMs: 20,
+       },
+       verifyToken: fixedTokenVerifier(ids),
+       authorize: database.authorize,
+       storage,
+     });
+     return { database, storage, runtime };
+   } catch (error) {
+     await database.close?.();
+     throw error;
+   }
+ }
+ 
+-async function connect(url, roomName, document, token) {
++async function connect(
++  url,
++  roomName,
++  document,
++  token,
++  Provider = HocuspocusProvider,
++) {
+   let provider;
+   await new Promise((resolve, reject) => {
+-    const timeout = setTimeout(() => {
+-      provider?.destroy();
+-      reject(new Error("Task 3 canonical collaboration sync timed out."));
+-    }, 5_000);
++    let settled = false;
+     const settle = (action) => {
++      if (settled) return;
++      settled = true;
+       clearTimeout(timeout);
+       action();
+     };
+-    provider = new HocuspocusProvider({
++    const fail = (error) =>
++      settle(() => {
++        provider?.destroy();
++        reject(error);
++      });
++    const timeout = setTimeout(
++      () => fail(new Error("Task 3 canonical collaboration sync timed out.")),
++      5_000,
++    );
++    provider = new Provider({
+       url,
+       name: roomName,
+       document,
+       token,
+       WebSocketPolyfill: OriginWebSocket,
+       onSynced: () => settle(resolve),
+-      onAuthenticationFailed: ({ reason }) =>
+-        settle(() => reject(new Error(reason))),
++      onAuthenticationFailed: ({ reason }) => fail(new Error(reason)),
+     });
+   });
+   return provider;
+ }
+ 
+ async function readState(owner, revisionId) {
+   return (await owner`
+     select project_id,revision_id,yjs_state,store_generation,yjs_sha256,
+       byte_size,base_operation_sequence
+     from private.lukas_drawing_collaboration_states
+     where revision_id=${revisionId}::uuid
+   `)[0];
+ }
+ 
+ function assertStateUnchanged(actual, expected) {
+   assert.ok(actual, "canonical collaboration state disappeared after restart");
+   assert.equal(actual.project_id, expected.project_id);
+   assert.equal(actual.revision_id, expected.revision_id);
+   assert.deepEqual(actual.yjs_state, expected.yjs_state);
+   assert.equal(actual.store_generation, expected.store_generation);
+   assert.equal(actual.yjs_sha256, expected.yjs_sha256);
+   assert.equal(actual.byte_size, expected.byte_size);
+   assert.equal(actual.base_operation_sequence, expected.base_operation_sequence);
+ }
+ 
+@@ -160,50 +173,89 @@ export async function proveCanonicalCollaborationSocketInitialization({
+     owner,
+     "authenticated",
+     ids.users.editor,
+     ids.project,
+     "M1 actual PostgreSQL canonical socket initialization",
+     randomUUID(),
+   );
+   ids.documents.push(created.documentId);
+   ids.revisions.push(created.revisionId);
+   const scope = {
+     projectId: ids.project,
+     revisionId: created.revisionId,
+   };
+   const roomName = `drawing:${scope.projectId}:${scope.revisionId}`;
+   const viewerDocument = new Y.Doc();
+   const editorDocument = new Y.Doc();
+   let viewerProvider;
+   let editorProvider;
+   let first;
+   let restarted;
+   let firstStopped = false;
+   let primaryError;
+   try {
+     first = await createRuntime(targetUrl, ids, "task-3-canonical-first");
+     const firstServer = await first.runtime.start();
++    const rejectedDocument = new Y.Doc();
++    let rejectedProvider;
++    let rejectedDestroyCount = 0;
++    class RejectedProvider extends HocuspocusProvider {
++      constructor(options) {
++        super(options);
++        rejectedProvider = this;
++      }
++
++      destroy() {
++        rejectedDestroyCount += 1;
++        super.destroy();
++      }
++    }
++    try {
++      await assert.rejects(
++        connect(
++          firstServer.webSocketURL,
++          roomName,
++          rejectedDocument,
++          "task-3-invalid-token",
++          RejectedProvider,
++        ),
++        /auth|invalid|permission/i,
++      );
++      assert.equal(
++        rejectedDestroyCount,
++        1,
++        "failed authentication must destroy its unreturned provider",
++      );
++      assert.equal(
++        rejectedProvider.configuration.websocketProvider.shouldConnect,
++        false,
++        "failed authentication must stop managed WebSocket reconnect checks",
++      );
++    } finally {
++      rejectedDocument.destroy();
++      if (rejectedDestroyCount === 0) rejectedProvider?.destroy();
++    }
+     viewerProvider = await connect(
+       firstServer.webSocketURL,
+       roomName,
+       viewerDocument,
+       viewerToken,
+     );
+ 
+     const initial = await readState(owner, scope.revisionId);
+     assert.ok(
+       initial,
+       "untouched Viewer sync must durably initialize canonical collaboration state",
+     );
+     assert.equal(Number(initial.store_generation), 1);
+     assert.equal(initial.yjs_sha256, stateHash(initial.yjs_state));
+     assert.deepEqual(
+       Y.encodeStateAsUpdate(viewerDocument),
+       normalize(initial.yjs_state),
+     );
+     assert.equal(viewerDocument.getArray("operationOrder").length, 0);
+ 
+     const viewerAccess = await first.database.authorize(
+       ids.users.viewer,
+       scope.projectId,
+       scope.revisionId,
+     );

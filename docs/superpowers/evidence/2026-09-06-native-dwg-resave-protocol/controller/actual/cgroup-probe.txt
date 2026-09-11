@@ -1,0 +1,105 @@
+MEMORY=2147483648
+SWAP=0
+CPU=100000 100000
+PIDS=64
+Name:	cat
+Umask:	0022
+State:	R (running)
+Tgid:	13
+Ngid:	0
+Pid:	13
+PPid:	8
+TracerPid:	0
+Uid:	65532	65532	65532	65532
+Gid:	65532	65532	65532	65532
+FDSize:	64
+Groups:	65532 
+NStgid:	13
+NSpid:	13
+NSpgid:	7
+NSsid:	1
+Kthread:	0
+VmPeak:	    2368 kB
+VmSize:	    2368 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	     912 kB
+VmRSS:	     912 kB
+RssAnon:	      92 kB
+RssFile:	     820 kB
+RssShmem:	       0 kB
+VmData:	     356 kB
+VmStk:	     132 kB
+VmExe:	      36 kB
+VmLib:	    1744 kB
+VmPTE:	      44 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+CoreDumping:	0
+THP_enabled:	1
+untag_mask:	0xffffffffffffff
+Threads:	1
+SigQ:	1/31513
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000000000000
+SigCgt:	0000000000000000
+CapInh:	0000000000000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000000000000000
+CapAmb:	0000000000000000
+NoNewPrivs:	1
+Seccomp:	2
+Seccomp_filters:	1
+Speculation_Store_Bypass:	vulnerable
+SpeculationIndirectBranch:	unknown
+Cpus_allowed:	f
+Cpus_allowed_list:	0-3
+Mems_allowed:	00000000,00000001
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	0
+nonvoluntary_ctxt_switches:	0
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT                                                       
+305 226 0:44 / / ro,relatime - overlay overlay rw,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6893/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6850/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6845/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6837/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6834/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6453/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6451/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6450/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6448/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/3214/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6894/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/6894/work,nouserxattr
+307 305 0:53 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw
+308 305 0:54 / /dev rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+309 308 0:55 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=666
+310 305 0:56 / /sys ro,nosuid,nodev,noexec,relatime - sysfs sysfs ro
+311 310 0:30 / /sys/fs/cgroup ro,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw,nsdelegate,memory_recursiveprot
+312 308 0:51 / /dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw
+313 308 0:57 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs shm rw,size=65536k,inode64
+314 305 253:1 /usr/libexec/docker/docker-init /usr/sbin/docker-init ro,relatime master:1 - ext4 /dev/root rw,discard,errors=remount-ro,commit=30
+315 305 0:58 / /tmp rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=16384k,inode64
+316 305 253:17 /docker/containers/818132bc852584d100e320cc7b39bad0a1557fb1628336fc1dc6abaa265fa32b/resolv.conf /etc/resolv.conf ro,relatime - ext4 /dev/vdb1 rw
+317 305 253:17 /docker/containers/818132bc852584d100e320cc7b39bad0a1557fb1628336fc1dc6abaa265fa32b/hostname /etc/hostname ro,relatime - ext4 /dev/vdb1 rw
+318 305 253:17 /docker/containers/818132bc852584d100e320cc7b39bad0a1557fb1628336fc1dc6abaa265fa32b/hosts /etc/hosts ro,relatime - ext4 /dev/vdb1 rw
+227 307 0:53 /bus /proc/bus ro,nosuid,nodev,noexec,relatime - proc proc rw
+228 307 0:53 /fs /proc/fs ro,nosuid,nodev,noexec,relatime - proc proc rw
+229 307 0:53 /irq /proc/irq ro,nosuid,nodev,noexec,relatime - proc proc rw
+230 307 0:53 /sys /proc/sys ro,nosuid,nodev,noexec,relatime - proc proc rw
+231 307 0:53 /sysrq-trigger /proc/sysrq-trigger ro,nosuid,nodev,noexec,relatime - proc proc rw
+232 307 0:59 / /proc/acpi ro,relatime - tmpfs tmpfs ro,inode64
+233 307 0:54 /null /proc/interrupts rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+234 307 0:54 /null /proc/kcore rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+235 307 0:54 /null /proc/keys rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+236 307 0:54 /null /proc/latency_stats rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+237 307 0:60 / /proc/scsi ro,relatime - tmpfs tmpfs ro,inode64
+238 307 0:54 /null /proc/timer_list rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+239 310 0:61 / /sys/firmware ro,relatime - tmpfs tmpfs ro,inode64
+HOSTNAME=818132bc8525
+HOME=/
+DOTNET_RUNNING_IN_CONTAINER=true
+DOTNET_VERSION=8.0.30
+DOTNET_EnableDiagnostics=0
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ASPNETCORE_HTTP_PORTS=8080
+APP_UID=1654
+PWD=/app
+ROOT_WRITE=1
+TMP_WRITE=0
+HOST_USERS=1

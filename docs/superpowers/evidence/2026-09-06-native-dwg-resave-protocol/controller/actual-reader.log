@@ -1,0 +1,15 @@
+✔ container absence requires a successful exact-name Docker query (840.508541ms)
+✔ two parallel actual native reads use unique attempts and preserve literal source geometry (896.311417ms)
+ℹ {"imageId":"sha256:c921c67ddb37d2a57969d04c7a4983f6d847e0b89901403e3b015ac25bf566ae","source":{"sha256":"58b0e273a18a522aa25e49475ac21b3d49405879a3346f716b33b842d954646e","byteSize":10987,"headerVersion":"AC1024"},"parsedReportSha256":"f18e1ca04ddf3451f862a37c3614632d52a45fe92256c1051d8eb25711fba9e1","attempts":2}
+✔ actual process and cgroup state enforce the production sandbox profile (147.27875ms)
+ℹ {"uid":65532,"gid":65532,"noNewPrivileges":1,"seccompMode":2,"capabilitiesHex":"0000000000000000","rootWrite":"failed","tmpWrite":"succeeded","hostUsersVisible":false,"interfaces":["lo"],"ipv4RouteRows":0,"memoryMax":1073741824,"cpuMax":{"quota":100000,"period":100000,"ratio":1},"pidsMax":64,"inheritedSyntheticSecret":false}
+✔ the image entrypoint kills a finite sleeper at the inner deadline (1227.224167ms)
+✔ invalid native input and caller abort remove only their exact owned attempts (1634.716375ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4892.137375

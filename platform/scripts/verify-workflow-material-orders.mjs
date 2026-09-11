@@ -1,0 +1,31 @@
+import {chromium,expect} from '@playwright/test';
+import {createServer} from 'vite';
+import {PDFDocument,rgb} from 'pdf-lib';
+import {createHash} from 'node:crypto';
+const pdf=await PDFDocument.create();const sheet=pdf.addPage([800,520]);
+sheet.drawRectangle({x:50,y:80,width:680,height:340,borderColor:rgb(0,0,0),borderWidth:3});
+sheet.drawLine({start:{x:100,y:180},end:{x:650,y:180},color:rgb(0,0.3,0.8),thickness:6});
+sheet.drawText('MATERIAL SOURCE / PIPE A-01',{x:80,y:440,size:22});
+const source={name:'material.pdf',mimeType:'application/pdf',buffer:Buffer.from(await pdf.save())};
+const sourceHash=createHash('sha256').update(source.buffer).digest('hex');
+const vite=await createServer({configFile:false,appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+const {createWorkflow}=await vite.ssrLoadModule('/app/lukas/lib/workflow-prototype.ts');
+const codec=await vite.ssrLoadModule('/app/lukas/lib/workflow-prototype-session.ts');
+const {setDocumentQuantity}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-quantity.ts');
+const {reduceQuantityReview}=await vite.ssrLoadModule('/app/lukas/lib/workflow-quantity-review.ts');
+const {reduceDocumentReview}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-review.ts');
+let doc={id:'material-doc',title:'자재 연결 도면',source:{name:source.name,sha256:sourceHash,pages:1},shapes:[{id:'pipe',label:'배수관',x:10,y:20}]};
+doc=setDocumentQuantity(doc,'pipe',{raw:10,correction:2,unit:'m',rate:100,reason:'측정 검토'});
+for(const [role,type] of [['author','request'],['reviewer','review'],['approver','approve']])doc=reduceQuantityReview(doc,role,{type,message:'자재 테스트 승인'});
+expect(doc.quantityReviews[0].phase).toBe('approved');
+for(const [role,type] of [['author','request'],['reviewer','review'],['approver','approve']])doc=reduceDocumentReview(doc,role,{type,targetId:'pipe',message:'도면 승인'});
+expect(doc.reviewRounds[0].phase).toBe('approved');
+const raw=codec.encodeWorkflowSession({scenarios:Object.fromEntries(['architecture','ifc','civil'].map(s=>[s,createWorkflow(s)])),drafts:{},blankDocuments:[doc,{id:'empty-doc',title:'미승인 도면',shapes:[]}]});await vite.close();
+const browser=await chromium.launch();try{
+ const page=await browser.newPage({viewport:{width:390,height:844}});page.setDefaultTimeout(7000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.addInitScript(({key,raw})=>{if(!sessionStorage.getItem(key))sessionStorage.setItem(key,raw);},{key:codec.workflowSessionKey,raw});await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=materials&scope=local',{waitUntil:'networkidle'});
+ const region=page.getByRole('region',{name:'내 도면 자재 관리'});await region.getByLabel('발주일',{exact:true}).fill('2000-01-01');await region.getByLabel('예정 납기',{exact:true}).fill('2000-01-10');await region.getByLabel('공급처',{exact:true}).fill('공급처 A');await region.getByLabel('자재 추가 수량').fill('10');await region.getByLabel('자재 처리 사유').fill('A 발주');await region.getByRole('button',{name:'자재 기록 보관',exact:true}).click();
+ const orders=region.getByRole('region',{name:'발주별 납기 현황'});await expect(orders).toContainText('공급처 A');await expect(orders).toContainText('납기 경과');
+ await region.getByLabel('자재 처리 구분').selectOption('receive');await region.getByLabel('연결 발주',{exact:true}).selectOption('1');await region.getByLabel('자재 추가 수량').fill('11');await region.getByLabel('자재 처리 사유').fill('초과 입고');await region.getByRole('button',{name:'자재 기록 보관',exact:true}).click();await expect(region).toContainText('기록할 수 없습니다');
+ await region.getByLabel('자재 추가 수량').fill('10');await region.getByRole('button',{name:'자재 기록 보관',exact:true}).click();await expect(orders).toContainText('연결 입고 완료');await page.reload({waitUntil:'networkidle'});await expect(orders).toContainText('공급처 A');await expect(orders).toContainText('연결 입고 완료');const saved=await page.evaluate(key=>JSON.parse(sessionStorage.getItem(key)).blankDocuments[0],codec.workflowSessionKey);expect(saved.materialEvents[0].expectedOn).toBe('2000-01-10');expect(saved.materialEvents[1].orderId).toBe(1);
+ await region.getByLabel('자재 체험 역할').selectOption('viewer');await expect(region.getByLabel('공급처',{exact:true})).toBeDisabled();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();await orders.screenshot({path:'/tmp/1hk-material-order-dates.png'});expect(errors).toEqual([]);console.log('PASS dated supplier order, overdue guidance, linked receipt limit/completion, reload and readonly/mobile');
+}finally{await browser.close();}

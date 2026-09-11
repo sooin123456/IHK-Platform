@@ -114,8 +114,24 @@ export function DrawingSemanticSchedulesPanel({
   return (
     <section
       aria-labelledby="drawing-semantic-schedules-title"
-      data-drawing-server-evidence={
-        confirmed ? JSON.stringify(evidence) : undefined
+      data-drawing-server-evidence={confirmed ? "confirmed" : undefined}
+      data-drawing-server-evidence-document-id={
+        confirmed ? evidence.documentId : undefined
+      }
+      data-drawing-server-evidence-operation-checkpoint={
+        confirmed ? evidence.operationCheckpoint : undefined
+      }
+      data-drawing-server-evidence-revision-id={
+        confirmed ? evidence.revisionId : undefined
+      }
+      data-drawing-server-evidence-revision-version={
+        confirmed ? evidence.revisionVersion : undefined
+      }
+      data-drawing-server-evidence-rule-version={
+        confirmed ? evidence.ruleVersion : undefined
+      }
+      data-drawing-server-evidence-snapshot-sha256={
+        confirmed ? evidence.snapshotSha256 : undefined
       }
     >
       <h2 className="text-sm font-bold" id="drawing-semantic-schedules-title">

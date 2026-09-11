@@ -1,0 +1,2184 @@
+2026-09-06 16:24:44.381 KST [20046] LOG:  starting PostgreSQL 17.11 (Homebrew) on aarch64-apple-darwin25.6.0, compiled by Apple clang version 21.0.0 (clang-2100.1.1.101), 64-bit
+2026-09-06 16:24:44.382 KST [20046] LOG:  listening on IPv4 address "127.0.0.1", port 56387
+2026-09-06 16:24:44.382 KST [20046] LOG:  listening on Unix socket "/tmp/canonical-pg-g127yj/.s.PGSQL.56387"
+2026-09-06 16:24:44.384 KST [20049] LOG:  database system was shut down at 2026-09-06 16:24:44 KST
+2026-09-06 16:24:44.386 KST [20046] LOG:  database system is ready to accept connections
+2026-09-06 16:24:45.274 KST [20058] ERROR:  Drawing collaboration room is read-only
+2026-09-06 16:24:45.274 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_store_state_unfenced(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text) line 12 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_store_state_unfenced(
+	    p_user_id,p_project_id,p_revision_id,p_schema_version,p_yjs_state,
+	    p_base_operation_sequence,p_expected_generation,p_expected_sha256
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text) line 8 at RETURN QUERY
+2026-09-06 16:24:45.274 KST [20058] STATEMENT:  
+	      select * from private.lukas_drawing_collaboration_store_state(
+	        $1::uuid,$2::uuid,$3::uuid,
+	        1::smallint,$4::bytea,$5::bigint,
+	        $6::bigint,$7
+	      )
+	    
+2026-09-06 16:24:45.277 KST [20058] ERROR:  permission denied for function lukas_drawing_collaboration_initialize_state_core
+2026-09-06 16:24:45.277 KST [20058] STATEMENT:  
+	      select * from private.lukas_drawing_collaboration_initialize_state_core(
+	        $1::uuid,$2::uuid,$3::bytea,
+	        $4::bigint,$5,true
+	      )
+	    
+2026-09-06 16:24:45.278 KST [20058] ERROR:  permission denied for schema private at character 26
+2026-09-06 16:24:45.278 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.279 KST [20058] ERROR:  permission denied for schema private at character 26
+2026-09-06 16:24:45.279 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.279 KST [20058] ERROR:  permission denied for function lukas_drawing_collaboration_initialize_state
+2026-09-06 16:24:45.279 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.280 KST [20058] ERROR:  permission denied for function lukas_drawing_collaboration_service_initialize_state
+2026-09-06 16:24:45.280 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.281 KST [20058] ERROR:  permission denied for function lukas_drawing_collaboration_initialize_state
+2026-09-06 16:24:45.281 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.281 KST [20058] ERROR:  permission denied for function lukas_drawing_collaboration_service_initialize_state
+2026-09-06 16:24:45.281 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.282 KST [20058] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:24:45.282 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_authorize_pre_entitlement(uuid,uuid,uuid) line 10 at RAISE
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_authorize_pre_entitlement(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid) line 7 at RETURN QUERY
+	SQL statement "SELECT 1 from private.lukas_drawing_collaboration_authorize(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 4 at PERFORM
+2026-09-06 16:24:45.282 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.283 KST [20058] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:24:45.283 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_authorize_pre_entitlement(uuid,uuid,uuid) line 10 at RAISE
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_authorize_pre_entitlement(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid) line 7 at RETURN QUERY
+	SQL statement "SELECT 1 from private.lukas_drawing_collaboration_authorize(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 4 at PERFORM
+2026-09-06 16:24:45.283 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.284 KST [20058] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:24:45.284 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_authorize_pre_entitlement(uuid,uuid,uuid) line 10 at RAISE
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_authorize_pre_entitlement(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid) line 7 at RETURN QUERY
+	SQL statement "SELECT 1 from private.lukas_drawing_collaboration_authorize(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 4 at PERFORM
+2026-09-06 16:24:45.284 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.285 KST [20058] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:24:45.285 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_authorize_pre_entitlement(uuid,uuid,uuid) line 10 at RAISE
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_authorize_pre_entitlement(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid) line 7 at RETURN QUERY
+	SQL statement "SELECT 1 from private.lukas_drawing_collaboration_authorize(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 4 at PERFORM
+2026-09-06 16:24:45.285 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.285 KST [20058] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:24:45.285 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 10 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.285 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.292 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.292 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.292 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.293 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.293 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.293 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.324 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.324 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.324 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.325 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.325 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.325 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.326 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.326 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.326 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.327 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.327 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.327 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.328 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.328 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.328 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.329 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.329 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.329 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.330 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.330 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.330 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.331 KST [20058] ERROR:  Drawing collaboration snapshot changed; reload before initializing
+2026-09-06 16:24:45.331 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 37 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.331 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.332 KST [20058] ERROR:  Drawing collaboration snapshot changed; reload before initializing
+2026-09-06 16:24:45.332 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 37 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.332 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:24:45.333 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.333 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.333 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.334 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.334 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.334 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.361 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.361 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.361 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.363 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.363 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.363 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.363 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.363 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.363 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.364 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.364 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.364 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.365 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.365 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.365 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.366 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.366 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.366 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.367 KST [20058] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:24:45.367 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.367 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.368 KST [20058] ERROR:  Drawing collaboration snapshot changed; reload before initializing
+2026-09-06 16:24:45.368 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 37 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.368 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.368 KST [20058] ERROR:  Drawing collaboration snapshot changed; reload before initializing
+2026-09-06 16:24:45.368 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 37 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.368 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.401 KST [20058] ERROR:  Drawing collaboration room is read-only
+2026-09-06 16:24:45.401 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 19 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:24:45.401 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:24:45.412 KST [20058] ERROR:  Drawing collaboration freeze lease is busy
+2026-09-06 16:24:45.412 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_assert_store_unleased(uuid,uuid) line 20 at RAISE
+	SQL statement "SELECT private.lukas_drawing_collaboration_assert_store_unleased(
+	    p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_store_state_pre_entitlement(uuid,uuid,smallint,bytea,bigint,bigint,text) line 5 at PERFORM
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_service_store_state_pre_entitlement(
+	    p_project_id,p_revision_id,p_schema_version,p_yjs_state,
+	    p_base_operation_sequence,p_expected_generation,p_expected_sha256
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_store_state(uuid,uuid,smallint,bytea,bigint,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.412 KST [20058] STATEMENT:  
+	      select * from private.lukas_drawing_collaboration_service_store_state(
+	        $1::uuid,$2::uuid,1::smallint,
+	        $3::bytea,$4::bigint,
+	        $5::bigint,$6
+	      )
+	    
+2026-09-06 16:24:45.416 KST [20058] ERROR:  new row for relation "lukas_qto_verified_uploads" violates check constraint "lukas_qto_verified_uploads_dwg_header_version_check"
+2026-09-06 16:24:45.416 KST [20058] DETAIL:  Failing row contains (7e9b3637-b74a-4b12-928c-3b0eaa71c3dd, 464d30f0-e7a1-4b97-8eea-fa878561ee88, b272155a-e880-4eba-b539-f9e696d747af, dwg, 464d30f0-e7a1-4b97-8eea-fa878561ee88/b272155a-e880-4eba-b539-f9e..., 7e9b3637-b74a-4b12-928c-3b0eaa71c3dd.dwg, application/octet-stream, 8, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, 2026-09-06 16:39:45.416179+09, null, null, 2026-09-06 16:24:45.416179+09, null).
+2026-09-06 16:24:45.416 KST [20058] STATEMENT:  
+	    insert into public.lukas_qto_verified_uploads(
+	      id,actor_id,project_id,kind,storage_path,original_filename,
+	      content_type,byte_size,sha256,dwg_header_version
+	    ) values(
+	      $1::uuid,$2::uuid,$3::uuid,$4,
+	      $5,$6,'application/octet-stream',8,
+	      $7,$8
+	    )
+	  
+2026-09-06 16:24:45.416 KST [20058] ERROR:  new row for relation "lukas_qto_verified_uploads" violates check constraint "lukas_qto_verified_uploads_dwg_header_version_check"
+2026-09-06 16:24:45.416 KST [20058] DETAIL:  Failing row contains (827a267e-f6ce-4626-8f54-4105cdda5e3c, 464d30f0-e7a1-4b97-8eea-fa878561ee88, b272155a-e880-4eba-b539-f9e696d747af, dwg, 464d30f0-e7a1-4b97-8eea-fa878561ee88/b272155a-e880-4eba-b539-f9e..., 827a267e-f6ce-4626-8f54-4105cdda5e3c.dwg, application/octet-stream, 8, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, 2026-09-06 16:39:45.416566+09, null, null, 2026-09-06 16:24:45.416566+09, AC10).
+2026-09-06 16:24:45.416 KST [20058] STATEMENT:  
+	    insert into public.lukas_qto_verified_uploads(
+	      id,actor_id,project_id,kind,storage_path,original_filename,
+	      content_type,byte_size,sha256,dwg_header_version
+	    ) values(
+	      $1::uuid,$2::uuid,$3::uuid,$4,
+	      $5,$6,'application/octet-stream',8,
+	      $7,$8
+	    )
+	  
+2026-09-06 16:24:45.416 KST [20058] ERROR:  new row for relation "lukas_qto_verified_uploads" violates check constraint "lukas_qto_verified_uploads_dwg_header_version_check"
+2026-09-06 16:24:45.416 KST [20058] DETAIL:  Failing row contains (f64dce36-9e92-4bd5-a402-12876a3a86ed, 464d30f0-e7a1-4b97-8eea-fa878561ee88, b272155a-e880-4eba-b539-f9e696d747af, pdf, 464d30f0-e7a1-4b97-8eea-fa878561ee88/b272155a-e880-4eba-b539-f9e..., f64dce36-9e92-4bd5-a402-12876a3a86ed.pdf, application/octet-stream, 8, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, 2026-09-06 16:39:45.416838+09, null, null, 2026-09-06 16:24:45.416838+09, AC1032).
+2026-09-06 16:24:45.416 KST [20058] STATEMENT:  
+	    insert into public.lukas_qto_verified_uploads(
+	      id,actor_id,project_id,kind,storage_path,original_filename,
+	      content_type,byte_size,sha256,dwg_header_version
+	    ) values(
+	      $1::uuid,$2::uuid,$3::uuid,$4,
+	      $5,$6,'application/octet-stream',8,
+	      $7,$8
+	    )
+	  
+2026-09-06 16:24:45.422 KST [20058] ERROR:  Verified upload project authority was revoked
+2026-09-06 16:24:45.422 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_finalize_verified_upload(uuid,uuid,uuid) line 56 at RAISE
+2026-09-06 16:24:45.422 KST [20058] STATEMENT:  
+	      select public.lukas_qto_finalize_verified_upload(
+	        $1::uuid,$2::uuid,$3::uuid
+	      ) value
+	    
+2026-09-06 16:24:45.424 KST [20058] ERROR:  Verified upload project authority was revoked
+2026-09-06 16:24:45.424 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_finalize_verified_upload(uuid,uuid,uuid) line 56 at RAISE
+2026-09-06 16:24:45.424 KST [20058] STATEMENT:  
+	      select public.lukas_qto_finalize_verified_upload(
+	        $1::uuid,$2::uuid,$3::uuid
+	      ) value
+	    
+2026-09-06 16:24:45.424 KST [20058] ERROR:  Verified upload project authority was revoked
+2026-09-06 16:24:45.424 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_finalize_verified_upload(uuid,uuid,uuid) line 56 at RAISE
+2026-09-06 16:24:45.424 KST [20058] STATEMENT:  
+	      select public.lukas_qto_finalize_verified_upload(
+	        $1::uuid,$2::uuid,$3::uuid
+	      ) value
+	    
+2026-09-06 16:24:45.425 KST [20058] ERROR:  Verified upload project authority was revoked
+2026-09-06 16:24:45.425 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_finalize_verified_upload(uuid,uuid,uuid) line 56 at RAISE
+2026-09-06 16:24:45.425 KST [20058] STATEMENT:  
+	      select public.lukas_qto_finalize_verified_upload(
+	        $1::uuid,$2::uuid,$3::uuid
+	      ) value
+	    
+2026-09-06 16:24:45.427 KST [20058] ERROR:  Drawing source must be an immutable project PDF or IFC
+2026-09-06 16:24:45.427 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_create_document(uuid,uuid,text,boolean) line 55 at RAISE
+	PL/pgSQL function private.lukas_drawing_create_document_idempotent(uuid,uuid,text,boolean,uuid,uuid) line 37 at assignment
+	SQL function "lukas_drawing_create_document_idempotent" statement 1
+2026-09-06 16:24:45.427 KST [20058] STATEMENT:  
+	      select public.lukas_drawing_create_document_idempotent(
+	        $1::uuid,$2::uuid,
+	        'Raw DWG must remain unavailable',false,$3::uuid,null::uuid
+	      )
+	    
+2026-09-06 16:24:45.443 KST [20058] ERROR:  permission denied for schema private at character 15
+2026-09-06 16:24:45.443 KST [20058] STATEMENT:  select * from private.lukas_drawing_platform_starters
+2026-09-06 16:24:45.444 KST [20058] ERROR:  permission denied for table lukas_drawing_platform_starters
+2026-09-06 16:24:45.444 KST [20058] STATEMENT:  select * from private.lukas_drawing_platform_starters
+2026-09-06 16:24:45.444 KST [20058] ERROR:  permission denied for table lukas_drawing_platform_starters
+2026-09-06 16:24:45.444 KST [20058] STATEMENT:  select * from private.lukas_drawing_platform_starters
+2026-09-06 16:24:45.445 KST [20058] ERROR:  permission denied for schema private at character 8
+2026-09-06 16:24:45.445 KST [20058] STATEMENT:  select private.lukas_drawing_document_creation_result($1::uuid)
+2026-09-06 16:24:45.445 KST [20058] ERROR:  permission denied for function lukas_drawing_document_creation_result
+2026-09-06 16:24:45.445 KST [20058] STATEMENT:  select private.lukas_drawing_document_creation_result($1::uuid)
+2026-09-06 16:24:45.446 KST [20058] ERROR:  permission denied for function lukas_drawing_document_creation_result
+2026-09-06 16:24:45.446 KST [20058] STATEMENT:  select private.lukas_drawing_document_creation_result($1::uuid)
+2026-09-06 16:24:45.447 KST [20058] ERROR:  Platform drawing starter is unavailable
+2026-09-06 16:24:45.447 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_ensure_platform_starter_version(uuid,uuid,text,bigint) line 21 at RAISE
+2026-09-06 16:24:45.447 KST [20058] STATEMENT:  
+	          select private.lukas_drawing_ensure_platform_starter_version(
+	            $1::uuid,$2::uuid,'interior-basic',1)
+	        
+2026-09-06 16:24:45.447 KST [20058] ERROR:  Platform drawing starter is unavailable
+2026-09-06 16:24:45.447 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_ensure_platform_starter_version(uuid,uuid,text,bigint) line 21 at RAISE
+2026-09-06 16:24:45.447 KST [20058] STATEMENT:  
+	          select private.lukas_drawing_ensure_platform_starter_version(
+	            $1::uuid,$2::uuid,'interior-basic',1)
+	        
+2026-09-06 16:24:45.462 KST [20059] ERROR:  Request ID does not match the stored drawing creation
+2026-09-06 16:24:45.462 KST [20059] CONTEXT:  PL/pgSQL function private.lukas_drawing_create_document_idempotent(uuid,uuid,text,boolean,uuid,uuid) line 32 at RAISE
+	SQL function "lukas_drawing_create_document_idempotent" statement 1
+2026-09-06 16:24:45.462 KST [20059] STATEMENT:  
+	      select public.lukas_drawing_create_document_idempotent(
+	        $1::uuid,null::uuid,$2,true,$3::uuid,
+	        $4::uuid
+	      ) value
+	    
+2026-09-06 16:24:45.463 KST [20059] ERROR:  Request ID does not match the stored drawing creation
+2026-09-06 16:24:45.463 KST [20059] CONTEXT:  PL/pgSQL function private.lukas_drawing_create_document_idempotent(uuid,uuid,text,boolean,uuid,uuid) line 32 at RAISE
+	SQL function "lukas_drawing_create_document_idempotent" statement 1
+2026-09-06 16:24:45.463 KST [20059] STATEMENT:  
+	      select public.lukas_drawing_create_document_idempotent(
+	        $1::uuid,null::uuid,$2,true,$3::uuid,
+	        $4::uuid
+	      ) value
+	    
+2026-09-06 16:24:45.467 KST [20058] ERROR:  Drawing document creation identity is immutable
+2026-09-06 16:24:45.467 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_document_guard() line 53 at RAISE
+2026-09-06 16:24:45.467 KST [20058] STATEMENT:  
+	            update public.lukas_drawing_documents set
+	              creation_request_id=$1::uuid,
+	              creation_request_sha256=$2
+	            where id=$3::uuid
+	          
+2026-09-06 16:24:45.467 KST [20058] ERROR:  permission denied for table lukas_drawing_documents
+2026-09-06 16:24:45.467 KST [20058] STATEMENT:  
+	          insert into public.lukas_drawing_documents(
+	            id,project_id,title,created_by,creation_request_id,creation_request_sha256
+	          ) values($1::uuid,$2::uuid,$3,
+	            $4::uuid,$5::uuid,$6)
+	        
+2026-09-06 16:24:45.472 KST [20058] ERROR:  Drawing document creation identity is immutable
+2026-09-06 16:24:45.472 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_document_guard() line 53 at RAISE
+2026-09-06 16:24:45.472 KST [20058] STATEMENT:  
+	              update public.lukas_drawing_documents set
+	                creation_request_id=$1::uuid,
+	                creation_request_sha256=$2
+	              where id=$3::uuid
+	            
+2026-09-06 16:24:45.473 KST [20058] ERROR:  Drawing document creation identity is immutable
+2026-09-06 16:24:45.473 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_document_guard() line 53 at RAISE
+2026-09-06 16:24:45.473 KST [20058] STATEMENT:  
+	              update public.lukas_drawing_documents set
+	                creation_request_id=$1::uuid,
+	                creation_request_sha256=$2
+	              where id=$3::uuid
+	            
+2026-09-06 16:24:45.476 KST [20058] ERROR:  Drawing document creation identity is immutable
+2026-09-06 16:24:45.476 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_document_guard() line 53 at RAISE
+2026-09-06 16:24:45.476 KST [20058] STATEMENT:  
+	            update public.lukas_drawing_documents set
+	              creation_request_id=$1::uuid,
+	              creation_request_sha256=$2
+	            where id=$3::uuid
+	          
+2026-09-06 16:24:45.477 KST [20058] ERROR:  permission denied for table lukas_drawing_documents
+2026-09-06 16:24:45.477 KST [20058] STATEMENT:  
+	          insert into public.lukas_drawing_documents(
+	            id,project_id,title,created_by,creation_request_id,creation_request_sha256
+	          ) values($1::uuid,$2::uuid,$3,
+	            $4::uuid,$5::uuid,$6)
+	        
+2026-09-06 16:24:45.482 KST [20058] ERROR:  Drawing document creation identity is immutable
+2026-09-06 16:24:45.482 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_document_guard() line 53 at RAISE
+2026-09-06 16:24:45.482 KST [20058] STATEMENT:  
+	              update public.lukas_drawing_documents set
+	                creation_request_id=$1::uuid,
+	                creation_request_sha256=$2
+	              where id=$3::uuid
+	            
+2026-09-06 16:24:45.483 KST [20058] ERROR:  Drawing document creation identity is immutable
+2026-09-06 16:24:45.483 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_document_guard() line 53 at RAISE
+2026-09-06 16:24:45.483 KST [20058] STATEMENT:  
+	              update public.lukas_drawing_documents set
+	                creation_request_id=$1::uuid,
+	                creation_request_sha256=$2
+	              where id=$3::uuid
+	            
+2026-09-06 16:24:45.527 KST [20058] ERROR:  P4 measurement differs
+2026-09-06 16:24:45.527 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_insert_quantity_link(uuid,uuid,uuid,uuid,text,text,uuid,bigint,text,numeric,text,text) line 124 at RAISE
+2026-09-06 16:24:45.527 KST [20058] STATEMENT:  
+	        select (private.lukas_drawing_insert_quantity_link(
+	          $1::uuid,$2::uuid,$3::uuid,
+	          $4::uuid,'length',$5,
+	          $6::uuid,$7::bigint,
+	          $8,$9::numeric,'m','P4_MEASUREMENT_V1'
+	        )).*
+	      
+2026-09-06 16:24:45.528 KST [20058] ERROR:  Drawing approval or snapshot is stale
+2026-09-06 16:24:45.528 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_insert_quantity_link(uuid,uuid,uuid,uuid,text,text,uuid,bigint,text,numeric,text,text) line 20 at RAISE
+2026-09-06 16:24:45.528 KST [20058] STATEMENT:  
+	        select (private.lukas_drawing_insert_quantity_link(
+	          $1::uuid,$2::uuid,$3::uuid,
+	          $4::uuid,'length',$5,
+	          $6::uuid,$7::bigint,
+	          $8,$9::numeric,'m','P4_MEASUREMENT_V1'
+	        )).*
+	      
+2026-09-06 16:24:45.540 KST [20058] ERROR:  Approved drawing revision is immutable
+2026-09-06 16:24:45.540 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_p2_child_guard() line 19 at RAISE
+2026-09-06 16:24:45.540 KST [20058] STATEMENT:  
+	          update public.lukas_drawing_canvases
+	          set calibration=pg_catalog.jsonb_set(
+	            calibration,'{millimetersPerNormalizedUnit}','100'::jsonb
+	          ),version=version+1
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.541 KST [20058] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:24:45.541 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_collaboration_bootstrap(uuid) line 6 at RAISE
+2026-09-06 16:24:45.541 KST [20058] STATEMENT:  
+	          select public.lukas_drawing_collaboration_bootstrap(
+	            $1::uuid
+	          )
+	        
+2026-09-06 16:24:45.544 KST [20058] ERROR:  Drawing collaboration sequence is invalid
+2026-09-06 16:24:45.544 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_service_store_state_unfenced(uuid,uuid,smallint,bytea,bigint,bigint,text) line 25 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_service_store_state_unfenced(
+	    p_project_id,p_revision_id,p_schema_version,p_yjs_state,
+	    p_base_operation_sequence,p_expected_generation,p_expected_sha256
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_store_state_pre_entitlement(uuid,uuid,smallint,bytea,bigint,bigint,text) line 8 at RETURN QUERY
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_service_store_state_pre_entitlement(
+	    p_project_id,p_revision_id,p_schema_version,p_yjs_state,
+	    p_base_operation_sequence,p_expected_generation,p_expected_sha256
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_store_state(uuid,uuid,smallint,bytea,bigint,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:24:45.544 KST [20058] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_store_state(
+	            $1::uuid,$2::uuid,1::smallint,
+	            $3::bytea,
+	            $4::bigint,0::bigint,null
+	          )
+	        
+2026-09-06 16:24:45.558 KST [20058] ERROR:  permission denied for table lukas_drawing_pages
+2026-09-06 16:24:45.558 KST [20058] STATEMENT:  
+	        update public.lukas_drawing_pages
+	        set name='Forbidden direct page update' where id=$1::uuid
+	      
+2026-09-06 16:24:45.558 KST [20058] ERROR:  permission denied for table lukas_drawing_pages
+2026-09-06 16:24:45.558 KST [20058] STATEMENT:  
+	        delete from public.lukas_drawing_pages where id=$1::uuid
+	      
+2026-09-06 16:24:45.578 KST [20058] ERROR:  permission denied for table lukas_drawing_objects
+2026-09-06 16:24:45.578 KST [20058] STATEMENT:  
+	        update public.lukas_drawing_objects
+	        set name='Forbidden direct object update'
+	        where id=$1::uuid
+	      
+2026-09-06 16:24:45.584 KST [20058] ERROR:  permission denied for table lukas_drawing_objects
+2026-09-06 16:24:45.584 KST [20058] STATEMENT:  
+	        delete from public.lukas_drawing_objects
+	        where id=$1::uuid
+	      
+2026-09-06 16:24:45.592 KST [20058] ERROR:  permission denied for function lukas_drawing_request_review
+2026-09-06 16:24:45.592 KST [20058] STATEMENT:  
+	        select private.lukas_drawing_request_review($1::uuid)
+	      
+2026-09-06 16:24:45.606 KST [20058] ERROR:  Required drawing property values are incomplete
+2026-09-06 16:24:45.606 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_request_review(uuid) line 76 at RAISE
+	PL/pgSQL function private.lukas_drawing_request_review_legacy_guard(uuid) line 21 at RETURN
+	SQL function "lukas_drawing_request_review" statement 1
+2026-09-06 16:24:45.606 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_request_review($1::uuid)
+	      
+2026-09-06 16:24:45.619 KST [20058] ERROR:  permission denied for table lukas_drawing_estimate_bindings
+2026-09-06 16:24:45.619 KST [20058] STATEMENT:  
+	        insert into public.lukas_drawing_estimate_bindings(
+	          id,project_id,drawing_revision_id,boq_version_id,created_by
+	        ) values(
+	          $1::uuid,$2::uuid,
+	          $3::uuid,$4::uuid,
+	          $5::uuid
+	        ) returning id
+	      
+2026-09-06 16:24:45.620 KST [20058] ERROR:  new row violates row-level security policy for table "lukas_drawing_estimate_bindings"
+2026-09-06 16:24:45.620 KST [20058] STATEMENT:  
+	        insert into public.lukas_drawing_estimate_bindings(
+	          id,project_id,drawing_revision_id,boq_version_id,created_by
+	        ) values(
+	          $1::uuid,$2::uuid,
+	          $3::uuid,$4::uuid,
+	          $5::uuid
+	        ) returning id
+	      
+2026-09-06 16:24:45.621 KST [20058] ERROR:  new row violates row-level security policy for table "lukas_drawing_estimate_bindings"
+2026-09-06 16:24:45.621 KST [20058] STATEMENT:  
+	        insert into public.lukas_drawing_estimate_bindings(
+	          id,project_id,drawing_revision_id,boq_version_id,created_by
+	        ) values(
+	          $1::uuid,$2::uuid,
+	          $3::uuid,$4::uuid,
+	          $5::uuid
+	        ) returning id
+	      
+2026-09-06 16:24:45.621 KST [20058] ERROR:  new row violates row-level security policy for table "lukas_drawing_estimate_bindings"
+2026-09-06 16:24:45.621 KST [20058] STATEMENT:  
+	        insert into public.lukas_drawing_estimate_bindings(
+	          id,project_id,drawing_revision_id,boq_version_id,created_by
+	        ) values(
+	          $1::uuid,$2::uuid,
+	          $3::uuid,$4::uuid,
+	          $5::uuid
+	        ) returning id
+	      
+2026-09-06 16:24:45.622 KST [20058] ERROR:  new row violates row-level security policy for table "lukas_drawing_estimate_bindings"
+2026-09-06 16:24:45.622 KST [20058] STATEMENT:  
+	        insert into public.lukas_drawing_estimate_bindings(
+	          id,project_id,drawing_revision_id,boq_version_id,created_by
+	        ) values(
+	          $1::uuid,$2::uuid,
+	          $3::uuid,$4::uuid,
+	          $5::uuid
+	        ) returning id
+	      
+2026-09-06 16:24:45.623 KST [20058] ERROR:  new row violates row-level security policy for table "lukas_drawing_estimate_bindings"
+2026-09-06 16:24:45.623 KST [20058] STATEMENT:  
+	        insert into public.lukas_drawing_estimate_bindings(
+	          id,project_id,drawing_revision_id,boq_version_id,created_by
+	        ) values(
+	          $1::uuid,$2::uuid,
+	          $3::uuid,$4::uuid,
+	          $5::uuid
+	        ) returning id
+	      
+2026-09-06 16:24:45.629 KST [20058] ERROR:  permission denied for table lukas_drawing_estimate_bindings
+2026-09-06 16:24:45.629 KST [20058] STATEMENT:  
+	        insert into public.lukas_drawing_estimate_bindings(
+	          id,project_id,drawing_revision_id,boq_version_id,created_by
+	        ) values(
+	          $1::uuid,$2::uuid,
+	          $3::uuid,$4::uuid,
+	          $5::uuid
+	        ) returning id
+	      
+2026-09-06 16:24:45.631 KST [20058] ERROR:  insert or update on table "lukas_drawing_estimate_bindings" violates foreign key constraint "lukas_drawing_estimate_bindings_boq_version_id_project_id_fkey"
+2026-09-06 16:24:45.631 KST [20058] DETAIL:  Key (boq_version_id, project_id)=(9d278a77-cd36-4b87-9d28-ec316889e0a0, e1581b82-dc48-4551-94da-e56318cea7c3) is not present in table "lukas_qto_boq_versions".
+2026-09-06 16:24:45.631 KST [20058] STATEMENT:  
+	          insert into public.lukas_drawing_estimate_bindings(
+	            id,project_id,drawing_revision_id,boq_version_id,created_by
+	          ) values($1::uuid,$2::uuid,
+	            $3::uuid,$4::uuid,
+	            $5::uuid)
+	        
+2026-09-06 16:24:45.632 KST [20058] ERROR:  insert or update on table "lukas_drawing_estimate_bindings" violates foreign key constraint "lukas_drawing_estimate_bindin_drawing_revision_id_project__fkey"
+2026-09-06 16:24:45.632 KST [20058] DETAIL:  Key (drawing_revision_id, project_id)=(9a5d47fa-bc5b-4eee-97f0-eccb95efc06b, e1581b82-dc48-4551-94da-e56318cea7c3) is not present in table "lukas_drawing_revisions".
+2026-09-06 16:24:45.632 KST [20058] STATEMENT:  
+	          insert into public.lukas_drawing_estimate_bindings(
+	            id,project_id,drawing_revision_id,boq_version_id,created_by
+	          ) values($1::uuid,$2::uuid,
+	            $3::uuid,$4::uuid,
+	            $5::uuid)
+	        
+2026-09-06 16:24:45.632 KST [20058] ERROR:  permission denied for table lukas_drawing_estimate_bindings
+2026-09-06 16:24:45.632 KST [20058] STATEMENT:  
+	          update public.lukas_drawing_estimate_bindings
+	          set created_at=pg_catalog.clock_timestamp()
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.633 KST [20058] ERROR:  permission denied for table lukas_drawing_estimate_bindings
+2026-09-06 16:24:45.633 KST [20058] STATEMENT:  
+	          delete from public.lukas_drawing_estimate_bindings
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.633 KST [20058] ERROR:  permission denied for table lukas_drawing_estimate_bindings
+2026-09-06 16:24:45.633 KST [20058] STATEMENT:  
+	          update public.lukas_drawing_estimate_bindings
+	          set created_at=pg_catalog.clock_timestamp()
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.633 KST [20058] ERROR:  permission denied for table lukas_drawing_estimate_bindings
+2026-09-06 16:24:45.633 KST [20058] STATEMENT:  
+	          delete from public.lukas_drawing_estimate_bindings
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.634 KST [20058] ERROR:  permission denied for table lukas_drawing_estimate_bindings
+2026-09-06 16:24:45.634 KST [20058] STATEMENT:  
+	          update public.lukas_drawing_estimate_bindings
+	          set created_at=pg_catalog.clock_timestamp()
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.634 KST [20058] ERROR:  permission denied for table lukas_drawing_estimate_bindings
+2026-09-06 16:24:45.634 KST [20058] STATEMENT:  
+	          delete from public.lukas_drawing_estimate_bindings
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.635 KST [20058] ERROR:  permission denied for table lukas_qto_projects
+2026-09-06 16:24:45.635 KST [20058] STATEMENT:  
+	          delete from public.lukas_qto_projects where id=$1::uuid
+	        
+2026-09-06 16:24:45.635 KST [20058] ERROR:  permission denied for table lukas_qto_projects
+2026-09-06 16:24:45.635 KST [20058] STATEMENT:  
+	          delete from public.lukas_qto_projects where id=$1::uuid
+	        
+2026-09-06 16:24:45.640 KST [20058] ERROR:  Drawing estimate bindings are append-only
+2026-09-06 16:24:45.640 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_estimate_binding_guard() line 15 at RAISE
+2026-09-06 16:24:45.640 KST [20058] STATEMENT:  
+	          delete from public.lukas_drawing_estimate_bindings
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.640 KST [20058] ERROR:  Authenticated drawing actor required
+2026-09-06 16:24:45.640 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_layer_guard() line 16 at RAISE
+2026-09-06 16:24:45.640 KST [20058] STATEMENT:  
+	          delete from public.lukas_drawing_layers
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.641 KST [20058] ERROR:  Drawing workspace editor capability required
+2026-09-06 16:24:45.641 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_draft_child_guard() line 28 at RAISE
+2026-09-06 16:24:45.641 KST [20058] STATEMENT:  
+	          delete from public.lukas_drawing_pages
+	          where id=$1::uuid
+	        
+2026-09-06 16:24:45.645 KST [20058] ERROR:  Authenticated drawing actor required
+2026-09-06 16:24:45.645 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_layer_guard() line 16 at RAISE
+	SQL statement "delete from public.lukas_drawing_layers where id=old.layer_id"
+	PL/pgSQL function pg_temp_2.m1_nested_purge_delete() line 3 at SQL statement
+2026-09-06 16:24:45.645 KST [20058] STATEMENT:  
+	          delete from m1_nested_purge_probe where layer_id=$1::uuid
+	        
+2026-09-06 16:24:45.645 KST [20058] ERROR:  Drawing estimate bindings are append-only
+2026-09-06 16:24:45.645 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_estimate_binding_guard() line 15 at RAISE
+	SQL statement "delete from public.lukas_drawing_estimate_bindings
+	          where id=old.binding_id"
+	PL/pgSQL function pg_temp_2.m1_nested_binding_delete() line 3 at SQL statement
+2026-09-06 16:24:45.645 KST [20058] STATEMENT:  
+	          delete from m1_nested_binding_probe
+	          where binding_id=$1::uuid
+	        
+2026-09-06 16:24:45.646 KST [20058] ERROR:  Drawing workspace editor capability required
+2026-09-06 16:24:45.646 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_draft_child_guard() line 28 at RAISE
+	SQL statement "delete from public.lukas_drawing_pages where id=old.page_id"
+	PL/pgSQL function pg_temp_2.m1_nested_draft_delete() line 3 at SQL statement
+2026-09-06 16:24:45.646 KST [20058] STATEMENT:  
+	          delete from m1_nested_draft_probe
+	          where page_id=$1::uuid
+	        
+2026-09-06 16:24:45.670 KST [20058] ERROR:  duplicate key value violates unique constraint "lukas_drawing_library_versions_platform_starter_key"
+2026-09-06 16:24:45.670 KST [20058] DETAIL:  Key (organization_id, platform_starter_key, platform_starter_version)=(c679e7a5-b9e9-4234-b287-689096cb806c, interior-basic, 1) already exists.
+2026-09-06 16:24:45.670 KST [20058] STATEMENT:  
+	            insert into public.lukas_drawing_library_versions(
+	              id,registry_id,organization_id,version_no,status,canonical_payload,
+	              content_sha256,source_kind,platform_starter_key,
+	              platform_starter_version,created_by
+	            ) values($1::uuid,$2::uuid,
+	              $3::uuid,1,'draft',
+	              $4::jsonb,$5,
+	              'platform_starter','interior-basic',1,$6::uuid)
+	          
+2026-09-06 16:24:45.694 KST [20058] ERROR:  Request ID does not match the stored platform starter import
+2026-09-06 16:24:45.694 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_platform_starter_import(uuid,uuid,uuid,uuid,uuid,uuid) line 157 at RAISE
+	SQL function "lukas_drawing_record_platform_starter_import" statement 1
+2026-09-06 16:24:45.694 KST [20058] STATEMENT:  
+	            select public.lukas_drawing_record_platform_starter_import(
+	              $1::uuid,$2::uuid,
+	              $3::uuid,$4::uuid,
+	              $5::uuid,$6::uuid)
+	          
+2026-09-06 16:24:45.718 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.718 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.718 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.728 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.728 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.728 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.771 KST [20058] ERROR:  Native DWG export request identity was reused
+2026-09-06 16:24:45.771 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 32 at RAISE
+2026-09-06 16:24:45.771 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.772 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.772 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.772 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.772 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.772 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.772 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.773 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.773 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.773 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.774 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.774 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.774 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.774 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.774 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.774 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.775 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.775 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.775 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.776 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.776 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.776 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.776 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.776 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.776 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.777 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.777 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.777 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.779 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.779 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 19 at RAISE
+2026-09-06 16:24:45.779 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.782 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.782 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 19 at RAISE
+2026-09-06 16:24:45.782 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.784 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.784 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 19 at RAISE
+2026-09-06 16:24:45.784 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.786 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.786 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 19 at RAISE
+2026-09-06 16:24:45.786 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.788 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.788 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 19 at RAISE
+2026-09-06 16:24:45.788 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.789 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.789 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.789 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.790 KST [20058] ERROR:  permission denied for function lukas_drawing_request_native_dwg_export
+2026-09-06 16:24:45.790 KST [20058] STATEMENT:  
+	          select public.lukas_drawing_request_native_dwg_export(
+	            $1::jsonb,$2::uuid
+	          )
+	        
+2026-09-06 16:24:45.797 KST [20058] ERROR:  Native DWG export lease is unavailable
+2026-09-06 16:24:45.797 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_claim_native_dwg_export(text,integer) line 14 at RAISE
+2026-09-06 16:24:45.797 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_claim_native_dwg_export(
+	      $1,$2
+	    ) value
+	  
+2026-09-06 16:24:45.801 KST [20058] ERROR:  Native DWG export lease is unavailable
+2026-09-06 16:24:45.801 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_fail_native_dwg_export(uuid,integer,uuid,text,boolean) line 13 at RAISE
+2026-09-06 16:24:45.801 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_fail_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,$5
+	    ) value
+	  
+2026-09-06 16:24:45.802 KST [20058] ERROR:  Native DWG export lease is unavailable
+2026-09-06 16:24:45.802 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_fail_native_dwg_export(uuid,integer,uuid,text,boolean) line 13 at RAISE
+2026-09-06 16:24:45.802 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_fail_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,$5
+	    ) value
+	  
+2026-09-06 16:24:45.803 KST [20058] ERROR:  Native DWG export lease is unavailable
+2026-09-06 16:24:45.803 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_fail_native_dwg_export(uuid,integer,uuid,text,boolean) line 13 at RAISE
+2026-09-06 16:24:45.803 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_fail_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,$5
+	    ) value
+	  
+2026-09-06 16:24:45.814 KST [20058] ERROR:  Native DWG export lease is unavailable
+2026-09-06 16:24:45.814 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 65 at RAISE
+2026-09-06 16:24:45.814 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.816 KST [20058] ERROR:  Native DWG export artifact metadata is invalid
+2026-09-06 16:24:45.816 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 17 at RAISE
+2026-09-06 16:24:45.816 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.816 KST [20058] ERROR:  Native DWG export artifact metadata is invalid
+2026-09-06 16:24:45.816 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 17 at RAISE
+2026-09-06 16:24:45.816 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.817 KST [20058] ERROR:  Native DWG export artifact metadata is invalid
+2026-09-06 16:24:45.817 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 39 at RAISE
+2026-09-06 16:24:45.817 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.818 KST [20058] ERROR:  Native DWG export artifact metadata is invalid
+2026-09-06 16:24:45.818 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 31 at RAISE
+2026-09-06 16:24:45.818 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.818 KST [20058] ERROR:  Native DWG export artifact metadata is invalid
+2026-09-06 16:24:45.818 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 39 at RAISE
+2026-09-06 16:24:45.818 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.819 KST [20058] ERROR:  Native DWG export artifact metadata is invalid
+2026-09-06 16:24:45.819 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 31 at RAISE
+2026-09-06 16:24:45.819 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.823 KST [20058] ERROR:  Native DWG export artifact identity conflicts
+2026-09-06 16:24:45.823 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 96 at RAISE
+2026-09-06 16:24:45.823 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.824 KST [20058] ERROR:  Native DWG export artifact identity conflicts
+2026-09-06 16:24:45.824 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 96 at RAISE
+2026-09-06 16:24:45.824 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.825 KST [20058] ERROR:  Native DWG export publication is unavailable
+2026-09-06 16:24:45.825 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_publish_native_dwg_export(uuid,integer,uuid) line 38 at RAISE
+2026-09-06 16:24:45.825 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_publish_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.836 KST [20058] ERROR:  Native DWG export lease is unavailable
+2026-09-06 16:24:45.836 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 65 at RAISE
+2026-09-06 16:24:45.836 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.837 KST [20058] ERROR:  Native DWG export publication is unavailable
+2026-09-06 16:24:45.837 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_publish_native_dwg_export(uuid,integer,uuid) line 38 at RAISE
+2026-09-06 16:24:45.837 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_publish_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.840 KST [20058] ERROR:  Native DWG export publication is unavailable
+2026-09-06 16:24:45.840 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_publish_native_dwg_export(uuid,integer,uuid) line 38 at RAISE
+2026-09-06 16:24:45.840 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_publish_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.860 KST [20058] ERROR:  Native DWG export artifact is unavailable
+2026-09-06 16:24:45.860 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_download_descriptor(jsonb,uuid,text) line 10 at RAISE
+2026-09-06 16:24:45.860 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_native_dwg_download_descriptor(
+	      $1::jsonb,$2::uuid,$3
+	    ) value
+	  
+2026-09-06 16:24:45.864 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.864 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.864 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.865 KST [20058] ERROR:  Native DWG export scope is unavailable
+2026-09-06 16:24:45.865 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_export_status(jsonb,uuid) line 9 at RAISE
+2026-09-06 16:24:45.865 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_native_dwg_export_status(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.866 KST [20058] ERROR:  Native DWG export artifact is unavailable
+2026-09-06 16:24:45.866 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_download_descriptor(jsonb,uuid,text) line 10 at RAISE
+2026-09-06 16:24:45.866 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_native_dwg_download_descriptor(
+	      $1::jsonb,$2::uuid,$3
+	    ) value
+	  
+2026-09-06 16:24:45.875 KST [20058] ERROR:  Native DWG export lease is unavailable
+2026-09-06 16:24:45.875 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_stage_native_dwg_export(uuid,integer,uuid,text,jsonb) line 71 at RAISE
+2026-09-06 16:24:45.875 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_stage_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid,$4,
+	      $5::jsonb
+	    ) value
+	  
+2026-09-06 16:24:45.884 KST [20058] ERROR:  Native DWG export publication is unavailable
+2026-09-06 16:24:45.884 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_publish_native_dwg_export(uuid,integer,uuid) line 50 at RAISE
+2026-09-06 16:24:45.884 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_publish_native_dwg_export(
+	      $1::uuid,$2::integer,
+	      $3::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.899 KST [20058] ERROR:  Native DWG export project capacity is unavailable
+2026-09-06 16:24:45.899 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_export(jsonb,uuid) line 42 at RAISE
+2026-09-06 16:24:45.899 KST [20058] STATEMENT:  
+	    select public.lukas_drawing_request_native_dwg_export(
+	      $1::jsonb,$2::uuid
+	    ) value
+	  
+2026-09-06 16:24:45.907 KST [20058] ERROR:  new row violates row-level security policy "reserve native DWG artifact prefix" for table "objects"
+2026-09-06 16:24:45.907 KST [20058] STATEMENT:  
+	          insert into storage.objects(id,bucket_id,name)
+	          values($1::uuid,'lukas-qto',$2)
+	        
+2026-09-06 16:24:45.911 KST [20058] ERROR:  new row violates row-level security policy "reserve native DWG artifact prefix" for table "objects"
+2026-09-06 16:24:45.911 KST [20058] STATEMENT:  
+	            update storage.objects set name=$1
+	            where id=$2::uuid
+	          
+2026-09-06 16:24:45.914 KST [20058] ERROR:  Native DWG export jobs are retained
+2026-09-06 16:24:45.914 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_job_guard() line 6 at RAISE
+2026-09-06 16:24:45.914 KST [20058] STATEMENT:  delete from public.lukas_drawing_native_dwg_jobs where id='60d529d5-57f9-45dc-b680-707680bd77b8'::uuid
+2026-09-06 16:24:45.914 KST [20058] ERROR:  Native DWG export attempts are retained
+2026-09-06 16:24:45.914 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_attempt_guard() line 6 at RAISE
+2026-09-06 16:24:45.914 KST [20058] STATEMENT:  delete from public.lukas_drawing_native_dwg_attempts where job_id='60d529d5-57f9-45dc-b680-707680bd77b8'::uuid
+2026-09-06 16:24:45.915 KST [20058] ERROR:  Native DWG export evidence is immutable
+2026-09-06 16:24:45.915 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_evidence_guard() line 6 at RAISE
+2026-09-06 16:24:45.915 KST [20058] STATEMENT:  delete from public.lukas_drawing_native_dwg_artifacts where job_id='60d529d5-57f9-45dc-b680-707680bd77b8'::uuid
+2026-09-06 16:24:45.915 KST [20058] ERROR:  Native DWG export evidence is immutable
+2026-09-06 16:24:45.915 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_evidence_guard() line 6 at RAISE
+2026-09-06 16:24:45.915 KST [20058] STATEMENT:  delete from public.lukas_drawing_native_dwg_exports where job_id='60d529d5-57f9-45dc-b680-707680bd77b8'::uuid
+2026-09-06 16:24:45.915 KST [20058] ERROR:  Native DWG export evidence is immutable
+2026-09-06 16:24:45.915 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_evidence_guard() line 6 at RAISE
+2026-09-06 16:24:45.915 KST [20058] STATEMENT:  
+	          update public.lukas_drawing_native_dwg_artifacts
+	          set sha256=$1
+	          where job_id=$2::uuid
+	        
+2026-09-06 16:24:45.916 KST [20058] ERROR:  Native DWG export evidence is immutable
+2026-09-06 16:24:45.916 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_evidence_guard() line 6 at RAISE
+2026-09-06 16:24:45.916 KST [20058] STATEMENT:  
+	          update public.lukas_drawing_native_dwg_exports
+	          set structure_sha256=$1
+	          where job_id=$2::uuid
+	        
+2026-09-06 16:24:45.926 KST [20058] ERROR:  Native DWG Storage deletion is incomplete
+2026-09-06 16:24:45.926 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_finalize_project_purge(uuid,uuid,uuid,text,uuid,text) line 126 at RAISE
+2026-09-06 16:24:45.926 KST [20058] STATEMENT:  
+	          select public.lukas_qto_finalize_project_purge(
+	            $1::uuid,$2::uuid,
+	            $3::uuid,
+	            $4,$5::uuid,
+	            'M1 native prefix absence proof'
+	          )
+	        
+2026-09-06 16:24:45.928 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.928 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 6 at RAISE
+2026-09-06 16:24:45.928 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.929 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.929 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 6 at RAISE
+2026-09-06 16:24:45.929 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.929 KST [20058] ERROR:  permission denied for function lukas_qto_drawing_native_dwg_source
+2026-09-06 16:24:45.929 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.933 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.933 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 6 at RAISE
+2026-09-06 16:24:45.933 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.935 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.935 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.935 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.937 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.937 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.937 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.939 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.939 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.939 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.941 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.941 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.941 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.943 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.943 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.943 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.945 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.945 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.945 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:45.959 KST [20058] ERROR:  permission denied for table lukas_drawing_pages
+2026-09-06 16:24:45.959 KST [20058] STATEMENT:  
+	          update public.lukas_drawing_pages set
+	            background_source_file_id=$1::uuid,
+	            background_source_sha256=$2,
+	            background_pdf_page=1
+	          where id=$3::uuid
+	        
+2026-09-06 16:24:45.960 KST [20058] ERROR:  Legacy drawing page canvas columns are read-only
+2026-09-06 16:24:45.960 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_page_source_guard() line 13 at RAISE
+2026-09-06 16:24:45.960 KST [20058] STATEMENT:  
+	            update public.lukas_drawing_pages set
+	              background_source_file_id=$1::uuid,
+	              background_source_sha256=$2,
+	              background_pdf_page=1
+	            where id=$3::uuid
+	          
+2026-09-06 16:24:45.976 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:45.976 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:45.976 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:46.007 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:46.007 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:46.007 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:46.031 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:46.031 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:46.031 KST [20058] STATEMENT:  
+	    select public.lukas_qto_drawing_native_dwg_source(
+	      $1::uuid,
+	      $2::uuid,
+	      $3::uuid,
+	      $4::bigint,
+	      $5::uuid,
+	      $6
+	    ) value
+	  
+2026-09-06 16:24:46.055 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:46.055 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_context(uuid,boolean) line 5 at RAISE
+2026-09-06 16:24:46.055 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_context($1::uuid,$2) value
+2026-09-06 16:24:46.061 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:46.061 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_context(uuid,boolean) line 5 at RAISE
+2026-09-06 16:24:46.061 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_context($1::uuid,$2) value
+2026-09-06 16:24:46.061 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:46.061 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_context(uuid,boolean) line 5 at RAISE
+2026-09-06 16:24:46.061 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_context($1::uuid,$2) value
+2026-09-06 16:24:46.077 KST [20058] ERROR:  Native DWG object-source pair is invalid
+2026-09-06 16:24:46.077 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 48 at RAISE
+2026-09-06 16:24:46.077 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.094 KST [20059] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:46.094 KST [20059] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 14 at RAISE
+2026-09-06 16:24:46.094 KST [20059] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.097 KST [20058] ERROR:  Native DWG inverse is not exact
+2026-09-06 16:24:46.097 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 61 at RAISE
+2026-09-06 16:24:46.097 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.103 KST [20058] ERROR:  Native DWG report layer state is invalid
+2026-09-06 16:24:46.103 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 68 at RAISE
+2026-09-06 16:24:46.103 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.105 KST [20058] ERROR:  Native DWG plan coverage is invalid
+2026-09-06 16:24:46.105 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 31 at RAISE
+2026-09-06 16:24:46.105 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.108 KST [20058] ERROR:  Native DWG plan coverage is invalid
+2026-09-06 16:24:46.108 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 31 at RAISE
+2026-09-06 16:24:46.108 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.108 KST [20058] ERROR:  permission denied for function lukas_drawing_attest_dwg_import_plan
+2026-09-06 16:24:46.108 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.114 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.114 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.114 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.119 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.119 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.119 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.124 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.124 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.124 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.127 KST [20058] ERROR:  Native DWG action schema is invalid
+2026-09-06 16:24:46.127 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 45 at RAISE
+2026-09-06 16:24:46.127 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.130 KST [20058] ERROR:  Native DWG action schema is invalid
+2026-09-06 16:24:46.130 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 45 at RAISE
+2026-09-06 16:24:46.130 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.136 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.136 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.136 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.141 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.141 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.141 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.147 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.147 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.147 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.152 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.152 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.152 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.158 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.158 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.158 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.163 KST [20058] ERROR:  Native DWG plan source identity is invalid
+2026-09-06 16:24:46.163 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 81 at RAISE
+2026-09-06 16:24:46.163 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.166 KST [20058] ERROR:  Native DWG action schema is invalid
+2026-09-06 16:24:46.166 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 45 at RAISE
+2026-09-06 16:24:46.166 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.169 KST [20058] ERROR:  Native DWG action schema is invalid
+2026-09-06 16:24:46.169 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 45 at RAISE
+2026-09-06 16:24:46.169 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.191 KST [20058] ERROR:  CAD plan evidence is immutable
+2026-09-06 16:24:46.191 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_cad_attestation_evidence_guard() line 9 at RAISE
+2026-09-06 16:24:46.191 KST [20058] STATEMENT:  update private.lukas_drawing_dxf_plan_attestations set analysis_job_id=null where revision_id=$1::uuid
+2026-09-06 16:24:46.191 KST [20058] ERROR:  CAD plan evidence is retained
+2026-09-06 16:24:46.191 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_cad_attestation_evidence_guard() line 4 at RAISE
+2026-09-06 16:24:46.191 KST [20058] STATEMENT:  delete from private.lukas_drawing_dxf_plan_attestations where revision_id=$1::uuid
+2026-09-06 16:24:46.194 KST [20058] ERROR:  Native DWG report layer state is invalid
+2026-09-06 16:24:46.194 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 68 at RAISE
+2026-09-06 16:24:46.194 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.195 KST [20058] ERROR:  Drawing revision target is unavailable
+2026-09-06 16:24:46.195 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_apply_dxf_import_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 26 at RAISE
+	PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 36 at assignment
+	PL/pgSQL function public.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 7 at RETURN
+2026-09-06 16:24:46.195 KST [20058] STATEMENT:  select public.lukas_drawing_apply_operation($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8::uuid) value
+2026-09-06 16:24:46.200 KST [20058] ERROR:  DXF operation requires an exact server plan attestation
+2026-09-06 16:24:46.200 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_dxf_plan_attestation_guard() line 39 at RAISE
+	SQL statement "insert into public.lukas_drawing_operations(
+	    revision_id,project_id,sequence,client_operation_id,operation_type,
+	    base_versions,forward,inverse,result_versions,actor_id,
+	    history_action,original_operation_id
+	  ) values(
+	    p_revision_id,v_revision.project_id,v_sequence,p_client_operation_id,
+	    p_operation_type,p_base_versions,p_forward,p_inverse,v_result_versions,
+	    v_actor,p_history_action,p_original_operation_id
+	  ) returning id"
+	PL/pgSQL function private.lukas_drawing_apply_dxf_import_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 441 at SQL statement
+	PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 36 at assignment
+	PL/pgSQL function public.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 7 at RETURN
+2026-09-06 16:24:46.200 KST [20058] STATEMENT:  select public.lukas_drawing_apply_operation($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8::uuid) value
+2026-09-06 16:24:46.204 KST [20058] ERROR:  DXF operation requires an exact server plan attestation
+2026-09-06 16:24:46.204 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_dxf_plan_attestation_guard() line 39 at RAISE
+	SQL statement "insert into public.lukas_drawing_operations(
+	    revision_id,project_id,sequence,client_operation_id,operation_type,
+	    base_versions,forward,inverse,result_versions,actor_id,
+	    history_action,original_operation_id
+	  ) values(
+	    p_revision_id,v_revision.project_id,v_sequence,p_client_operation_id,
+	    p_operation_type,p_base_versions,p_forward,p_inverse,v_result_versions,
+	    v_actor,p_history_action,p_original_operation_id
+	  ) returning id"
+	PL/pgSQL function private.lukas_drawing_apply_dxf_import_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 441 at SQL statement
+	PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 36 at assignment
+	PL/pgSQL function public.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 7 at RETURN
+2026-09-06 16:24:46.204 KST [20058] STATEMENT:  select public.lukas_drawing_apply_operation($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8::uuid) value
+2026-09-06 16:24:46.226 KST [20058] ERROR:  Drawing review requires complete DXF history groups
+2026-09-06 16:24:46.226 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_dxf_history_group_review_guard() line 5 at RAISE
+	SQL statement "update public.lukas_drawing_revisions set status='review_requested',
+	    review_requested_at=pg_catalog.now(),updated_at=pg_catalog.now() where id=p_revision_id"
+	PL/pgSQL function private.lukas_drawing_request_review_pre_p2_contract_hardening(uuid) line 100 at SQL statement
+	PL/pgSQL function private.lukas_drawing_request_review_pre_p2_compatibility(uuid) line 17 at RETURN
+	PL/pgSQL function private.lukas_drawing_request_review_pre_lineage_evidence_return(uuid) line 15 at RETURN
+	PL/pgSQL function private.lukas_drawing_request_review_pre_p4_semantic_objects(uuid) line 4 at assignment
+	PL/pgSQL function private.lukas_drawing_request_review_pre_ifc_derivative_binding(uuid) line 4 at RETURN
+	PL/pgSQL function private.lukas_drawing_request_review_pre_required_blank(uuid) line 4 at RETURN
+	PL/pgSQL function private.lukas_drawing_request_review(uuid) line 81 at RETURN
+	PL/pgSQL function private.lukas_drawing_request_review_legacy_guard(uuid) line 21 at RETURN
+	SQL function "lukas_drawing_request_review" statement 1
+2026-09-06 16:24:46.226 KST [20058] STATEMENT:  select public.lukas_drawing_request_review($1::uuid)
+2026-09-06 16:24:46.285 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.285 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.285 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.288 KST [20058] ERROR:  permission denied for table lukas_drawing_object_sources
+2026-09-06 16:24:46.288 KST [20058] STATEMENT:  update public.lukas_drawing_object_sources set dwg_entity_json='{}' where revision_id=$1::uuid
+2026-09-06 16:24:46.297 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:46.297 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+	PL/pgSQL function public.lukas_drawing_native_dwg_import_context(uuid,boolean) line 6 at assignment
+2026-09-06 16:24:46.297 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_context($1::uuid,$2) value
+2026-09-06 16:24:46.299 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:46.299 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 14 at RAISE
+2026-09-06 16:24:46.299 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.427 KST [20058] ERROR:  DXF reference rewrite requires a server plan
+2026-09-06 16:24:46.427 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_dxf_plan_attestation_guard() line 18 at RAISE
+	SQL statement "update public.lukas_drawing_operations set
+	    base_versions=p_base_versions,forward=p_forward,inverse=p_inverse,
+	    result_versions=v_results
+	  where id=v_operation_id"
+	PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 158 at SQL statement
+	PL/pgSQL function public.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 7 at RETURN
+2026-09-06 16:24:46.427 KST [20058] STATEMENT:  select public.lukas_drawing_apply_operation($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8::uuid) value
+2026-09-06 16:24:46.446 KST [20058] ERROR:  Native DWG plan analysis identity conflicts
+2026-09-06 16:24:46.446 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 91 at RAISE
+2026-09-06 16:24:46.446 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2)
+2026-09-06 16:24:46.498 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:46.498 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+	PL/pgSQL function public.lukas_drawing_native_dwg_import_context(uuid,boolean) line 6 at assignment
+2026-09-06 16:24:46.498 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_context($1::uuid,$2) value
+2026-09-06 16:24:46.500 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:46.500 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_attest_dwg_import_plan(uuid,jsonb) line 14 at RAISE
+2026-09-06 16:24:46.500 KST [20058] STATEMENT:  select public.lukas_drawing_attest_dwg_import_plan($1::uuid,$2) value
+2026-09-06 16:24:46.512 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:46.512 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:46.512 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_source($1::uuid,$2::uuid,$3::uuid,$4::bigint,$5::uuid,$6)
+2026-09-06 16:24:46.796 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.796 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.796 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.804 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.804 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.804 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.806 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.806 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.806 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.807 KST [20058] ERROR:  permission denied for function lukas_qto_drawing_native_dwg_resave_source
+2026-09-06 16:24:46.807 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.807 KST [20058] ERROR:  permission denied for function lukas_qto_drawing_native_dwg_resave_source
+2026-09-06 16:24:46.807 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.810 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.810 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.810 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.812 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.812 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.812 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.813 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.813 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.813 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.814 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.814 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.814 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.815 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.815 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.815 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.816 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.816 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.816 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.817 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.817 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.817 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.820 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.820 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.820 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.823 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.823 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.823 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.826 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.826 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.826 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.830 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.830 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.830 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.835 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.835 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.835 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.842 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.842 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.842 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.848 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.848 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.848 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.851 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.851 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.851 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.857 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.857 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.857 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:46.886 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:46.886 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:46.886 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:46.901 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:46.901 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:46.901 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_source($1::uuid,$2::uuid,$3::uuid,$4::bigint,$5::uuid,$6)
+2026-09-06 16:24:47.088 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.088 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.088 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.092 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.092 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.092 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.093 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.093 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.093 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.093 KST [20058] ERROR:  permission denied for function lukas_qto_drawing_native_dwg_resave_source
+2026-09-06 16:24:47.093 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.094 KST [20058] ERROR:  permission denied for function lukas_qto_drawing_native_dwg_resave_source
+2026-09-06 16:24:47.094 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.095 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.095 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.095 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.096 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.096 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.096 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.097 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.097 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.097 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.098 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.098 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.098 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.099 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.099 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.099 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.100 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.100 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.100 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.100 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.100 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.100 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.103 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.103 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.103 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.106 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.106 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.106 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.108 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.108 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.108 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.113 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.113 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.113 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.117 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.117 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.117 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.123 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.123 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.123 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.128 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.128 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.128 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.131 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.131 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.131 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.137 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.137 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.137 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.164 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.164 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.164 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.179 KST [20058] ERROR:  Approved native DWG source is unavailable
+2026-09-06 16:24:47.179 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_source(uuid,uuid,uuid,bigint,uuid,text) line 12 at RAISE
+2026-09-06 16:24:47.179 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_source($1::uuid,$2::uuid,$3::uuid,$4::bigint,$5::uuid,$6)
+2026-09-06 16:24:47.357 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.357 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.357 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.361 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.361 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.361 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.362 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.362 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.362 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.362 KST [20058] ERROR:  permission denied for function lukas_qto_drawing_native_dwg_resave_source
+2026-09-06 16:24:47.362 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.363 KST [20058] ERROR:  permission denied for function lukas_qto_drawing_native_dwg_resave_source
+2026-09-06 16:24:47.363 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.364 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.364 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.364 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.365 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.365 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.365 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.366 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.366 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.366 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.367 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.367 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.367 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.367 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.367 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.367 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.368 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.368 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.368 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.369 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.369 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.369 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1) value
+2026-09-06 16:24:47.372 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.372 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.372 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.374 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.374 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.374 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.376 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.376 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.376 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.381 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.381 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.381 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.385 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.385 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.385 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.391 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.391 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.391 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.397 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.397 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.397 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.400 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.400 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.400 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.406 KST [20058] ERROR:  Approved DWG resave source is unavailable
+2026-09-06 16:24:47.406 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_qto_drawing_native_dwg_resave_source(jsonb) line 10 at RAISE
+2026-09-06 16:24:47.406 KST [20058] STATEMENT:  select public.lukas_qto_drawing_native_dwg_resave_source($1)
+2026-09-06 16:24:47.413 KST [20058] ERROR:  Drawing template clone ledger is append-only
+2026-09-06 16:24:47.413 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_template_clone_ledger_append_guard() line 11 at RAISE
+2026-09-06 16:24:47.413 KST [20058] STATEMENT:  delete from private.lukas_drawing_template_clone_requests where project_id=$1::uuid
+2026-09-06 16:24:47.414 KST [20058] ERROR:  Drawing template clone ledger is append-only
+2026-09-06 16:24:47.414 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_template_clone_ledger_append_guard() line 11 at RAISE
+2026-09-06 16:24:47.414 KST [20058] STATEMENT:  delete from private.lukas_drawing_template_clone_requests where project_id=$1::uuid
+2026-09-06 16:24:47.414 KST [20058] ERROR:  Drawing template clone ledger is append-only
+2026-09-06 16:24:47.414 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_template_clone_ledger_append_guard() line 11 at RAISE
+2026-09-06 16:24:47.414 KST [20058] STATEMENT:  delete from private.lukas_drawing_template_clone_requests where project_id=$1::uuid
+2026-09-06 16:24:47.415 KST [20058] ERROR:  Drawing snapshot restore ledger is append-only
+2026-09-06 16:24:47.415 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_snapshot_restore_ledger_guard() line 3 at RAISE
+2026-09-06 16:24:47.415 KST [20058] STATEMENT:  delete from private.lukas_drawing_snapshot_restore_requests where project_id=$1::uuid
+2026-09-06 16:24:47.415 KST [20058] ERROR:  Drawing snapshot restore ledger is append-only
+2026-09-06 16:24:47.415 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_snapshot_restore_ledger_guard() line 3 at RAISE
+2026-09-06 16:24:47.415 KST [20058] STATEMENT:  delete from private.lukas_drawing_snapshot_restore_requests where project_id=$1::uuid
+2026-09-06 16:24:47.416 KST [20058] ERROR:  Drawing snapshot restore ledger is append-only
+2026-09-06 16:24:47.416 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_snapshot_restore_ledger_guard() line 3 at RAISE
+2026-09-06 16:24:47.416 KST [20058] STATEMENT:  delete from private.lukas_drawing_snapshot_restore_requests where project_id=$1::uuid
+2026-09-06 16:24:47.552 KST [20058] ERROR:  Native DWG analysis request conflicts
+2026-09-06 16:24:47.552 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 13 at RAISE
+2026-09-06 16:24:47.552 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.554 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.554 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.554 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.555 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.555 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.555 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.557 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.557 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.557 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.557 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.557 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 5 at RAISE
+2026-09-06 16:24:47.557 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.558 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.558 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 5 at RAISE
+2026-09-06 16:24:47.558 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.558 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.558 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 5 at RAISE
+2026-09-06 16:24:47.558 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.560 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.560 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.560 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.562 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.562 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.562 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.564 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.564 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.564 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.569 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.569 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.569 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.571 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.571 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+2026-09-06 16:24:47.571 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_status($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.573 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.573 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.573 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.574 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.574 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+2026-09-06 16:24:47.574 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_status($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.577 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.577 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.577 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.579 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.579 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.579 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.582 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.582 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_result(jsonb,uuid) line 5 at RAISE
+2026-09-06 16:24:47.582 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_result($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.601 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.601 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_claim_native_dwg_import(text,integer) line 5 at RAISE
+2026-09-06 16:24:47.601 KST [20058] STATEMENT:  select public.lukas_drawing_claim_native_dwg_import($1,300)
+2026-09-06 16:24:47.601 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.601 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_claim_native_dwg_import(text,integer) line 5 at RAISE
+2026-09-06 16:24:47.601 KST [20058] STATEMENT:  select public.lukas_drawing_claim_native_dwg_import($1,300)
+2026-09-06 16:24:47.602 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.602 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_claim_native_dwg_import(text,integer) line 5 at RAISE
+2026-09-06 16:24:47.602 KST [20058] STATEMENT:  select public.lukas_drawing_claim_native_dwg_import($1,$2::integer) value
+2026-09-06 16:24:47.603 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.603 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_claim_native_dwg_import(text,integer) line 5 at RAISE
+2026-09-06 16:24:47.603 KST [20058] STATEMENT:  select public.lukas_drawing_claim_native_dwg_import($1,$2::integer) value
+2026-09-06 16:24:47.603 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.603 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_claim_native_dwg_import(text,integer) line 5 at RAISE
+2026-09-06 16:24:47.603 KST [20058] STATEMENT:  select public.lukas_drawing_claim_native_dwg_import($1,$2::integer) value
+2026-09-06 16:24:47.604 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.604 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_claim_native_dwg_import(text,integer) line 5 at RAISE
+2026-09-06 16:24:47.604 KST [20058] STATEMENT:  select public.lukas_drawing_claim_native_dwg_import($1,$2::integer) value
+2026-09-06 16:24:47.612 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.612 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 18 at RAISE
+2026-09-06 16:24:47.612 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.664 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.664 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 16 at RAISE
+2026-09-06 16:24:47.664 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.666 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.666 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 26 at RAISE
+2026-09-06 16:24:47.666 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.669 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.669 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 19 at RAISE
+2026-09-06 16:24:47.669 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.672 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.672 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 26 at RAISE
+2026-09-06 16:24:47.672 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.674 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.674 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 26 at RAISE
+2026-09-06 16:24:47.674 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.676 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.676 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 26 at RAISE
+2026-09-06 16:24:47.676 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.679 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.679 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 26 at RAISE
+2026-09-06 16:24:47.679 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.681 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.681 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 26 at RAISE
+2026-09-06 16:24:47.681 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.683 KST [20058] ERROR:  Native DWG analysis report is invalid
+2026-09-06 16:24:47.683 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 26 at RAISE
+2026-09-06 16:24:47.683 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.683 KST [20058] ERROR:  Native DWG analysis lease conflicts
+2026-09-06 16:24:47.683 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 8 at RAISE
+2026-09-06 16:24:47.683 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.686 KST [20058] ERROR:  Native DWG analysis lease conflicts
+2026-09-06 16:24:47.686 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 14 at RAISE
+2026-09-06 16:24:47.686 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.690 KST [20058] ERROR:  Native DWG analysis lease conflicts
+2026-09-06 16:24:47.690 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_fail_native_dwg_import(uuid,integer,uuid,text,boolean) line 8 at RAISE
+2026-09-06 16:24:47.690 KST [20058] STATEMENT:  select public.lukas_drawing_fail_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5) value
+2026-09-06 16:24:47.697 KST [20058] ERROR:  Native DWG analysis lease conflicts
+2026-09-06 16:24:47.697 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 11 at RAISE
+2026-09-06 16:24:47.697 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.698 KST [20058] ERROR:  Native DWG analysis lease conflicts
+2026-09-06 16:24:47.698 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 8 at RAISE
+2026-09-06 16:24:47.698 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.704 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.704 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_result(jsonb,uuid) line 5 at RAISE
+2026-09-06 16:24:47.704 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_result($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.710 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.710 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.710 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid)
+2026-09-06 16:24:47.712 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.712 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+	PL/pgSQL function public.lukas_drawing_native_dwg_import_result(jsonb,uuid) line 4 at assignment
+2026-09-06 16:24:47.712 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_result($1::jsonb,$2::uuid)
+2026-09-06 16:24:47.715 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.715 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.715 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid)
+2026-09-06 16:24:47.717 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.717 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+	PL/pgSQL function public.lukas_drawing_native_dwg_import_result(jsonb,uuid) line 4 at assignment
+2026-09-06 16:24:47.717 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_result($1::jsonb,$2::uuid)
+2026-09-06 16:24:47.721 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.721 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.721 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid)
+2026-09-06 16:24:47.723 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.723 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+	PL/pgSQL function public.lukas_drawing_native_dwg_import_result(jsonb,uuid) line 4 at assignment
+2026-09-06 16:24:47.723 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_result($1::jsonb,$2::uuid)
+2026-09-06 16:24:47.729 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.729 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.729 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid)
+2026-09-06 16:24:47.731 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.731 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+	PL/pgSQL function public.lukas_drawing_native_dwg_import_result(jsonb,uuid) line 4 at assignment
+2026-09-06 16:24:47.731 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_result($1::jsonb,$2::uuid)
+2026-09-06 16:24:47.731 KST [20058] ERROR:  Native DWG analysis evidence is retained
+2026-09-06 16:24:47.731 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_import_guard() line 5 at RAISE
+2026-09-06 16:24:47.731 KST [20058] STATEMENT:  delete from public.lukas_drawing_native_dwg_import_jobs where project_id='f98a3bb9-703a-4986-ab3e-23aae8df670f'::uuid
+2026-09-06 16:24:47.731 KST [20058] ERROR:  Native DWG analysis evidence is retained
+2026-09-06 16:24:47.731 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_import_guard() line 5 at RAISE
+2026-09-06 16:24:47.731 KST [20058] STATEMENT:  delete from public.lukas_drawing_native_dwg_import_attempts where project_id='f98a3bb9-703a-4986-ab3e-23aae8df670f'::uuid
+2026-09-06 16:24:47.732 KST [20058] ERROR:  Native DWG analysis evidence is retained
+2026-09-06 16:24:47.732 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_import_guard() line 5 at RAISE
+2026-09-06 16:24:47.732 KST [20058] STATEMENT:  delete from public.lukas_drawing_native_dwg_import_results where project_id='f98a3bb9-703a-4986-ab3e-23aae8df670f'::uuid
+2026-09-06 16:24:47.732 KST [20058] ERROR:  Native DWG analysis identity is immutable
+2026-09-06 16:24:47.732 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_import_guard() line 14 at RAISE
+2026-09-06 16:24:47.732 KST [20058] STATEMENT:  update public.lukas_drawing_native_dwg_import_jobs set scope='{}'::jsonb where id=$1::uuid
+2026-09-06 16:24:47.732 KST [20058] ERROR:  Native DWG analysis attempt is immutable
+2026-09-06 16:24:47.732 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_import_guard() line 18 at RAISE
+2026-09-06 16:24:47.732 KST [20058] STATEMENT:  update public.lukas_drawing_native_dwg_import_attempts set reader_image_id=$1 where job_id=$2::uuid
+2026-09-06 16:24:47.733 KST [20058] ERROR:  Native DWG analysis evidence is immutable
+2026-09-06 16:24:47.733 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_import_guard() line 8 at RAISE
+2026-09-06 16:24:47.733 KST [20058] STATEMENT:  update public.lukas_drawing_native_dwg_import_results set report_text='{}' where job_id=$1::uuid
+2026-09-06 16:24:47.733 KST [20058] ERROR:  Native DWG analysis attempt is immutable
+2026-09-06 16:24:47.733 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_native_dwg_import_guard() line 18 at RAISE
+2026-09-06 16:24:47.733 KST [20058] STATEMENT:  update public.lukas_drawing_native_dwg_import_attempts set outcome='failed' where job_id=$1::uuid and attempt_number=2
+2026-09-06 16:24:47.734 KST [20058] ERROR:  Drawing workspace editor capability required
+2026-09-06 16:24:47.734 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_draft_child_guard() line 28 at RAISE
+	SQL statement "DELETE FROM ONLY "public"."lukas_drawing_pages" WHERE $1 OPERATOR(pg_catalog.=) "revision_id" AND $2 OPERATOR(pg_catalog.=) "project_id""
+2026-09-06 16:24:47.734 KST [20058] STATEMENT:  delete from public.lukas_drawing_documents where id=$1::uuid
+2026-09-06 16:24:47.735 KST [20058] ERROR:  update or delete on table "lukas_qto_files" violates foreign key constraint "lukas_qto_verified_uploads_consumed_file_id_fkey" on table "lukas_qto_verified_uploads"
+2026-09-06 16:24:47.735 KST [20058] DETAIL:  Key (id)=(0fb0accd-0fbd-4920-b90f-2655f7cd7626) is still referenced from table "lukas_qto_verified_uploads".
+2026-09-06 16:24:47.735 KST [20058] STATEMENT:  delete from public.lukas_qto_files where id=$1::uuid
+2026-09-06 16:24:47.744 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.744 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_fail_native_dwg_import(uuid,integer,uuid,text,boolean) line 5 at RAISE
+2026-09-06 16:24:47.744 KST [20058] STATEMENT:  select public.lukas_drawing_fail_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5) value
+2026-09-06 16:24:47.750 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.750 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_fail_native_dwg_import(uuid,integer,uuid,text,boolean) line 5 at RAISE
+2026-09-06 16:24:47.750 KST [20058] STATEMENT:  select public.lukas_drawing_fail_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5) value
+2026-09-06 16:24:47.756 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.756 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_fail_native_dwg_import(uuid,integer,uuid,text,boolean) line 5 at RAISE
+2026-09-06 16:24:47.756 KST [20058] STATEMENT:  select public.lukas_drawing_fail_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5) value
+2026-09-06 16:24:47.764 KST [20058] ERROR:  Native DWG analysis lease conflicts
+2026-09-06 16:24:47.764 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 8 at RAISE
+2026-09-06 16:24:47.764 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.766 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.766 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+2026-09-06 16:24:47.766 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_status($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.768 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.768 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+	PL/pgSQL function public.lukas_drawing_native_dwg_import_result(jsonb,uuid) line 4 at assignment
+2026-09-06 16:24:47.768 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_result($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.777 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.777 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.777 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.779 KST [20058] ERROR:  Native DWG analysis lease conflicts
+2026-09-06 16:24:47.779 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 8 at RAISE
+2026-09-06 16:24:47.779 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.783 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.783 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 8 at RAISE
+2026-09-06 16:24:47.783 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.785 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.785 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_native_dwg_import_status(jsonb,uuid) line 6 at RAISE
+	PL/pgSQL function public.lukas_drawing_native_dwg_import_result(jsonb,uuid) line 4 at assignment
+2026-09-06 16:24:47.785 KST [20058] STATEMENT:  select public.lukas_drawing_native_dwg_import_result($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.791 KST [20058] ERROR:  Native DWG analysis is unavailable
+2026-09-06 16:24:47.791 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 14 at RAISE
+2026-09-06 16:24:47.791 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.794 KST [20058] ERROR:  Native DWG analysis lease conflicts
+2026-09-06 16:24:47.794 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_complete_native_dwg_import(uuid,integer,uuid,text,text,text) line 8 at RAISE
+2026-09-06 16:24:47.794 KST [20058] STATEMENT:  select public.lukas_drawing_complete_native_dwg_import($1::uuid,$2::integer,$3::uuid,$4,$5,$6) value
+2026-09-06 16:24:47.820 KST [20058] ERROR:  Native DWG analysis capacity is unavailable
+2026-09-06 16:24:47.820 KST [20058] CONTEXT:  PL/pgSQL function public.lukas_drawing_request_native_dwg_import(jsonb,uuid) line 18 at RAISE
+2026-09-06 16:24:47.820 KST [20058] STATEMENT:  select public.lukas_drawing_request_native_dwg_import($1::jsonb,$2::uuid) value
+2026-09-06 16:24:47.853 KST [20058] ERROR:  Drawing document with a non-draft revision is immutable
+2026-09-06 16:24:47.853 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_document_guard() line 88 at RAISE
+2026-09-06 16:24:47.853 KST [20058] STATEMENT:  
+	      update public.lukas_drawing_documents set title='Bypass RLS frozen rename'
+	      where id=$1::uuid
+	    
+2026-09-06 16:24:47.854 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.854 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 41 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.854 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,$2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.855 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.855 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 41 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.855 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,$2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.856 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.856 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 41 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.856 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,$2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.857 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.857 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 14 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.857 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,$2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.858 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.858 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 41 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.858 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,$2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.859 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.859 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 41 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.859 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,$2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.862 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.862 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 41 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.862 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,$2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.870 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.870 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 41 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.870 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,
+	          $2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.871 KST [20058] ERROR:  Drawing revision decision denied
+2026-09-06 16:24:47.871 KST [20058] CONTEXT:  PL/pgSQL function private.lukas_drawing_record_revision_decision(uuid,bigint,text,text,text) line 41 at RAISE
+	SQL function "lukas_drawing_record_revision_decision" statement 1
+2026-09-06 16:24:47.871 KST [20058] STATEMENT:  
+	        select public.lukas_drawing_record_revision_decision(
+	          $1::uuid,
+	          $2::bigint,
+	          $3,$4,$5
+	        )
+	      
+2026-09-06 16:24:47.954 KST [20047] LOG:  checkpoint starting: immediate force wait
+2026-09-06 16:24:47.956 KST [20047] LOG:  checkpoint complete: wrote 35 buffers (0.2%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.002 s; sync files=20, longest=0.001 s, average=0.001 s; distance=18468 kB, estimate=18468 kB; lsn=0/2723970, redo lsn=0/2723918
+2026-09-06 16:24:48.023 KST [20046] LOG:  received fast shutdown request
+2026-09-06 16:24:48.023 KST [20046] LOG:  aborting any active transactions
+2026-09-06 16:24:48.024 KST [20046] LOG:  background worker "logical replication launcher" (PID 20052) exited with exit code 1
+2026-09-06 16:24:48.024 KST [20047] LOG:  shutting down
+2026-09-06 16:24:48.024 KST [20047] LOG:  checkpoint starting: shutdown immediate
+2026-09-06 16:24:48.025 KST [20047] LOG:  checkpoint complete: wrote 11 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.001 s; distance=3 kB, estimate=16621 kB; lsn=0/2724750, redo lsn=0/2724750
+2026-09-06 16:24:48.026 KST [20046] LOG:  database system is shut down

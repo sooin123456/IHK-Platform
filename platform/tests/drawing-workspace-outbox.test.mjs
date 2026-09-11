@@ -10,6 +10,7 @@ import {
   drawingSaveStatus,
   recoverPendingDrawingState,
   restoreDrawingWorkspaceState,
+  sendDrawingConflictDiscard,
   sendDrawingOperation,
   prepareDrawingReview,
 } from "../app/lukas/lib/drawing-outbox.ts";
@@ -132,6 +133,39 @@ function memoryAdapter(events = []) {
   };
 }
 
+function fakeBroadcastNetwork() {
+  const channels = new Map();
+  const factory = (name) => {
+    const peers = channels.get(name) ?? new Set();
+    channels.set(name, peers);
+    const channel = {
+      closed: false,
+      onmessage: null,
+      postMessage(data) {
+        for (const peer of peers) {
+          if (peer === channel || peer.closed) continue;
+          queueMicrotask(() =>
+            peer.onmessage?.({ data: structuredClone(data) }),
+          );
+        }
+      },
+      close() {
+        if (this.closed) return;
+        this.closed = true;
+        peers.delete(this);
+      },
+    };
+    peers.add(channel);
+    return channel;
+  };
+  return {
+    factory,
+    open(name) {
+      return channels.get(name)?.size ?? 0;
+    },
+  };
+}
+
 function fakeIndexedDb({ blocked = false, records = [] } = {}) {
   const storedRecords = structuredClone(records);
   const store = {
@@ -148,6 +182,18 @@ function fakeIndexedDb({ blocked = false, records = [] } = {}) {
       const request = {};
       queueMicrotask(() => {
         request.result = structuredClone(storedRecords);
+        request.onsuccess?.();
+      });
+      return request;
+    },
+    get(clientOperationId) {
+      const request = {};
+      queueMicrotask(() => {
+        request.result = structuredClone(
+          storedRecords.find(
+            (candidate) => candidate.clientOperationId === clientOperationId,
+          ),
+        );
         request.onsuccess?.();
       });
       return request;
@@ -911,6 +957,68 @@ test("flush orders the scoped revision and never accepts another revision", asyn
   );
 });
 
+test("server-proven conflict dispositions settle the causal suffix and allow a fresh flush", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  await outbox.enqueue(operation(ids.operation1));
+  await outbox.enqueue(
+    operation(ids.operation2, { createdAt: "2026-08-24T02:00:00.000Z" }),
+  );
+  await outbox.enqueue(
+    operation(ids.operation3, { createdAt: "2026-08-24T03:00:00.000Z" }),
+  );
+
+  await outbox.flush(async (queued) => ({
+    clientOperationId: queued.clientOperationId,
+    status: "conflicted",
+    error: "version changed",
+  }));
+  assert.deepEqual(
+    (await outbox.entries()).map(({ operation: queued, status }) => [
+      queued.clientOperationId,
+      status,
+    ]),
+    [
+      [ids.operation1, "conflicted"],
+      [ids.operation2, "pending"],
+      [ids.operation3, "pending"],
+    ],
+  );
+
+  assert.equal(
+    await outbox.settleConflictedSuffix([
+      {
+        clientOperationId: ids.operation1,
+        status: "rejected",
+        authoritativeSequence: null,
+        resultVersions: {},
+      },
+      {
+        clientOperationId: ids.operation2,
+        status: "rejected",
+        authoritativeSequence: null,
+        resultVersions: {},
+      },
+      {
+        clientOperationId: ids.operation3,
+        status: "rejected",
+        authoritativeSequence: null,
+        resultVersions: {},
+      },
+    ]),
+    3,
+  );
+  assert.deepEqual(await outbox.entries(), []);
+
+  await outbox.enqueue(operation(ids.operation1));
+  assert.equal(
+    await outbox.flush(async (queued) => ({
+      clientOperationId: queued.clientOperationId,
+      status: "acked",
+    })),
+    1,
+  );
+});
+
 test("connection failures retain data and schedule bounded exponential retries", async () => {
   const scheduled = [];
   const acknowledged = [];
@@ -1071,6 +1179,202 @@ test("same-realm outbox instances coordinate one scoped send", async () => {
   release();
   await Promise.all([firstFlush, secondFlush]);
   assert.equal(sends, 1);
+});
+
+test("three outbox receivers atomically claim one shared Yjs recovery append", async () => {
+  const adapter = memoryAdapter();
+  const claims = new Map();
+  adapter.claimRecovery = async (clientOperationId, claimantId) => {
+    const entry = (await adapter.list()).find(
+      (candidate) =>
+        candidate.operation.clientOperationId === clientOperationId,
+    );
+    if (!entry || entry.status !== "pending") return false;
+    const current = claims.get(clientOperationId);
+    if (current) return false;
+    claims.set(clientOperationId, { claimantId });
+    return true;
+  };
+  adapter.commitRecovery = async (clientOperationId, claimantId) => {
+    const claim = claims.get(clientOperationId);
+    if (claim?.claimantId !== claimantId)
+      throw new Error("recovery claim changed");
+    claims.set(clientOperationId, { claimantId, committed: true });
+  };
+  adapter.releaseRecovery = async (clientOperationId, claimantId) => {
+    if (
+      claims.get(clientOperationId)?.claimantId === claimantId &&
+      !claims.get(clientOperationId)?.committed
+    )
+      claims.delete(clientOperationId);
+  };
+  const writer = scopedOutbox(adapter);
+  await writer.enqueue(operation(ids.operation1));
+  const receivers = Array.from({ length: 3 }, () => scopedOutbox(adapter));
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let appends = 0;
+
+  const recoveries = receivers.map((outbox) =>
+    outbox.recoverOperation(ids.operation1, async () => {
+      appends += 1;
+      await gate;
+    }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(appends, 1);
+  release();
+  assert.equal((await Promise.all(recoveries)).filter(Boolean).length, 1);
+  const delayedReceiver = scopedOutbox(adapter);
+  assert.equal(
+    await delayedReceiver.recoverOperation(ids.operation1, () => {
+      appends += 1;
+    }),
+    false,
+  );
+  assert.equal(appends, 1);
+});
+
+test("an authoritative HTTP ACK is recorded before the active outbox row settles", async () => {
+  const events = [];
+  const outbox = scopedOutbox(memoryAdapter(events), {
+    async beforeAcknowledged(response, queued) {
+      events.push(
+        `ack:${queued.clientOperationId}:${response.authoritativeSequence}`,
+      );
+    },
+  });
+  await outbox.enqueue(operation(ids.operation1));
+
+  await outbox.flush(async (queued) => ({
+    clientOperationId: queued.clientOperationId,
+    status: "acked",
+    authoritativeSequence: 17,
+    resultVersions: { [ids.object]: 2 },
+  }));
+
+  assert.deepEqual(events, [
+    `put:${ids.operation1}`,
+    `ack:${ids.operation1}:17`,
+    `put:${ids.operation1}`,
+  ]);
+  assert.deepEqual(await outbox.entries(), []);
+  assert.deepEqual(await outbox.acknowledgements(), [
+    {
+      clientOperationId: ids.operation1,
+      authoritativeSequence: 17,
+      resultVersions: { [ids.object]: 2 },
+      operation: operation(ids.operation1),
+    },
+  ]);
+});
+
+test("replayable operation history keeps one causal ACK-prefix and pending-suffix snapshot", async () => {
+  const outbox = scopedOutbox(memoryAdapter());
+  const first = operation(ids.operation1);
+  const second = operation(ids.operation2, {
+    createdAt: "2026-08-24T01:01:00.000Z",
+  });
+  const terminal = operation(ids.operation3, {
+    createdAt: "2026-08-24T01:02:00.000Z",
+  });
+  await outbox.enqueue(first);
+  await outbox.enqueue(second);
+  await outbox.enqueue(terminal);
+  await outbox.markAcked(first.clientOperationId, {
+    clientOperationId: first.clientOperationId,
+    authoritativeSequence: 17,
+    resultVersions: { [ids.object]: 2 },
+    operation: first,
+  });
+  await outbox.markConflicted(
+    terminal.clientOperationId,
+    "rejected",
+    "explicitly discarded",
+  );
+
+  assert.deepEqual(await outbox.replayableOperations(), [first, second]);
+});
+
+test("malformed persisted ACK tombstones fail closed before hiding local work", async () => {
+  const adapter = memoryAdapter();
+  adapter.list = async () => [
+    {
+      ownerId: ids.ownerA,
+      operation: operation(ids.operation1),
+      status: "acked",
+      retryCount: 0,
+      enqueueSequence: 1,
+      authoritativeSequence: 0,
+      resultVersions: { [ids.object]: 2 },
+    },
+  ];
+  const outbox = scopedOutbox(adapter);
+
+  await assert.rejects(outbox.acknowledgements(), /greater than 0/i);
+  assert.deepEqual(await outbox.entries(), []);
+});
+
+test("cross-tab change notification is scoped and never echoes to its sender", async () => {
+  const network = fakeBroadcastNetwork();
+  const adapter = memoryAdapter();
+  let senderChanges = 0;
+  const sameScopeChanges = [];
+  let otherOwnerChanges = 0;
+  const sender = scopedOutbox(adapter, {
+    broadcastChannelFactory: network.factory,
+    onExternalChange: () => senderChanges++,
+  });
+  scopedOutbox(adapter, {
+    broadcastChannelFactory: network.factory,
+    onExternalChange: (kind) => sameScopeChanges.push(kind),
+  });
+  scopedOutbox(adapter, {
+    ownerId: ids.ownerB,
+    broadcastChannelFactory: network.factory,
+    onExternalChange: () => otherOwnerChanges++,
+  });
+
+  await sender.enqueue(operation(ids.operation1));
+  await Promise.resolve();
+
+  assert.equal(senderChanges, 0);
+  assert.deepEqual(sameScopeChanges, ["pending"]);
+  assert.equal(otherOwnerChanges, 0);
+
+  await sender.markConflicted(ids.operation1);
+  await Promise.resolve();
+  assert.equal(senderChanges, 0);
+  assert.deepEqual(sameScopeChanges, ["pending", "settled"]);
+  assert.equal(otherOwnerChanges, 0);
+});
+
+test("cross-tab channel closes on dispose and unsupported browsers fall back", async () => {
+  const network = fakeBroadcastNetwork();
+  const name = `1hk:drawing-outbox:v1:${ids.ownerA}:${ids.revisionA}`;
+  let externalChanges = 0;
+  const sender = scopedOutbox(memoryAdapter(), {
+    broadcastChannelFactory: network.factory,
+  });
+  const receiver = scopedOutbox(memoryAdapter(), {
+    broadcastChannelFactory: network.factory,
+    onExternalChange: () => externalChanges++,
+  });
+  assert.equal(network.open(name), 2);
+
+  receiver.dispose();
+  assert.equal(network.open(name), 1);
+  await sender.enqueue(operation(ids.operation1));
+  await Promise.resolve();
+  assert.equal(externalChanges, 0);
+
+  const unsupported = scopedOutbox(memoryAdapter(), {
+    broadcastChannelFactory: () => null,
+  });
+  await unsupported.enqueue(operation(ids.operation2));
+  assert.deepEqual(await unsupported.pending(), [operation(ids.operation2)]);
 });
 
 test("dispose cancels scheduled retries and prevents the old instance from sending", async () => {
@@ -2715,6 +3019,10 @@ test("reload recovery does not apply later work from a blocked revision", () => 
 
 test("save status exposes only the four workspace states and never calls storage failure saved", () => {
   assert.equal(drawingSaveStatus({ pending: 0 }), "저장됨");
+  assert.equal(
+    drawingSaveStatus({ pending: 0, localMutationCount: 1 }),
+    "저장 중",
+  );
   assert.equal(drawingSaveStatus({ pending: 1, flushing: true }), "저장 중");
   assert.equal(
     drawingSaveStatus({ pending: 1, online: false }),
@@ -2776,7 +3084,11 @@ test("workspace transport posts the canonical operation and requires the echoed 
             kind: "success",
             error: null,
             clientOperationId: ids.operation1,
-            result: { operationId: ids.operation3 },
+            result: {
+              operationId: ids.operation2,
+              sequence: 17,
+              resultVersions: { [ids.object]: 2 },
+            },
           };
         },
       };
@@ -2787,6 +3099,8 @@ test("workspace transport posts the canonical operation and requires the echoed 
   assert.deepEqual(response, {
     clientOperationId: ids.operation1,
     status: "acked",
+    authoritativeSequence: 17,
+    resultVersions: { [ids.object]: 2 },
   });
   assert.equal(requests[0][0], "/workspace");
   assert.equal(requests[0][1].method, "POST");
@@ -2812,6 +3126,34 @@ test("workspace transport posts the canonical operation and requires the echoed 
     })),
     /acknowledgement/i,
   );
+
+  for (const result of [
+    {
+      operationId: ids.operation1,
+      sequence: 0,
+      resultVersions: { [ids.object]: 2 },
+    },
+    {
+      operationId: ids.operation1,
+      sequence: 17,
+      resultVersions: { [ids.object]: 0 },
+    },
+  ])
+    await assert.rejects(
+      sendDrawingOperation(input, "/workspace", async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            ok: true,
+            kind: "success",
+            clientOperationId: ids.operation1,
+            result,
+          };
+        },
+      })),
+      /acknowledgement|sequence|result versions/i,
+    );
 });
 
 test("transient RPC action failures remain retryable", async () => {
@@ -2974,6 +3316,85 @@ test("IndexedDB upgrade preserves v1 records and installs close-on-versionchange
   );
   database.onversionchange();
   assert.equal(database.closed, true);
+});
+
+test("an expired IndexedDB recovery lease is automatically taken over and committed", async () => {
+  const queued = operation(ids.operation1);
+  const record = {
+    ownerId: ids.ownerA,
+    operation: queued,
+    status: "pending",
+    retryCount: 0,
+    enqueueSequence: 1,
+    clientOperationId: queued.clientOperationId,
+    revisionId: queued.revisionId,
+    createdAt: queued.createdAt,
+  };
+  let clock = 1_000;
+  const { factory } = fakeIndexedDb({ records: [record] });
+  const adapter = createIndexedDbDrawingOutboxAdapter(factory, {
+    now: () => clock,
+    recoveryLeaseMs: 100,
+  });
+
+  assert.equal(
+    await adapter.claimRecovery(ids.operation1, "dead-process"),
+    true,
+  );
+
+  let scheduled;
+  let appends = 0;
+  const receiver = scopedOutbox(adapter, {
+    schedule(delayMs, retry) {
+      scheduled = { delayMs, retry };
+      return () => {};
+    },
+  });
+  assert.equal(
+    await receiver.recoverOperation(ids.operation1, () => {
+      appends += 1;
+    }),
+    false,
+  );
+  assert.equal(scheduled.delayMs, 100);
+  assert.equal(appends, 0);
+
+  clock += 101;
+  await scheduled.retry();
+  assert.equal(appends, 1);
+  assert.equal(
+    await adapter.claimRecovery(ids.operation1, "delayed-receiver"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn((await adapter.list())[0], "recoveryCommitted"),
+    false,
+  );
+});
+
+test("legacy recovery claims without a lease timestamp are reclaimable", async () => {
+  const queued = operation(ids.operation1);
+  const record = {
+    ownerId: ids.ownerA,
+    operation: queued,
+    status: "pending",
+    retryCount: 0,
+    enqueueSequence: 1,
+    clientOperationId: queued.clientOperationId,
+    revisionId: queued.revisionId,
+    createdAt: queued.createdAt,
+    recoveryClaimantId: "legacy-dead-process",
+  };
+  const { factory } = fakeIndexedDb({ records: [record] });
+  const adapter = createIndexedDbDrawingOutboxAdapter(factory, {
+    now: () => 10_000,
+    recoveryLeaseMs: 100,
+  });
+
+  assert.equal(
+    await adapter.claimRecovery(ids.operation1, "replacement-process"),
+    true,
+  );
 });
 
 test("legacy IndexedDB claim alone normalizes missing block-instance lineage and durably rewrites it", async () => {
@@ -3254,4 +3675,187 @@ test("operation transport distinguishes terminal rejection from conflict on HTTP
     );
     assert.equal(result.status, status);
   }
+});
+
+test("conflict discard transport accepts only the exact ordered server dispositions", async () => {
+  const operations = [
+    operation(ids.operation1),
+    operation(ids.operation2, { createdAt: "2026-08-24T02:00:00.000Z" }),
+  ];
+  let request;
+  const dispositions = await sendDrawingConflictDiscard(
+    operations,
+    ids.revisionA,
+    "/workspace",
+    async (_url, init) => {
+      request = init;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            ok: true,
+            kind: "success",
+            error: null,
+            result: {
+              dispositions: [
+                {
+                  clientOperationId: ids.operation1,
+                  status: "rejected",
+                  authoritativeSequence: null,
+                  resultVersions: {},
+                },
+                {
+                  clientOperationId: ids.operation2,
+                  status: "acked",
+                  authoritativeSequence: 12,
+                  resultVersions: { [ids.object]: 3 },
+                },
+              ],
+            },
+          };
+        },
+      };
+    },
+  );
+
+  assert.equal(request.method, "POST");
+  assert.equal(request.headers.Accept, "application/json");
+  assert.equal(request.body.get("intent"), "discard_conflicted_operations");
+  assert.equal(request.body.get("revision_id"), ids.revisionA);
+  assert.deepEqual(JSON.parse(request.body.get("operations_json")), operations);
+  assert.deepEqual(dispositions, [
+    {
+      clientOperationId: ids.operation1,
+      status: "rejected",
+      authoritativeSequence: null,
+      resultVersions: {},
+    },
+    {
+      clientOperationId: ids.operation2,
+      status: "acked",
+      authoritativeSequence: 12,
+      resultVersions: { [ids.object]: 3 },
+    },
+  ]);
+});
+
+test("conflict discard transport rejects a reordered, malformed, or retry response", async () => {
+  const operations = [operation(ids.operation1), operation(ids.operation2)];
+  const response =
+    (body, { ok = true, status = 200 } = {}) =>
+    async () => ({
+      ok,
+      status,
+      async json() {
+        return body;
+      },
+    });
+
+  await assert.rejects(
+    sendDrawingConflictDiscard(
+      operations,
+      ids.revisionA,
+      "/workspace",
+      response({
+        ok: true,
+        kind: "success",
+        error: null,
+        result: {
+          dispositions: [
+            {
+              clientOperationId: ids.operation2,
+              status: "rejected",
+              authoritativeSequence: null,
+              resultVersions: {},
+            },
+            {
+              clientOperationId: ids.operation1,
+              status: "rejected",
+              authoritativeSequence: null,
+              resultVersions: {},
+            },
+          ],
+        },
+      }),
+    ),
+    /match the requested operations/i,
+  );
+  await assert.rejects(
+    sendDrawingConflictDiscard(
+      [operation(ids.operation1)],
+      ids.revisionA,
+      "/workspace",
+      response({
+        ok: true,
+        kind: "success",
+        error: null,
+        result: {
+          dispositions: [
+            {
+              clientOperationId: ids.operation1,
+              status: "rejected",
+              authoritativeSequence: 7,
+              resultVersions: {},
+            },
+          ],
+        },
+      }),
+    ),
+    /invalid/i,
+  );
+  await assert.rejects(
+    sendDrawingConflictDiscard(
+      [operation(ids.operation1)],
+      ids.revisionA,
+      "/workspace",
+      response(
+        {
+          ok: false,
+          kind: "retryable",
+          error: "receipt delivery retry",
+        },
+        { ok: false, status: 503 },
+      ),
+    ),
+    /receipt delivery retry/i,
+  );
+});
+
+test("conflict discard transport chunks a legacy suffix beyond one server batch", async () => {
+  const operations = Array.from({ length: 257 }, (_, index) =>
+    operation(`10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`),
+  );
+  const batchSizes = [];
+  const dispositions = await sendDrawingConflictDiscard(
+    operations,
+    ids.revisionA,
+    "/workspace",
+    async (_url, init) => {
+      const batch = JSON.parse(init.body.get("operations_json"));
+      batchSizes.push(batch.length);
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            ok: true,
+            kind: "success",
+            error: null,
+            result: {
+              dispositions: batch.map((queued) => ({
+                clientOperationId: queued.clientOperationId,
+                status: "rejected",
+                authoritativeSequence: null,
+                resultVersions: {},
+              })),
+            },
+          };
+        },
+      };
+    },
+  );
+
+  assert.deepEqual(batchSizes, [256, 1]);
+  assert.equal(dispositions.length, 257);
 });

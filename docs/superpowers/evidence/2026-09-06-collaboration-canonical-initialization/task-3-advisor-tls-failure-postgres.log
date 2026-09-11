@@ -1,0 +1,506 @@
+2026-09-06 16:54:06.789 KST [23354] LOG:  starting PostgreSQL 17.11 (Homebrew) on aarch64-apple-darwin25.6.0, compiled by Apple clang version 21.0.0 (clang-2100.1.1.101), 64-bit
+2026-09-06 16:54:06.789 KST [23354] LOG:  listening on IPv4 address "127.0.0.1", port 58142
+2026-09-06 16:54:06.790 KST [23354] LOG:  listening on Unix socket "/tmp/canonical-task3-pg-XVUBIh/.s.PGSQL.58142"
+2026-09-06 16:54:06.792 KST [23357] LOG:  database system was shut down at 2026-09-06 16:54:06 KST
+2026-09-06 16:54:06.794 KST [23354] LOG:  database system is ready to accept connections
+2026-09-06 16:54:07.729 KST [23366] ERROR:  Drawing collaboration room is read-only
+2026-09-06 16:54:07.729 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_store_state_unfenced(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text) line 12 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_store_state_unfenced(
+	    p_user_id,p_project_id,p_revision_id,p_schema_version,p_yjs_state,
+	    p_base_operation_sequence,p_expected_generation,p_expected_sha256
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text) line 8 at RETURN QUERY
+2026-09-06 16:54:07.729 KST [23366] STATEMENT:  
+	      select * from private.lukas_drawing_collaboration_store_state(
+	        $1::uuid,$2::uuid,$3::uuid,
+	        1::smallint,$4::bytea,$5::bigint,
+	        $6::bigint,$7
+	      )
+	    
+2026-09-06 16:54:07.733 KST [23366] ERROR:  permission denied for function lukas_drawing_collaboration_initialize_state_core
+2026-09-06 16:54:07.733 KST [23366] STATEMENT:  
+	      select * from private.lukas_drawing_collaboration_initialize_state_core(
+	        $1::uuid,$2::uuid,$3::bytea,
+	        $4::bigint,$5,true
+	      )
+	    
+2026-09-06 16:54:07.733 KST [23366] ERROR:  permission denied for schema private at character 26
+2026-09-06 16:54:07.733 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.734 KST [23366] ERROR:  permission denied for schema private at character 26
+2026-09-06 16:54:07.734 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.735 KST [23366] ERROR:  permission denied for function lukas_drawing_collaboration_initialize_state
+2026-09-06 16:54:07.735 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.735 KST [23366] ERROR:  permission denied for function lukas_drawing_collaboration_service_initialize_state
+2026-09-06 16:54:07.735 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.736 KST [23366] ERROR:  permission denied for function lukas_drawing_collaboration_initialize_state
+2026-09-06 16:54:07.736 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.736 KST [23366] ERROR:  permission denied for function lukas_drawing_collaboration_service_initialize_state
+2026-09-06 16:54:07.736 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.737 KST [23366] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:54:07.737 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_authorize_pre_entitlement(uuid,uuid,uuid) line 10 at RAISE
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_authorize_pre_entitlement(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid) line 7 at RETURN QUERY
+	SQL statement "SELECT 1 from private.lukas_drawing_collaboration_authorize(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 4 at PERFORM
+2026-09-06 16:54:07.737 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.738 KST [23366] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:54:07.738 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_authorize_pre_entitlement(uuid,uuid,uuid) line 10 at RAISE
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_authorize_pre_entitlement(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid) line 7 at RETURN QUERY
+	SQL statement "SELECT 1 from private.lukas_drawing_collaboration_authorize(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 4 at PERFORM
+2026-09-06 16:54:07.738 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.739 KST [23366] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:54:07.739 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_authorize_pre_entitlement(uuid,uuid,uuid) line 10 at RAISE
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_authorize_pre_entitlement(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid) line 7 at RETURN QUERY
+	SQL statement "SELECT 1 from private.lukas_drawing_collaboration_authorize(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 4 at PERFORM
+2026-09-06 16:54:07.739 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.740 KST [23366] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:54:07.740 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_authorize_pre_entitlement(uuid,uuid,uuid) line 10 at RAISE
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_authorize_pre_entitlement(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_authorize(uuid,uuid,uuid) line 7 at RETURN QUERY
+	SQL statement "SELECT 1 from private.lukas_drawing_collaboration_authorize(
+	    p_user_id,p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 4 at PERFORM
+2026-09-06 16:54:07.740 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.741 KST [23366] ERROR:  Drawing collaboration target is unavailable
+2026-09-06 16:54:07.741 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 10 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.741 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.747 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.747 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.747 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.747 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.747 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.747 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.776 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.776 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.776 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.778 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.778 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.778 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.779 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.779 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.779 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.780 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.780 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.780 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.781 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.781 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.781 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.781 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.781 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.781 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.782 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.782 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.782 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.784 KST [23366] ERROR:  Drawing collaboration snapshot changed; reload before initializing
+2026-09-06 16:54:07.784 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 37 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.784 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.785 KST [23366] ERROR:  Drawing collaboration snapshot changed; reload before initializing
+2026-09-06 16:54:07.785 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 37 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,true
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_initialize_state(uuid,uuid,uuid,bytea,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.785 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_initialize_state(
+	            $1::uuid,
+	            $2::uuid,$3::uuid,
+	            $4::bytea,$5::bigint,$6::text
+	          )
+	        
+2026-09-06 16:54:07.786 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.786 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.786 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.787 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.787 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.787 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.810 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.810 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.810 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.811 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.811 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.811 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.812 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.812 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.812 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.813 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.813 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.813 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.814 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.814 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.814 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.815 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.815 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.815 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.816 KST [23366] ERROR:  Drawing collaboration state is invalid
+2026-09-06 16:54:07.816 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 27 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.816 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.817 KST [23366] ERROR:  Drawing collaboration snapshot changed; reload before initializing
+2026-09-06 16:54:07.817 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 37 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.817 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.817 KST [23366] ERROR:  Drawing collaboration snapshot changed; reload before initializing
+2026-09-06 16:54:07.817 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 37 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.817 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.852 KST [23366] ERROR:  Drawing collaboration room is read-only
+2026-09-06 16:54:07.852 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_initialize_state_core(uuid,uuid,bytea,bigint,text,boolean) line 19 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_initialize_state_core(
+	    p_project_id,p_revision_id,p_yjs_state,p_base_operation_sequence,
+	    p_base_snapshot_sha256,false
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_initialize_state(uuid,uuid,bytea,bigint,text) line 9 at RETURN QUERY
+2026-09-06 16:54:07.852 KST [23366] STATEMENT:  
+	          select * from private.lukas_drawing_collaboration_service_initialize_state(
+	            $1::uuid,$2::uuid,
+	            $3::bytea,$4::bigint,$5::text
+	          )
+	        
+2026-09-06 16:54:07.864 KST [23366] ERROR:  Drawing collaboration freeze lease is busy
+2026-09-06 16:54:07.864 KST [23366] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_assert_store_unleased(uuid,uuid) line 20 at RAISE
+	SQL statement "SELECT private.lukas_drawing_collaboration_assert_store_unleased(
+	    p_project_id,p_revision_id
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_store_state_pre_entitlement(uuid,uuid,smallint,bytea,bigint,bigint,text) line 5 at PERFORM
+	SQL statement "select *
+	  from private.lukas_drawing_collaboration_service_store_state_pre_entitlement(
+	    p_project_id,p_revision_id,p_schema_version,p_yjs_state,
+	    p_base_operation_sequence,p_expected_generation,p_expected_sha256
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_service_store_state(uuid,uuid,smallint,bytea,bigint,bigint,text) line 7 at RETURN QUERY
+2026-09-06 16:54:07.864 KST [23366] STATEMENT:  
+	      select * from private.lukas_drawing_collaboration_service_store_state(
+	        $1::uuid,$2::uuid,1::smallint,
+	        $3::bytea,$4::bigint,
+	        $5::bigint,$6
+	      )
+	    
+2026-09-06 16:54:07.912 KST [23369] ERROR:  Drawing collaboration room is read-only
+2026-09-06 16:54:07.912 KST [23369] CONTEXT:  PL/pgSQL function private.lukas_drawing_collaboration_store_state_unfenced(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text) line 12 at RAISE
+	SQL statement "select * from private.lukas_drawing_collaboration_store_state_unfenced(
+	    p_user_id,p_project_id,p_revision_id,p_schema_version,p_yjs_state,
+	    p_base_operation_sequence,p_expected_generation,p_expected_sha256
+	  )"
+	PL/pgSQL function private.lukas_drawing_collaboration_store_state(uuid,uuid,uuid,smallint,bytea,bigint,bigint,text) line 8 at RETURN QUERY
+2026-09-06 16:54:07.912 KST [23369] STATEMENT:  select * from private.lukas_drawing_collaboration_store_state(
+	          $1::uuid,$2::uuid,$3::uuid,
+	          1::smallint,$4::bytea,$5::bigint,
+	          $6::bigint,$7
+	        )
+2026-09-06 16:54:09.771 KST [23355] LOG:  checkpoint starting: immediate force wait
+2026-09-06 16:54:09.773 KST [23355] LOG:  checkpoint complete: wrote 35 buffers (0.2%); 0 WAL file(s) added, 0 removed, 1 recycled; write=0.001 s, sync=0.001 s, total=0.003 s; sync files=20, longest=0.001 s, average=0.001 s; distance=17277 kB, estimate=17277 kB; lsn=0/25F9EF0, redo lsn=0/25F9E98
+2026-09-06 16:54:09.842 KST [23354] LOG:  received fast shutdown request
+2026-09-06 16:54:09.842 KST [23354] LOG:  aborting any active transactions
+2026-09-06 16:54:09.843 KST [23354] LOG:  background worker "logical replication launcher" (PID 23360) exited with exit code 1
+2026-09-06 16:54:09.843 KST [23355] LOG:  shutting down
+2026-09-06 16:54:09.843 KST [23355] LOG:  checkpoint starting: shutdown immediate
+2026-09-06 16:54:09.844 KST [23355] LOG:  checkpoint complete: wrote 11 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=4, longest=0.001 s, average=0.001 s; distance=3 kB, estimate=15550 kB; lsn=0/25FACD0, redo lsn=0/25FACD0
+2026-09-06 16:54:09.846 KST [23354] LOG:  database system is shut down

@@ -1,0 +1,62 @@
+qualification failed: InvalidDataException: DWG edit source SHA-256 does not match the working copy.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-4a3b4546f0844fdcb72047aa9de10373/result/qualification-report.json
+qualification rejected: InvalidDataException: DWG edit JSON contains a duplicate or unknown field.
+qualification rejected: InvalidDataException: DWG edit schema is unsupported.
+qualification rejected: InvalidDataException: DWG edit coordinate policy is unsupported.
+qualification rejected: InvalidDataException: DWG edit count must be between 1 and 10000.
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-080b73526cd541bc9d68a847315eeb79/result/qualification-report.json
+qualification rejected: InvalidDataException: DWG edit handle is invalid or duplicated.
+qualification rejected: InvalidDataException: DWG edit handle is invalid or duplicated.
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-af614b6c51fd4700b6567c2094283798/result/qualification-report.json
+qualification rejected: InvalidDataException: DWG edit JSON is missing a required field.
+qualification rejected: InvalidDataException: DWG edit point must have exactly three coordinates.
+qualification rejected: InvalidDataException: DWG edit number is non-finite or out of range.
+qualification rejected: InvalidDataException: DWG edited LINE must have nonzero length.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG edit JSON string is required.
+qualification rejected: InvalidDataException: DWG edit JSON contains a duplicate or unknown field.
+qualification rejected: InvalidOperationException: Cannot read incomplete UTF-16 JSON text as string with missing low surrogate.
+qualification rejected: InvalidDataException: DWG edit request exceeds 2 MiB.
+qualification rejected: InvalidDataException: DWG edit count must be between 1 and 10000.
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-23ff6aadb01045c2ae0733d6d336d6ff/result/qualification-report.json
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-f21c8f513be34da6b880420adcc3c0e4/result/qualification-report.json
+qualification rejected: InvalidDataException: DWG edit JSON contains a duplicate or unknown field.
+qualification rejected: InvalidDataException: DWG edit JSON is missing a required field.
+qualification rejected: InvalidDataException: DWG v2 edit points must be planar WCS coordinates.
+qualification rejected: InvalidDataException: DWG edit radius must be positive.
+qualification rejected: InvalidDataException: DWG edit height must be positive.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG edited ARC angle difference must be nonzero and at most 2π.
+qualification rejected: InvalidDataException: DWG edited ARC angle difference must be nonzero and at most 2π.
+qualification rejected: InvalidDataException: DWG edit number is non-finite or out of range.
+qualification rejected: InvalidDataException: DWG edited LWPOLYLINE must have at least two points.
+qualification rejected: InvalidDataException: DWG edited LWPOLYLINE must have at least two distinct points.
+qualification rejected: InvalidDataException: DWG edited LWPOLYLINE closed flag must be boolean.
+qualification failed: InvalidDataException: DWG v2 edit target or result is not supported reader geometry.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-9c69337966314766b1962cb95f905540/result/qualification-report.json
+qualification failed: InvalidDataException: DWG v2 edit target or result is not supported reader geometry.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-ef4d648aa71b4af0bc123c7385247720/result/qualification-report.json
+qualification failed: InvalidDataException: DWG v2 edit target or result is not supported reader geometry.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-60294c167e3645e8915954719e048362/result/qualification-report.json
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-8ce0dc276f0643d0a38d83f03bf933eb/result/qualification-report.json
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-296afaf862fa41f8b40b0405227404b3/result/qualification-report.json
+qualification failed: InvalidDataException: DWG v2 edit target or result is not supported reader geometry.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-a1cfc8653ed841dbbca679b287c65cb0/result/qualification-report.json
+qualification rejected: JsonReaderException: Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. LineNumber: 0 | BytePositionInLine: 34.
+qualification rejected: InvalidOperationException: Cannot read incomplete UTF-16 JSON text as string with missing low surrogate.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG edit request exceeds 2 MiB.
+qualification rejected: InvalidDataException: DWG edited LWPOLYLINE point budget exceeded.

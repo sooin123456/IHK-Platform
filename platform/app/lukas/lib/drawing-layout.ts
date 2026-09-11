@@ -1,4 +1,8 @@
-import type { DrawingGeometry, Point } from "./drawing-workspace.types.ts";
+import type {
+  DrawingCanvas,
+  DrawingGeometry,
+  Point,
+} from "./drawing-workspace.types.ts";
 
 export const DRAWING_TEXT_LINE_HEIGHT = 1.2;
 export const DRAWING_DIMENSION_FONT_SIZE = 12;
@@ -11,6 +15,67 @@ export type DrawingDimensionCalibration = {
   pageHeight: number;
   pageWidth: number;
 };
+
+export type DrawingDimensionContext =
+  | { kind: "native_millimeters" }
+  | { kind: "pdf"; calibration: DrawingDimensionCalibration | null };
+
+type DrawingDimensionContextOrCalibration =
+  | DrawingDimensionContext
+  | DrawingDimensionCalibration
+  | null;
+
+function isDimensionContext(
+  value: DrawingDimensionContextOrCalibration | undefined,
+): value is DrawingDimensionContext {
+  return Boolean(value && typeof value === "object" && "kind" in value);
+}
+
+function dimensionContext(
+  value: DrawingDimensionContextOrCalibration | undefined,
+):
+  | DrawingDimensionContext
+  | { kind: "legacy"; calibration: DrawingDimensionCalibration | null } {
+  if (!isDimensionContext(value))
+    return { kind: "legacy", calibration: value ?? null };
+  if (value.kind === "native_millimeters") return value;
+  if (value.kind === "pdf" && "calibration" in value) return value;
+  throw new TypeError("Dimension context is invalid.");
+}
+
+function drawingFontSize(fontSize: number) {
+  if (!Number.isFinite(fontSize) || fontSize <= 0)
+    throw new RangeError("Drawing annotation font size must be positive.");
+  return fontSize;
+}
+
+export function drawingDimensionContextForCanvas(
+  canvas: Pick<
+    DrawingCanvas,
+    "pageId" | "widthMillimeters" | "heightMillimeters" | "background"
+  >,
+): DrawingDimensionContext {
+  if (
+    !Number.isFinite(canvas.widthMillimeters) ||
+    canvas.widthMillimeters <= 0 ||
+    !Number.isFinite(canvas.heightMillimeters) ||
+    canvas.heightMillimeters <= 0
+  )
+    throw new RangeError("Drawing canvas dimensions must be positive.");
+  if (!canvas.background) return { kind: "native_millimeters" };
+  return {
+    kind: "pdf",
+    calibration: canvas.background.calibration
+      ? {
+          id: canvas.pageId,
+          millimetersPerNormalizedUnit:
+            canvas.background.calibration.millimetersPerNormalizedUnit,
+          pageHeight: canvas.heightMillimeters,
+          pageWidth: canvas.widthMillimeters,
+        }
+      : null,
+  };
+}
 
 export function drawingTextLayout(
   geometry: Extract<DrawingGeometry, { type: "text" }>,
@@ -41,9 +106,21 @@ export function drawingLayoutCorners(
 
 export function drawingDimensionLabel(
   geometry: Extract<DrawingGeometry, { type: "dimension" }>,
-  calibration?: DrawingDimensionCalibration | null,
+  contextOrLegacyCalibration?: DrawingDimensionContextOrCalibration,
 ) {
+  const context = dimensionContext(contextOrLegacyCalibration);
+  if (context.kind === "native_millimeters") {
+    if (geometry.calibrationId !== null) return "보정 확인 불가";
+    const millimeters = Math.hypot(
+      geometry.end.x - geometry.start.x,
+      geometry.end.y - geometry.start.y,
+    );
+    return Number.isFinite(millimeters)
+      ? `${millimeters.toFixed(1)} mm`
+      : "보정 확인 불가";
+  }
   if (geometry.calibrationId === null) return "미보정";
+  const calibration = context.calibration;
   if (
     !calibration ||
     calibration.id !== geometry.calibrationId ||
@@ -95,18 +172,19 @@ export function drawingDimensionDisplayPoints(
 
 export function drawingDimensionLayout(
   geometry: Extract<DrawingGeometry, { type: "dimension" }>,
-  calibration?: DrawingDimensionCalibration | null,
+  contextOrLegacyCalibration?: DrawingDimensionContextOrCalibration,
+  resolvedFontSize = DRAWING_DIMENSION_FONT_SIZE,
 ) {
+  const fontSize = drawingFontSize(resolvedFontSize);
   const display = drawingDimensionDisplayPoints(geometry);
-  const text = drawingDimensionLabel(geometry, calibration);
+  const text = drawingDimensionLabel(geometry, contextOrLegacyCalibration);
   const width =
-    Math.max(1, Array.from(text).length) *
-    DRAWING_DIMENSION_FONT_SIZE *
-    DRAWING_TEXT_GLYPH_WIDTH;
-  const height = DRAWING_DIMENSION_FONT_SIZE * DRAWING_TEXT_LINE_HEIGHT;
+    Math.max(1, Array.from(text).length) * fontSize * DRAWING_TEXT_GLYPH_WIDTH;
+  const height = fontSize * DRAWING_TEXT_LINE_HEIGHT;
+  const warning = text === "미보정" || text === "보정 확인 불가";
   return {
     ...display,
-    fontSize: DRAWING_DIMENSION_FONT_SIZE,
+    fontSize,
     height,
     lineHeight: DRAWING_TEXT_LINE_HEIGHT,
     points: [
@@ -117,6 +195,7 @@ export function drawingDimensionLayout(
       ...drawingLayoutCorners(display.label, width, height),
     ],
     text,
+    warning,
     width,
     wrap: "none" as const,
   };
@@ -125,15 +204,22 @@ export function drawingDimensionLayout(
 /** Conservatively encloses calibrated numeric labels across the finite domain. */
 export function drawingDimensionBoundsPoints(
   geometry: Extract<DrawingGeometry, { type: "dimension" }>,
+  contextOrLegacyCalibration?: DrawingDimensionContextOrCalibration,
+  resolvedFontSize = DRAWING_DIMENSION_FONT_SIZE,
 ) {
-  const layout = drawingDimensionLayout(geometry);
+  const contextAware = isDimensionContext(contextOrLegacyCalibration);
+  const layout = drawingDimensionLayout(
+    geometry,
+    contextOrLegacyCalibration,
+    resolvedFontSize,
+  );
   const width =
-    geometry.calibrationId === null
+    contextAware || geometry.calibrationId === null
       ? layout.width
       : Math.max(
           layout.width,
           DRAWING_DIMENSION_MAX_LABEL_CHARACTERS *
-            DRAWING_DIMENSION_FONT_SIZE *
+            layout.fontSize *
             DRAWING_TEXT_GLYPH_WIDTH,
         );
   return [

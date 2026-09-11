@@ -1,0 +1,27 @@
+Generated an empty chunk: "robots".
+Generated an empty chunk: "sitemap".
+Generated an empty chunk: "resend".
+Generated an empty chunk: "logout".
+Generated an empty chunk: "feed".
+Generated an empty chunk: "revit-download".
+Generated an empty chunk: "drawing-native-assets".
+Generated an empty chunk: "drawing-native-dwg-download".
+Generated an empty chunk: "drawing-native-dwg-export".
+Generated an empty chunk: "drawing-workspace-export".
+Generated an empty chunk: "drawing-workspace-operation".
+Generated an empty chunk: "local-drawing-p5-source-manifest".
+Generated an empty chunk: "local-drawing-pdf-current".
+Generated an empty chunk: "local-drawing-pdf-preview".
+Generated an empty chunk: "local-drawing-workspace-operation".
+Generated an empty chunk: "material-control-export".
+Generated an empty chunk: "project-file-download".
+Generated an empty chunk: "verified-boq-export".
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[plugin vite:reporter] 
+(!) /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/app/lukas/lib/verified-boq-approved-export.server.ts is dynamically imported by /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/app/lukas/lib/drawing-quantity-lineage.server.ts but also statically imported by /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/app/lukas/lib/drawing-estimate.server.ts, /Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/app/lukas/screens/verified-boq.tsx, dynamic import will not move module into another chunk.
+
+The "theme" cookie is not signed, but session cookies should be signed to prevent tampering on the client before they are sent back to the server. See https://reactrouter.com/explanation/sessions-and-cookies#signing-cookies for more information.

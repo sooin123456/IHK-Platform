@@ -7,6 +7,7 @@ import { createServer } from "vite";
 import { z } from "zod";
 
 import routes from "../app/routes.ts";
+import * as drawingLayout from "../app/lukas/lib/drawing-layout.ts";
 
 const workspaceView = await import(
   "../app/lukas/lib/drawing-workspace-view.ts"
@@ -26,10 +27,78 @@ const vite = await createServer({
   },
   server: { middlewareMode: true },
 });
+const drawingStartActionClientKey = "__drawingStartActionClient";
+globalThis[drawingStartActionClientKey] = () => {
+  throw new Error("Drawing start action client is not configured.");
+};
+const uploadFinalizeClientKey = "__projectUploadFinalizeClient";
+const uploadFinalizeDelegateKey = "__projectUploadFinalizeDelegate";
+globalThis[uploadFinalizeClientKey] = () => {
+  throw new Error("Upload finalization client is not configured.");
+};
+globalThis[uploadFinalizeDelegateKey] = () => {
+  throw new Error("Upload finalization delegate is not configured.");
+};
+const drawingStartActionVite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  plugins: [
+    {
+      enforce: "pre",
+      load(id) {
+        if (id === "\0virtual:drawing-start-action-client")
+          return `export default (...args) => globalThis[${JSON.stringify(drawingStartActionClientKey)}](...args);`;
+      },
+      name: "drawing-start-action-client",
+      resolveId(source) {
+        if (source.endsWith("core/lib/supa-client.server.ts"))
+          return "\0virtual:drawing-start-action-client";
+      },
+    },
+  ],
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
+  server: { middlewareMode: true },
+});
+const uploadFinalizeVite = await createServer({
+  appType: "custom",
+  configFile: false,
+  logLevel: "silent",
+  plugins: [
+    {
+      enforce: "pre",
+      load(id) {
+        if (id === "\0virtual:project-upload-finalize-client")
+          return `export default (...args) => globalThis[${JSON.stringify(uploadFinalizeClientKey)}](...args);`;
+        if (id === "\0virtual:project-upload-finalize-delegate")
+          return `export const action = (...args) => globalThis[${JSON.stringify(uploadFinalizeDelegateKey)}](...args);`;
+      },
+      name: "project-upload-finalize",
+      resolveId(source, importer) {
+        if (/core\/lib\/supa-client\.server(?:\.ts)?$/.test(source))
+          return "\0virtual:project-upload-finalize-client";
+        if (
+          source === "./project" &&
+          importer?.includes("/lukas/screens/project-upload-finalize.ts")
+        )
+          return "\0virtual:project-upload-finalize-delegate";
+      },
+    },
+  ],
+  resolve: {
+    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+  },
+  server: { middlewareMode: true },
+});
 const legacyScreen = await vite
   .ssrLoadModule("/app/lukas/screens/drawing-workspace-legacy.tsx")
   .catch(() => ({}));
 const newScreen = await vite
+  .ssrLoadModule("/app/lukas/screens/drawing-workspace-new.tsx")
+  .catch(() => ({}));
+const newScreenAction = await drawingStartActionVite
   .ssrLoadModule("/app/lukas/screens/drawing-workspace-new.tsx")
   .catch(() => ({}));
 const startComponent = await vite
@@ -44,10 +113,28 @@ const workspaceScreen = {
     .catch(() => ({}))),
 };
 const workspaceExport = await vite
-  .ssrLoadModule("/app/lukas/screens/drawing-workspace-export.ts")
+  .ssrLoadModule("/app/lukas/screens/drawing-workspace-export.server.ts")
+  .catch(() => ({}));
+const measurementEvidenceResource = await vite
+  .ssrLoadModule("/app/lukas/screens/drawing-workspace-measurement-evidence.ts")
+  .catch(() => ({}));
+const quantityLineageResource = await vite
+  .ssrLoadModule("/app/lukas/screens/drawing-workspace-quantity-lineage.ts")
+  .catch(() => ({}));
+const uploadFinalizeResource = await uploadFinalizeVite
+  .ssrLoadModule("/app/lukas/screens/project-upload-finalize.ts")
   .catch(() => ({}));
 
-test.after(() => vite.close());
+test.after(async () => {
+  delete globalThis[drawingStartActionClientKey];
+  delete globalThis[uploadFinalizeClientKey];
+  delete globalThis[uploadFinalizeDelegateKey];
+  await Promise.all([
+    vite.close(),
+    drawingStartActionVite.close(),
+    uploadFinalizeVite.close(),
+  ]);
+});
 const ids = {
   project: "00000000-0000-4000-8000-000000000002",
   file: "00000000-0000-4000-8000-000000000003",
@@ -94,6 +181,303 @@ test("drawing operation location is fixed for preview and canonical for producti
       pathname: "/workspace-preview/drawing-workspace",
     }),
   );
+});
+
+test("PDF source attachment form is closed, exact, and idempotent", () => {
+  const parse = workspaceScreen.parseDrawingWorkspaceSourceAttachForm;
+  assert.equal(typeof parse, "function");
+  const canvasId = "00000000-0000-4000-8000-000000000005";
+  const requestId = "00000000-0000-4000-8000-000000000006";
+  const valid = new FormData();
+  valid.set("intent", "attach_source");
+  valid.set("revision_id", ids.file);
+  valid.set("canvas_id", canvasId);
+  valid.set("source_file_id", ids.project);
+  valid.set("request_id", requestId);
+  assert.deepEqual(parse(valid), {
+    revisionId: ids.file,
+    canvasId,
+    sourceFileId: ids.project,
+    requestId,
+  });
+
+  const extra = new FormData();
+  for (const [name, value] of valid) extra.append(name, value);
+  extra.set("role", "admin");
+  assert.throws(() => parse(extra), z.ZodError);
+  const duplicate = new FormData();
+  for (const [name, value] of valid) duplicate.append(name, value);
+  duplicate.append("source_file_id", ids.document);
+  assert.throws(() => parse(duplicate), z.ZodError);
+});
+
+test("PDF source attachment scope requires an editor, source-free draft, and default paper canvas", () => {
+  const assertScope = workspaceScreen.assertDrawingWorkspaceSourceAttachScope;
+  const canvasId = "00000000-0000-4000-8000-000000000005";
+  const mutation = {
+    revisionId: ids.file,
+    canvasId,
+    sourceFileId: ids.project,
+    requestId: "00000000-0000-4000-8000-000000000006",
+  };
+  const workspace = {
+    primarySource: null,
+    document: {
+      id: ids.document,
+      source_file_id: null,
+      source_sha256: null,
+      revision: {
+        id: ids.file,
+        status: "draft",
+        pages: [
+          {
+            id: "00000000-0000-4000-8000-000000000007",
+            canvases: [
+              {
+                id: canvasId,
+                spaceKind: "paper",
+                background: null,
+                sortOrder: 0,
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+  assert.deepEqual(
+    assertScope({ capability: "editor", mutation, workspace }),
+    mutation,
+  );
+
+  for (const [input, status] of [
+    [{ capability: "viewer", mutation, workspace }, 403],
+    [
+      {
+        capability: "editor",
+        mutation,
+        workspace: {
+          ...workspace,
+          document: { ...workspace.document, source_file_id: ids.project },
+        },
+      },
+      409,
+    ],
+    [
+      {
+        capability: "editor",
+        mutation: { ...mutation, canvasId: ids.document },
+        workspace,
+      },
+      409,
+    ],
+  ])
+    assert.throws(
+      () => assertScope(input),
+      (error) => error instanceof Response && error.status === status,
+    );
+});
+
+test("drawing measurement evidence uses one immutable checkpoint URL", () => {
+  const location = workspacePaths.drawingWorkspaceMeasurementEvidencePath;
+  assert.equal(typeof location, "function");
+  const url = new URL(
+    location({
+      projectId: ids.project,
+      workspaceId: ids.document,
+      revisionId: ids.file,
+      revisionVersion: 7,
+      snapshotSha256: "a".repeat(64),
+      operationCheckpoint: 19,
+    }),
+    "https://example.test",
+  );
+  assert.equal(
+    url.pathname,
+    `/projects/${ids.project}/workspaces/${ids.document}/measurement-evidence`,
+  );
+  assert.deepEqual(Object.fromEntries(url.searchParams), {
+    revision: ids.file,
+    version: "7",
+    sha256: "a".repeat(64),
+    operation: "19",
+  });
+  assert.throws(() =>
+    location({
+      projectId: ids.project,
+      workspaceId: ids.document,
+      revisionId: ids.file,
+      revisionVersion: 0,
+      snapshotSha256: "bad",
+      operationCheckpoint: -1,
+    }),
+  );
+});
+
+test("measurement evidence resource accepts exactly one value for every checkpoint field", () => {
+  const parse = measurementEvidenceResource.parseMeasurementEvidenceQuery;
+  assert.equal(typeof parse, "function");
+  const valid = new URLSearchParams({
+    revision: ids.file,
+    version: "7",
+    sha256: "a".repeat(64),
+    operation: "19",
+  });
+  assert.deepEqual(parse(valid), {
+    revision: ids.file,
+    version: 7,
+    sha256: "a".repeat(64),
+    operation: 19,
+  });
+
+  for (const invalid of [
+    new URLSearchParams([...valid, ["unexpected", "1"]]),
+    new URLSearchParams([...valid, ["revision", ids.document]]),
+  ])
+    assert.throws(
+      () => parse(invalid),
+      (error) => error instanceof Response && error.status === 400,
+    );
+});
+
+test("measurement evidence resource keeps database failures distinct from stale checkpoints", async () => {
+  const assertResult =
+    measurementEvidenceResource.assertMeasurementEvidenceScopeResult;
+  assert.equal(typeof assertResult, "function");
+
+  let databaseFailure;
+  try {
+    assertResult({
+      data: null,
+      error: { message: "private database detail" },
+    });
+  } catch (error) {
+    databaseFailure = error;
+  }
+  assert.ok(databaseFailure instanceof Response);
+  assert.equal(databaseFailure.status, 503);
+  assert.equal(
+    await databaseFailure.text(),
+    "측정 근거를 불러오지 못했습니다.",
+  );
+
+  assert.throws(
+    () => assertResult({ data: null, error: null }),
+    (error) => error instanceof Response && error.status === 409,
+  );
+  assert.doesNotThrow(() =>
+    assertResult({ data: { id: ids.file }, error: null }),
+  );
+});
+
+test("ordinary object selection keeps the 10k workspace loader stable", () => {
+  const shouldRevalidate = workspaceScreen.shouldRevalidate;
+  assert.equal(typeof shouldRevalidate, "function");
+  const workspacePath = `/projects/${ids.project}/workspaces/${ids.document}`;
+  const revision = "00000000-0000-4000-8000-000000000005";
+  const objectA = "00000000-0000-4000-8000-000000000006";
+  const objectB = "00000000-0000-4000-8000-000000000007";
+  const decide = (current, next, extra = {}) =>
+    shouldRevalidate({
+      actionResult: undefined,
+      currentParams: {},
+      currentUrl: new URL(current, "https://example.test"),
+      defaultShouldRevalidate: true,
+      formAction: undefined,
+      formData: null,
+      formEncType: undefined,
+      formMethod: undefined,
+      nextParams: {},
+      nextUrl: new URL(next, "https://example.test"),
+      ...extra,
+    });
+
+  assert.equal(
+    decide(
+      workspacePath,
+      `${workspacePath}?object=${objectA}&revision=${revision}`,
+    ),
+    false,
+    "the first ordinary selection must not reload all 10k objects",
+  );
+  assert.equal(
+    decide(
+      `${workspacePath}?object=${objectA}&revision=${revision}`,
+      `${workspacePath}?object=${objectB}&revision=${revision}`,
+    ),
+    false,
+  );
+  assert.equal(
+    decide(
+      `${workspacePath}?object=${objectA}&revision=${revision}`,
+      workspacePath,
+    ),
+    false,
+  );
+  assert.equal(
+    decide(
+      `${workspacePath}?object=${objectA}&revision=${revision}`,
+      `${workspacePath}?object=${objectB}&revision=${ids.file}`,
+    ),
+    true,
+    "an explicit revision change still reloads authoritative state",
+  );
+  assert.equal(
+    decide(
+      `${workspacePath}?object=${objectA}&revision=${revision}`,
+      `${workspacePath}?object=${objectB}&revision=${revision}&view=split`,
+    ),
+    true,
+  );
+  assert.equal(
+    decide(
+      `${workspacePath}?object=${objectA}&revision=${revision}&boq=${ids.file}&line=${ids.project}`,
+      `${workspacePath}?object=${objectB}&revision=${revision}`,
+    ),
+    true,
+    "a BOQ evidence transition keeps the full authorization loader",
+  );
+  const mutation = new FormData();
+  mutation.set("intent", "apply_operation");
+  assert.equal(
+    decide(workspacePath, workspacePath, { formData: mutation }),
+    true,
+  );
+});
+
+test("object quantity lineage uses a strict small resource URL", () => {
+  const location = workspacePaths.drawingWorkspaceQuantityLineagePath;
+  assert.equal(typeof location, "function");
+  assert.equal(
+    location(ids.project, ids.document),
+    `/projects/${ids.project}/workspaces/${ids.document}/quantity-lineage`,
+  );
+  assert.throws(() => location(ids.project, "not-a-uuid"));
+
+  const parse = quantityLineageResource.parseQuantityLineageResourceQuery;
+  assert.equal(typeof parse, "function");
+  const valid = new URLSearchParams({
+    revision: ids.file,
+    object: ids.document,
+  });
+  assert.deepEqual(parse(valid), {
+    revisionId: ids.file,
+    objectId: ids.document,
+    boqVersionId: null,
+    boqLineId: null,
+    evidenceFileId: null,
+    cursor: null,
+  });
+  for (const invalid of [
+    new URLSearchParams({ revision: ids.file }),
+    new URLSearchParams([...valid, ["object", ids.project]]),
+    new URLSearchParams([...valid, ["unexpected", "1"]]),
+    new URLSearchParams([...valid, ["boq", ids.project]]),
+  ])
+    assert.throws(
+      () => parse(invalid),
+      (error) => error instanceof Response && error.status === 400,
+    );
 });
 
 test("estimate binding form accepts only an editable current draft revision and UUID BOQ", () => {
@@ -281,6 +665,64 @@ test("workspace action failures use the bounded Korean recovery union", async ()
   }
 });
 
+test("workspace loader retries one incoherent read snapshot and preserves final failure", async () => {
+  const retry = workspaceScreen.retryDrawingWorkspaceLoaderSnapshot;
+  assert.equal(typeof retry, "function");
+
+  let attempts = 0;
+  const recovered = await retry(async () => {
+    attempts += 1;
+    if (attempts === 1)
+      throw new workspaceServer.DrawingWorkspaceRetryableError("stale read");
+    return "coherent";
+  });
+  assert.equal(recovered, "coherent");
+  assert.equal(attempts, 2);
+
+  attempts = 0;
+  let exhausted;
+  try {
+    await retry(async () => {
+      attempts += 1;
+      throw new workspaceServer.DrawingWorkspaceRetryableError("still stale");
+    });
+  } catch (error) {
+    exhausted = error;
+  }
+  assert.ok(exhausted instanceof Response);
+  assert.equal(exhausted.status, 503);
+  assert.equal(exhausted.headers.get("Retry-After"), "1");
+  assert.equal(
+    await exhausted.text(),
+    "작업실이 변경 중입니다. 잠시 후 다시 열어 주세요.",
+  );
+  assert.equal(attempts, 2);
+
+  attempts = 0;
+  await assert.rejects(
+    retry(async () => {
+      attempts += 1;
+      throw new Error("not retryable");
+    }),
+    /not retryable/,
+  );
+  assert.equal(attempts, 1);
+
+  let staleFocus;
+  try {
+    await retry(async () => {
+      throw new workspaceServer.DrawingWorkspaceConflictError(
+        "internal canonical object detail",
+      );
+    });
+  } catch (error) {
+    staleFocus = error;
+  }
+  assert.ok(staleFocus instanceof Response);
+  assert.equal(staleFocus.status, 404);
+  assert.equal(await staleFocus.text(), "연결된 도면 근거를 열 수 없습니다.");
+});
+
 test("workspace action retains review freeze and estimate correlation IDs", async () => {
   const requestId = workspaceScreen.actionRequestId;
   assert.equal(typeof requestId, "function");
@@ -292,6 +734,10 @@ test("workspace action retains review freeze and estimate correlation IDs", asyn
   estimate.set("intent", "bind_drawing_estimate");
   estimate.set("client_request_id", ids.document);
   assert.equal(requestId(estimate), ids.document);
+  const relink = new FormData();
+  relink.set("intent", "relink_anchor");
+  relink.set("new_anchor_id", ids.project);
+  assert.equal(requestId(relink), ids.project);
   const retry = await workspaceScreen.drawingWorkspaceActionErrorResponse(
     new workspaceServer.DrawingWorkspaceRetryableError("transient"),
     { requestId: requestId(estimate) },
@@ -514,6 +960,7 @@ test("source-free issue room loads comments without calling the file-room loader
         },
       },
     },
+    {},
     async () => {
       fileRoomCalls += 1;
     },
@@ -526,6 +973,194 @@ test("source-free issue room loads comments without calling the file-room loader
     "lukas_drawing_canvas_region_anchors",
     "lukas_drawing_comment_mentions",
   ]);
+});
+
+test("canonical revision relink is limited to one comment-capable primary source candidate", () => {
+  const assertScope = workspaceScreen.assertDrawingWorkspaceRevisionRelinkScope;
+  assert.equal(typeof assertScope, "function");
+  const pdfFileId = ids.file;
+  const previousAnchorId = "00000000-0000-4000-8000-000000000010";
+  const mutation = {
+    previousAnchorId,
+    newAnchorId: "00000000-0000-4000-8000-000000000011",
+    currentFileId: pdfFileId,
+    anchor: {
+      kind: "pdf_region",
+      fileId: pdfFileId,
+      pageNumber: 1,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      label: "새 개정 위치",
+    },
+    note: "새 PDF에서 다시 확인",
+  };
+  const candidate = {
+    issueId: "00000000-0000-4000-8000-000000000012",
+    issueTitle: "개정 검토",
+    previousAnchorId,
+    previousFileId: "00000000-0000-4000-8000-000000000013",
+    sourceKind: "pdf_region",
+    kind: "manual_reanchor_required",
+    ifcGlobalId: null,
+  };
+  const workspace = {
+    primarySource: { id: pdfFileId, kind: "pdf" },
+  };
+
+  assert.equal(
+    assertScope({
+      capability: "commenter",
+      mutation,
+      revisionReview: [candidate],
+      workspace,
+    }),
+    candidate,
+  );
+
+  for (const [input, status] of [
+    [{ capability: "viewer" }, 403],
+    [{ capability: "approver" }, 403],
+    [{ workspace: { primarySource: null } }, 409],
+    [
+      {
+        mutation: {
+          ...mutation,
+          currentFileId: ids.project,
+          anchor: { ...mutation.anchor, fileId: ids.project },
+        },
+      },
+      409,
+    ],
+    [{ revisionReview: [] }, 409],
+    [
+      {
+        revisionReview: [{ ...candidate, sourceKind: "ifc_element" }],
+      },
+      409,
+    ],
+  ])
+    assert.throws(
+      () =>
+        assertScope({
+          capability: "commenter",
+          mutation,
+          revisionReview: [candidate],
+          workspace,
+          ...input,
+        }),
+      (error) => error instanceof Response && error.status === status,
+    );
+});
+
+test("primary-source issue room forwards all revision candidates for one bounded query", async () => {
+  const calls = [];
+  const room = { issues: [] };
+  const result = await workspaceScreen.loadDrawingWorkspaceIssueRoom(
+    {},
+    ids.project,
+    { primarySource: { id: ids.file } },
+    { focusIssueIds: [ids.document, ids.document, ids.project] },
+    async (_client, projectId, fileId, options) => {
+      calls.push({ projectId, fileId, options });
+      return room;
+    },
+  );
+  assert.equal(result, room);
+  assert.deepEqual(calls, [
+    {
+      projectId: ids.project,
+      fileId: ids.file,
+      options: { focusIssueIds: [ids.document, ids.document, ids.project] },
+    },
+  ]);
+});
+
+test("revision relink authority accepts an exact candidate beyond the visible page", async () => {
+  const authorize =
+    workspaceScreen.assertDrawingWorkspaceRevisionRelinkAuthority;
+  assert.equal(typeof authorize, "function");
+  const currentFileId = "00000000-0000-4000-8000-000000000101";
+  const previousAnchorId = "00000000-0000-4000-8000-000000000151";
+  const mutation = {
+    previousAnchorId,
+    newAnchorId: "00000000-0000-4000-8000-000000000152",
+    currentFileId,
+    anchor: {
+      kind: "pdf_region",
+      fileId: currentFileId,
+      pageNumber: 1,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      label: "새 개정 위치",
+    },
+    note: "새 PDF에서 다시 확인",
+  };
+  const result = { data: null, error: null };
+  const client = {
+    from(table) {
+      const row =
+        table === "lukas_qto_file_revisions"
+          ? {
+              project_id: ids.project,
+              previous_file_id: "00000000-0000-4000-8000-000000000111",
+              current_file_id: currentFileId,
+            }
+          : table === "lukas_drawing_issue_anchors"
+            ? {
+                id: previousAnchorId,
+                issue_id: "00000000-0000-4000-8000-000000000121",
+                project_id: ids.project,
+                file_id: "00000000-0000-4000-8000-000000000111",
+                anchor_kind: "pdf_region",
+                ifc_global_id: null,
+                active: true,
+              }
+            : table === "lukas_drawing_issues"
+              ? {
+                  id: "00000000-0000-4000-8000-000000000121",
+                  project_id: ids.project,
+                  title: "51번째 검토 이슈",
+                  status: "open",
+                }
+              : null;
+      if (!row) throw new Error(`Unexpected table: ${table}`);
+      const query = {
+        select() {
+          return query;
+        },
+        eq() {
+          return query;
+        },
+        maybeSingle() {
+          return Promise.resolve({ ...result, data: row });
+        },
+      };
+      return query;
+    },
+  };
+
+  assert.deepEqual(
+    await authorize({
+      baseClient: client,
+      capability: "commenter",
+      mutation,
+      projectId: ids.project,
+      workspace: { primarySource: { id: currentFileId, kind: "pdf" } },
+    }),
+    {
+      issueId: "00000000-0000-4000-8000-000000000121",
+      issueTitle: "51번째 검토 이슈",
+      previousAnchorId,
+      previousFileId: "00000000-0000-4000-8000-000000000111",
+      sourceKind: "pdf_region",
+      kind: "manual_reanchor_required",
+      ifcGlobalId: null,
+    },
+  );
 });
 
 test("object issue scope validates object to revision to document to project", async () => {
@@ -737,6 +1372,16 @@ test("workspace routes register static start before dynamic canonical identity a
     "lukas/screens/drawing-workspace-export.ts",
   );
   assert.equal(
+    byPath.get(
+      "/projects/:projectId/workspaces/:workspaceId/measurement-evidence",
+    ),
+    "lukas/screens/drawing-workspace-measurement-evidence.ts",
+  );
+  assert.equal(
+    byPath.get("/projects/:projectId/workspaces/:workspaceId/quantity-lineage"),
+    "lukas/screens/drawing-workspace-quantity-lineage.ts",
+  );
+  assert.equal(
     byPath.get("/projects/:projectId/drawings/:fileId/workspace"),
     "lukas/screens/drawing-workspace-legacy.tsx",
   );
@@ -929,6 +1574,14 @@ test("new workspace start mutation is an exhaustive closed discriminated union",
     ),
     { intent: "create_pdf", ...common, sourceFileId: ids.file },
   );
+  for (const intent of ["create_ifc", "create_dxf"]) {
+    assert.deepEqual(
+      newScreen.parseDrawingWorkspaceStartForm(
+        startForm({ intent, ...common, sourceFileId: ids.file }),
+      ),
+      { intent, ...common, sourceFileId: ids.file },
+    );
+  }
   assert.deepEqual(
     newScreen.parseDrawingWorkspaceStartForm(
       startForm({
@@ -959,10 +1612,234 @@ test("new workspace start mutation is an exhaustive closed discriminated union",
   );
 });
 
+test("new workspace start separates unused PDFs from sources that already have a canonical workspace", () => {
+  const unusedFile = "00000000-0000-4000-8000-000000000005";
+  assert.deepEqual(
+    newScreen.bindDrawingWorkspacePdfSources(
+      [
+        { id: ids.file, original_filename: "existing.pdf" },
+        { id: unusedFile, original_filename: "unused.pdf" },
+      ],
+      [{ id: ids.document, source_file_id: ids.file }],
+    ),
+    [
+      {
+        id: ids.file,
+        original_filename: "existing.pdf",
+        workspaceId: ids.document,
+      },
+      {
+        id: unusedFile,
+        original_filename: "unused.pdf",
+        workspaceId: null,
+      },
+    ],
+  );
+});
+
+function startResourcePromises({
+  failLibrary = false,
+  failStarters = false,
+} = {}) {
+  return {
+    documents: Promise.resolve({ data: [], error: null }),
+    files: Promise.resolve({
+      data: [{ id: ids.file, original_filename: "A-101.pdf" }],
+      error: null,
+    }),
+    libraryVersions: failLibrary
+      ? Promise.reject(new Error("private organization library failure"))
+      : Promise.resolve([{ id: ids.document }]),
+    starters: failStarters
+      ? Promise.reject(new Error("private starter catalog failure"))
+      : Promise.resolve([{ definition: { key: "interior-basic" } }]),
+  };
+}
+
+test("platform starter failure preserves mandatory PDF data and bounds its recovery notice", async () => {
+  const resolve = newScreen.resolveDrawingWorkspaceStartResources;
+  assert.equal(typeof resolve, "function");
+  const result = await resolve(startResourcePromises({ failStarters: true }));
+
+  assert.deepEqual(result.files, {
+    data: [{ id: ids.file, original_filename: "A-101.pdf" }],
+    error: null,
+  });
+  assert.deepEqual(result.starters, []);
+  assert.deepEqual(result.libraryVersions, [{ id: ids.document }]);
+  assert.deepEqual(result.catalogNotices, {
+    nativeTemplates: null,
+    organizationTemplates: null,
+    starters:
+      "기본 템플릿을 불러오지 못했습니다. 빈 작업실이나 PDF로 시작해 주세요.",
+  });
+  assert.deepEqual(result.nativeTemplates, []);
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /private starter catalog failure/,
+  );
+});
+
+test("organization template failure preserves platform starters and bounds its recovery notice", async () => {
+  const result = await newScreen.resolveDrawingWorkspaceStartResources(
+    startResourcePromises({ failLibrary: true }),
+  );
+
+  assert.deepEqual(result.starters, [
+    { definition: { key: "interior-basic" } },
+  ]);
+  assert.deepEqual(result.libraryVersions, []);
+  assert.deepEqual(result.catalogNotices, {
+    nativeTemplates: null,
+    organizationTemplates:
+      "회사 템플릿을 불러오지 못했습니다. 빈 작업실이나 PDF로 시작해 주세요.",
+    starters: null,
+  });
+  assert.deepEqual(result.nativeTemplates, []);
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /private organization library failure/,
+  );
+});
+
+test("both optional catalog failures preserve blank and PDF start resources", async () => {
+  const result = await newScreen.resolveDrawingWorkspaceStartResources(
+    startResourcePromises({ failLibrary: true, failStarters: true }),
+  );
+
+  assert.deepEqual(result.documents, { data: [], error: null });
+  assert.deepEqual(result.files, {
+    data: [{ id: ids.file, original_filename: "A-101.pdf" }],
+    error: null,
+  });
+  assert.deepEqual(result.starters, []);
+  assert.deepEqual(result.libraryVersions, []);
+  assert.ok(result.catalogNotices.starters);
+  assert.ok(result.catalogNotices.organizationTemplates);
+});
+
+test("starter deep links fall back only when the optional catalog is unavailable", async () => {
+  const resolve = newScreen.resolveDrawingStarterSelection;
+  const starters = [{ key: "interior-basic" }];
+  assert.equal(resolve("interior-basic", starters, false), "interior-basic");
+  assert.equal(resolve("interior-basic", [], true), undefined);
+  assert.throws(
+    () => resolve("interior-basic", [], false),
+    (error) => error instanceof Response && error.status === 400,
+  );
+  assert.throws(
+    () => resolve("not a valid key", [], true),
+    (error) => error instanceof Response && error.status === 400,
+  );
+});
+
+test("mandatory PDF authority failure propagates instead of becoming an optional catalog notice", async () => {
+  const mandatoryFailure = new Error("mandatory PDF authority failed");
+  await assert.rejects(
+    newScreen.resolveDrawingWorkspaceStartResources({
+      ...startResourcePromises({ failLibrary: true, failStarters: true }),
+      files: Promise.reject(mandatoryFailure),
+    }),
+    (error) => error === mandatoryFailure,
+  );
+});
+
+test("PDF source conflict redirects only to another creation and resumes its own partial request", () => {
+  const requestId = "00000000-0000-4000-8000-000000000010";
+  assert.equal(
+    newScreen.reusablePdfWorkspaceId(
+      { id: ids.document, creation_request_id: null },
+      requestId,
+    ),
+    ids.document,
+  );
+  assert.equal(
+    newScreen.reusablePdfWorkspaceId(
+      {
+        id: ids.document,
+        creation_request_id: "00000000-0000-4000-8000-000000000011",
+      },
+      requestId,
+    ),
+    ids.document,
+  );
+  assert.equal(
+    newScreen.reusablePdfWorkspaceId(
+      { id: ids.document, creation_request_id: requestId },
+      requestId,
+    ),
+    null,
+  );
+  assert.equal(newScreen.reusablePdfWorkspaceId(null, requestId), null);
+});
+
+test("unauthenticated malformed workspace start redirects before validation", async () => {
+  const headers = new Headers({
+    "Set-Cookie": "session=workspace-start; Path=/; HttpOnly",
+  });
+  globalThis[drawingStartActionClientKey] = () => [
+    { auth: { getUser: async () => ({ data: { user: null } }) } },
+    headers,
+  ];
+
+  await assert.rejects(
+    newScreenAction.action({
+      request: new Request(
+        `http://app.test/projects/${ids.project}/workspaces/new?source=upload`,
+        { method: "POST", body: new FormData() },
+      ),
+      params: { projectId: ids.project },
+    }),
+    (response) => {
+      assert.equal(response.status, 302);
+      assert.equal(
+        response.headers.get("Location"),
+        `/login?next=%2Fprojects%2F${ids.project}%2Fworkspaces%2Fnew%3Fsource%3Dupload`,
+      );
+      assert.equal(
+        response.headers.get("Set-Cookie"),
+        "session=workspace-start; Path=/; HttpOnly",
+      );
+      return true;
+    },
+  );
+});
+
 test("failed start validation preserves the submitted retry identity and isolates its field error", async () => {
   const clientRequestId = "00000000-0000-4000-8000-000000000010";
   const clientCreatedAt = "2026-08-31T01:02:03.000Z";
-  const response = await newScreen.action({
+  const headers = new Headers();
+  const project = { id: ids.project, name: "Test", owner_id: "actor" };
+  const query = {
+    eq() {
+      return query;
+    },
+    select() {
+      return query;
+    },
+    single: async () => ({ data: project, error: null }),
+  };
+  globalThis[drawingStartActionClientKey] = () => [
+    {
+      auth: {
+        getUser: async () => ({
+          data: {
+            user: {
+              app_metadata: {},
+              id: "actor",
+              is_anonymous: false,
+            },
+          },
+        }),
+      },
+      from(table) {
+        assert.equal(table, "lukas_qto_projects");
+        return query;
+      },
+    },
+    headers,
+  ];
+  const response = await newScreenAction.action({
     request: new Request(
       `http://app.test/projects/${ids.project}/workspaces/new`,
       {
@@ -1034,6 +1911,278 @@ test("project original-file download is an authenticated resource route", () => 
   ]);
 });
 
+test("project upload finalization is a dedicated authenticated JSON resource route", async () => {
+  const registered = flatten(routes).find(
+    (route) => route.path === "/projects/:projectId/files/finalize-upload",
+  );
+  assert.deepEqual(registered && [registered.path, registered.file], [
+    "/projects/:projectId/files/finalize-upload",
+    "lukas/screens/project-upload-finalize.ts",
+  ]);
+
+  const resource = await readFile(
+    new URL("../app/lukas/screens/project-upload-finalize.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(resource, /projectAction/);
+  assert.doesNotMatch(resource, /\.formData\(\)/);
+  assert.doesNotMatch(resource, /export default/);
+
+  const actionSource = resource.slice(
+    resource.indexOf("export async function action"),
+  );
+  const authIndex = actionSource.indexOf("await client.auth.getUser()");
+  const parseIndex = actionSource.indexOf(
+    "await parseProjectUploadFinalizationRequest(request)",
+  );
+  assert.ok(authIndex >= 0, "the resource action must authenticate directly");
+  assert.ok(
+    parseIndex > authIndex,
+    "the resource action must authenticate before parsing its bounded body",
+  );
+});
+
+function projectUploadFinalizationRequest(
+  body,
+  contentType = "application/json",
+) {
+  return new Request(
+    `http://app.test/projects/${ids.project}/files/finalize-upload`,
+    {
+      body,
+      headers: { "Content-Type": contentType },
+      method: "POST",
+    },
+  );
+}
+
+async function projectUploadFinalizationActionStatus(request) {
+  try {
+    const result = await uploadFinalizeResource.action({
+      params: { projectId: ids.project },
+      request,
+    });
+    return result instanceof Response
+      ? result.status
+      : (result?.init?.status ?? 200);
+  } catch (error) {
+    if (error instanceof Response) return error.status;
+    throw error;
+  }
+}
+
+test("upload finalization parser accepts only the closed JSON wire payload", async () => {
+  const parse = uploadFinalizeResource.parseProjectUploadFinalizationRequest;
+  assert.equal(typeof parse, "function");
+  const returnTo = `/projects/${ids.project}/workspaces/${ids.document}`;
+  assert.deepEqual(
+    await parse(
+      projectUploadFinalizationRequest(
+        JSON.stringify({ verificationId: ids.file, returnTo }),
+        "application/json; charset=utf-8",
+      ),
+    ),
+    { verificationId: ids.file, returnTo },
+  );
+
+  const multipart = new FormData();
+  multipart.set("upload_verification_id", ids.file);
+  multipart.set("source_file", new Blob(["not accepted"]), "drawing.pdf");
+  for (const request of [
+    projectUploadFinalizationRequest(
+      JSON.stringify({ verificationId: ids.file }),
+      "text/plain",
+    ),
+    new Request(
+      `http://app.test/projects/${ids.project}/files/finalize-upload`,
+      { body: multipart, method: "POST" },
+    ),
+  ])
+    await assert.rejects(
+      parse(request),
+      (error) => error instanceof Response && error.status === 415,
+    );
+
+  for (const payload of [
+    {},
+    { verificationId: "not-a-uuid" },
+    { verificationId: ids.file, intent: "upload" },
+    { verificationId: ids.file, returnTo: "https://attacker.example/collect" },
+  ])
+    await assert.rejects(
+      parse(projectUploadFinalizationRequest(JSON.stringify(payload))),
+      (error) => error instanceof Response && error.status === 400,
+    );
+});
+
+test("upload finalization parser caps the encoded JSON body at 2 KiB", async () => {
+  const parse = uploadFinalizeResource.parseProjectUploadFinalizationRequest;
+  assert.equal(typeof parse, "function");
+  const payload = JSON.stringify({ verificationId: ids.file });
+  const atLimit = payload.padEnd(2 * 1024, " ");
+  assert.equal(new TextEncoder().encode(atLimit).byteLength, 2 * 1024);
+  assert.deepEqual(await parse(projectUploadFinalizationRequest(atLimit)), {
+    verificationId: ids.file,
+  });
+  await assert.rejects(
+    parse(projectUploadFinalizationRequest(`${atLimit} `)),
+    (error) => error instanceof Response && error.status === 413,
+  );
+});
+
+test("upload finalization authenticates before consuming a malformed body", async () => {
+  const events = [];
+  globalThis[uploadFinalizeClientKey] = () => {
+    events.push("client");
+    return [
+      {
+        auth: {
+          getUser: async () => {
+            events.push("auth");
+            return { data: { user: null } };
+          },
+        },
+      },
+      new Headers({ "Set-Cookie": "session=finalize; Path=/; HttpOnly" }),
+    ];
+  };
+  let delegateCalls = 0;
+  globalThis[uploadFinalizeDelegateKey] = () => {
+    delegateCalls += 1;
+  };
+
+  await assert.rejects(
+    uploadFinalizeResource.action({
+      params: { projectId: ids.project },
+      request: projectUploadFinalizationRequest("{"),
+    }),
+    (response) => {
+      assert.equal(response.status, 302);
+      assert.equal(
+        response.headers.get("Location"),
+        `/login?next=%2Fprojects%2F${ids.project}%2Ffiles%2Ffinalize-upload`,
+      );
+      assert.equal(
+        response.headers.get("Set-Cookie"),
+        "session=finalize; Path=/; HttpOnly",
+      );
+      return true;
+    },
+  );
+  assert.deepEqual(events, ["client", "auth"]);
+  assert.equal(delegateCalls, 0);
+});
+
+test("upload finalization rejects invalid and oversized JSON before delegation", async () => {
+  globalThis[uploadFinalizeClientKey] = () => [
+    {
+      auth: {
+        getUser: async () => ({
+          data: { user: { id: ids.document, is_anonymous: false } },
+        }),
+      },
+    },
+    new Headers(),
+  ];
+  let delegateCalls = 0;
+  globalThis[uploadFinalizeDelegateKey] = () => {
+    delegateCalls += 1;
+    return { data: { destination: `/projects/${ids.project}` } };
+  };
+
+  for (const [body, status] of [
+    ["", 400],
+    [JSON.stringify({ verificationId: "not-a-uuid" }), 400],
+    [JSON.stringify({ verificationId: ids.file, unexpected: true }), 400],
+    ["{".padEnd(2 * 1024 + 1, "x"), 413],
+  ])
+    assert.equal(
+      await projectUploadFinalizationActionStatus(
+        projectUploadFinalizationRequest(body),
+      ),
+      status,
+    );
+  assert.equal(delegateCalls, 0);
+});
+
+test("valid JSON finalization reuses the refreshed authenticated session", async () => {
+  const events = [];
+  const user = {
+    app_metadata: {},
+    id: ids.document,
+    is_anonymous: false,
+  };
+  const client = {
+    auth: {
+      getUser: async () => {
+        events.push("auth");
+        return { data: { user } };
+      },
+    },
+  };
+  const refreshedHeaders = new Headers({
+    "Set-Cookie": "session=refreshed; Path=/; HttpOnly",
+  });
+  globalThis[uploadFinalizeClientKey] = () => [client, refreshedHeaders];
+  const returnTo = `/projects/${ids.project}/workspaces/${ids.document}`;
+  const delegatedResult = {
+    data: { destination: returnTo },
+    init: { headers: refreshedHeaders },
+  };
+  let delegatedArgs;
+  let delegatedContext;
+  let delegatedForm;
+  globalThis[uploadFinalizeDelegateKey] = async (args, context) => {
+    events.push("project-action");
+    delegatedArgs = args;
+    delegatedContext = context;
+    delegatedForm = Object.fromEntries(await args.request.formData());
+    return delegatedResult;
+  };
+
+  const result = await uploadFinalizeResource.action({
+    params: { projectId: ids.project },
+    request: new Request(
+      `http://app.test/projects/${ids.project}/files/finalize-upload`,
+      {
+        body: JSON.stringify({ verificationId: ids.file, returnTo }),
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: "session=stale",
+        },
+        method: "POST",
+      },
+    ),
+  });
+
+  assert.equal(result, delegatedResult);
+  assert.deepEqual(result.data, { destination: returnTo });
+  assert.equal(
+    result.init.headers.get("Set-Cookie"),
+    "session=refreshed; Path=/; HttpOnly",
+  );
+  assert.equal(delegatedContext.client, client);
+  assert.equal(delegatedContext.headers, refreshedHeaders);
+  assert.equal(delegatedContext.user, user);
+  assert.equal(delegatedArgs.request.headers.get("Cookie"), null);
+  assert.deepEqual(
+    {
+      params: delegatedArgs.params,
+      form: delegatedForm,
+    },
+    {
+      params: { projectId: ids.project },
+      form: {
+        intent: "upload",
+        return_to: returnTo,
+        upload_response_mode: "browser_recovery",
+        upload_verification_id: ids.file,
+      },
+    },
+  );
+  assert.deepEqual(events, ["auth", "project-action"]);
+});
+
 test("collaboration room exposes an accessible link to the additive workspace", async () => {
   const source = await readFile(
     new URL("../app/lukas/screens/drawing-room.tsx", import.meta.url),
@@ -1057,6 +2206,17 @@ test("new workspace screen owns blank and PDF-background creation without replac
   assert.match(source, /create_library_template/);
   assert.match(source, /clientCreatedAt/);
   assert.doesNotMatch(source, /Unexpected error/);
+});
+
+test("DXF source start hands the exact selected file to the new workspace", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace-new.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /mutation\.intent === "create_dxf"[\s\S]*destination\.searchParams\.set\(\s*"dxfSourceFileId",\s*mutation\.sourceFileId,?\s*\)/,
+  );
 });
 
 test("workspace document renders the accessible editor shell", async () => {
@@ -1303,6 +2463,23 @@ test("review controls require capability, requested status, separate maker, and 
       null,
     );
   }
+});
+
+test("approved snapshot restore is limited to admin editor and reviewer", () => {
+  assert.equal(
+    typeof workspaceView?.drawingWorkspaceCanRestoreApprovedSnapshot,
+    "function",
+  );
+  for (const capability of ["admin", "editor", "reviewer"])
+    assert.equal(
+      workspaceView.drawingWorkspaceCanRestoreApprovedSnapshot(capability),
+      true,
+    );
+  for (const capability of ["commenter", "approver", "viewer"])
+    assert.equal(
+      workspaceView.drawingWorkspaceCanRestoreApprovedSnapshot(capability),
+      false,
+    );
 });
 
 test("revision decision form fields bind the exact immutable snapshot", () => {
@@ -1552,26 +2729,235 @@ test("workspace route wires the verified source bundle and controlled IFC surfac
   assert.doesNotMatch(shell, /byteSize=\{selectedIfc\.byteSize\}/);
   assert.match(shell, /<IfcViewer/);
   assert.doesNotMatch(shell, /target="_blank"/);
-  assert.equal(canvas.match(/drawingPanGestureTransition\(/g)?.length, 4);
+  assert.equal(canvas.match(/drawingPanGestureTransition\(/g)?.length, 6);
   assert.match(canvas, /drawingPdfImagePlacement\(rendered\.canvasSize/);
   assert.doesNotMatch(canvas, /containPdfSource/);
   assert.match(canvas, /x=\{pdfSource\.bounds\.x\}/);
   assert.match(canvas, /y=\{pdfSource\.bounds\.y\}/);
 });
 
-test("workspace loader starts identity-independent data together and skips bind options for read-only actors", async () => {
+test("workspace source recovery keeps the authorized catalog and clears only an unavailable IFC selection", () => {
+  const recover = workspaceScreen.recoverDrawingWorkspaceSourceFailure;
+  assert.equal(typeof recover, "function");
+  const ifcId = "10000000-0000-4000-8000-000000000002";
+  const catalog = [
+    {
+      id: "10000000-0000-4000-8000-000000000001",
+      kind: "pdf",
+      originalFilename: "plan.pdf",
+      byteSize: 4096,
+      sha256: "a".repeat(64),
+    },
+    {
+      id: ifcId,
+      kind: "ifc",
+      originalFilename: "model.ifc",
+      byteSize: 8192,
+      sha256: "b".repeat(64),
+    },
+  ];
+  const recoveryBundle = {
+    primary: catalog[0],
+    pdf: null,
+    ifc: null,
+    previousPdf: null,
+    revisionEdge: null,
+    catalog,
+  };
+  const error = new workspaceServer.DrawingWorkspaceSourceUnavailableError(
+    "IFC derivative 파일을 열지 못했습니다.",
+    recoveryBundle,
+  );
+
+  assert.deepEqual(recover(error, ifcId), {
+    sourceBundle: {
+      ...recoveryBundle,
+      error: "선택한 IFC 원본을 표시하지 못했습니다. 다시 시도해 주세요.",
+    },
+    selectedIfcFileId: null,
+  });
+  const loadedIfc = { ...catalog[1], derivative: { status: "pending" } };
+  const pdfRecoveryBundle = {
+    ...recoveryBundle,
+    ifc: loadedIfc,
+  };
+  const pdfError = new workspaceServer.DrawingWorkspaceSourceUnavailableError(
+    "도면 원본을 열지 못했습니다.",
+    pdfRecoveryBundle,
+  );
+  assert.deepEqual(recover(pdfError, ifcId), {
+    sourceBundle: {
+      ...pdfRecoveryBundle,
+      error: "PDF 원본 배경을 표시하지 못했습니다. 다시 시도해 주세요.",
+    },
+    selectedIfcFileId: ifcId,
+  });
+  assert.equal(recover(new Error("database down"), ifcId), null);
+});
+
+test("2D PDF recovery preserves an intentionally unloaded IFC selection", () => {
+  const recover = workspaceScreen.recoverDrawingWorkspaceSourceFailure;
+  assert.equal(typeof recover, "function");
+  const pdf = {
+    id: "10000000-0000-4000-8000-000000000001",
+    kind: "pdf",
+    originalFilename: "plan.pdf",
+    byteSize: 4096,
+    sha256: "a".repeat(64),
+  };
+  const ifc = {
+    id: "10000000-0000-4000-8000-000000000002",
+    kind: "ifc",
+    originalFilename: "model.ifc",
+    byteSize: 8192,
+    sha256: "b".repeat(64),
+  };
+  const recoveryBundle = {
+    primary: pdf,
+    pdf: null,
+    ifc: null,
+    previousPdf: null,
+    revisionEdge: null,
+    catalog: [pdf, ifc],
+  };
+  const error = new workspaceServer.DrawingWorkspaceSourceUnavailableError(
+    "도면 원본을 열지 못했습니다.",
+    recoveryBundle,
+  );
+
+  assert.deepEqual(recover(error, ifc.id, false), {
+    sourceBundle: {
+      ...recoveryBundle,
+      error: "PDF 원본 배경을 표시하지 못했습니다. 다시 시도해 주세요.",
+    },
+    selectedIfcFileId: ifc.id,
+  });
+});
+
+test("workspace loader reuses one canonical graph after a metadata-only shell load", async () => {
   const screen = await readFile(
     new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(
-    screen,
-    /await Promise\.all\(\[\s*[\s\S]*loadDrawingEstimateSummary\([\s\S]*canEdit\(capability\)[\s\S]*loadDrawingEstimateOptions\([\s\S]*loadDrawingWorkspaceSourceBundle\([\s\S]*loadDrawingWorkspaceMeasurementState\([\s\S]*loadDrawingActivityPage\([\s\S]*loadDrawingWorkspaceIssueRoom\([\s\S]*listDrawingAssignees\(/,
+  const loader = screen.slice(
+    screen.indexOf("export async function loader"),
+    screen.indexOf("export async function action"),
   );
   assert.match(
-    screen,
-    /canEdit\(capability\)[\s\S]*\? loadDrawingEstimateOptions\([\s\S]*: Promise\.resolve\(\[\]\)/,
+    loader,
+    /await loadDrawingWorkspaceShell\([\s\S]*loadDrawingWorkspaceCollaborationBootstrap\([\s\S]*await Promise\.all\(\[[\s\S]*loadDrawingActivityPage\([\s\S]*loadDrawingWorkspaceIssueRoom\([\s\S]*listDrawingAssignees\([\s\S]*hydrateDrawingWorkspaceShell\(/,
   );
+  assert.match(
+    loader,
+    /hydrateDrawingWorkspaceShell\([\s\S]*await Promise\.all\(\[[\s\S]*loadDrawingEstimateSummary\([\s\S]*canEdit\(capability\)[\s\S]*\? loadDrawingEstimateOptions\([\s\S]*loadDrawingWorkspaceSourceBundle\(/,
+  );
+  assert.doesNotMatch(loader, /await loadDrawingWorkspace\(/);
+});
+
+test("workspace loader keeps legacy revisions on their full graph without canonical hydration", async () => {
+  const screen = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const loader = screen.slice(
+    screen.indexOf("export async function loader"),
+    screen.indexOf("export async function action"),
+  );
+  assert.match(loader, /drawingWorkspaceUsesCanonicalGraph\(workspaceShell\)/);
+  assert.match(
+    loader,
+    /usesCanonicalGraph\s*\?\s*loadDrawingWorkspaceCollaborationBootstrap\([\s\S]*:\s*Promise\.resolve\(null\)/,
+  );
+  assert.match(
+    loader,
+    /collaborationBootstrap\s*\?\s*hydrateDrawingWorkspaceShell\([\s\S]*:\s*workspaceShell/,
+  );
+  assert.match(
+    loader,
+    /collaborationBootstrap\s*\?\s*compactDrawingWorkspaceForLoader\([\s\S]*:\s*workspace/,
+  );
+  assert.match(
+    loader,
+    /measurementEvidenceUrl:\s*collaborationBootstrap\s*\?[\s\S]*:\s*null/,
+  );
+});
+
+test("workspace loader keeps canonical HTTP editing available when realtime collaboration is not entitled", async () => {
+  const screen = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const loader = screen.slice(
+    screen.indexOf("export async function loader"),
+    screen.indexOf("export async function action"),
+  );
+  assert.match(
+    loader,
+    /projectOrganizationFeatureEnabled\([\s\S]*"realtime_collaboration"/,
+  );
+  assert.match(
+    loader,
+    /usesCanonicalGraph\s*\?\s*loadDrawingWorkspaceCollaborationBootstrap/,
+  );
+  assert.doesNotMatch(
+    loader,
+    /usesCanonicalGraph\s*&&\s*realtimeCollaborationEnabled\s*\?\s*loadDrawingWorkspaceCollaborationBootstrap/,
+    "the canonical checkpoint remains required when realtime transport is not entitled",
+  );
+  assert.match(loader, /realtimeCollaborationEnabled,/);
+  assert.match(
+    screen,
+    /collaborationEnabled=\{loaderData\.realtimeCollaborationEnabled\}/,
+  );
+  const action = screen.slice(screen.indexOf("export async function action"));
+  assert.match(
+    action,
+    /\[\s*"apply_operation",\s*"discard_conflicted_operations",\s*"request_review",?\s*\]\.includes\(typeof intent === "string" \? intent : ""\)[\s\S]*projectOrganizationFeatureEnabled\([\s\S]*"realtime_collaboration"[\s\S]*handleWorkspaceMutation\([\s\S]*collaborationEnabled/,
+  );
+});
+
+test("workspace keeps measurement tuples off the initial loader and requests them only for measurement UI", async () => {
+  const [screen, shell, resource] = await Promise.all([
+    readFile(
+      new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../app/lukas/screens/drawing-workspace-measurement-evidence.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+  assert.match(screen, /measurementEvidenceUrl/);
+  assert.doesNotMatch(screen, /compactDrawingServerMeasurementEvidence/);
+  assert.doesNotMatch(
+    screen,
+    /measurementEvidence:\s*clientMeasurementEvidence/,
+  );
+  const consumerGate = shell.slice(
+    shell.indexOf("const measurementEvidenceConsumerVisible"),
+    shell.indexOf("const deferredMeasurementEvidence"),
+  );
+  assert.match(consumerGate, /activePanel === "schedules"/);
+  assert.match(consumerGate, /inspectorOpen/);
+  assert.match(consumerGate, /inspectorMode === "object"/);
+  assert.match(
+    consumerGate,
+    /drawingObjectSupportsMeasurement\(selectedQuantityObject\)/,
+  );
+  assert.match(
+    shell,
+    /enabled:\s*drawingMeasurementEvidenceResourceReady\(\{[\s\S]*consumerVisible:\s*measurementEvidenceConsumerVisible/,
+  );
+  assert.match(resource, /Cache-Control["'],\s*["']private, no-store/);
+  assert.match(resource, /loadDrawingWorkspaceMeasurementState/);
+  assert.match(resource, /compactDrawingServerMeasurementEvidence/);
 });
 
 test("workspace exposes six authoring tools, transient previews, and an accessible native command menu", async () => {
@@ -1609,7 +2995,24 @@ test("workspace exposes six authoring tools, transient previews, and an accessib
   assert.match(shell, /event\.(metaKey \|\| event\.ctrlKey)/);
   assert.match(shell, /event\.key\.toLowerCase\(\) !== "k"/);
   assert.match(canvas, /name="drawing-preview"/);
-  assert.match(canvas, /미보정/);
+  assert.match(canvas, /drawingDimensionLayout\(/);
+  const uncalibratedDimension = drawingLayout.drawingDimensionLayout(
+    {
+      type: "dimension",
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 0 },
+      offset: 10,
+      calibrationId: null,
+    },
+    { kind: "pdf", calibration: null },
+  );
+  assert.deepEqual(
+    {
+      text: uncalibratedDimension.text,
+      warning: uncalibratedDimension.warning,
+    },
+    { text: "미보정", warning: true },
+  );
   assert.match(canvas, /drawingToolEventTransition\(/);
   assert.doesNotMatch(canvas, /event\.evt\.detail/);
   assert.match(canvas, /geometrySnapPoints\(/);
@@ -1703,6 +3106,21 @@ test("workspace remounts Canvas with sanitized transient props at each authoriza
   assert.match(shell, /key=\{authorizationKey\}/);
   assert.match(shell, /activeTool=\{transient\.activeTool as DrawingTool\}/);
   assert.match(shell, /selectedIds=\{transient\.selectedIds\}/);
+});
+
+test("workspace issue and canvas-region guards share the exact comment authority", async () => {
+  assert.ok(workspaceView);
+  for (const role of ["admin", "editor", "commenter", "reviewer"])
+    assert.equal(workspaceView.drawingWorkspaceCanComment(role), true);
+  for (const role of ["approver", "viewer"])
+    assert.equal(workspaceView.drawingWorkspaceCanComment(role), false);
+
+  const route = await readFile(
+    new URL("../app/lukas/screens/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /drawingWorkspaceCanComment\(capability\)/);
+  assert.match(route, /댓글을 작성할 권한이 없습니다/);
 });
 
 test("route measurement loading propagates authorized bootstrap denial", async () => {

@@ -1,0 +1,137 @@
+✖ initialization adopts only the durable winner and seeds user and service CAS tokens (5.657542ms)
+✖ browser admission waits for initialization and discards the losing bootstrap origin (2.276333ms)
+✖ stale graph initialization rebuilds at most three candidates, while other failures propagate (0.806542ms)
+✖ invalid winners never enter the payload or seed usable CAS tokens (1.137417ms)
+✖ active metadata correction is stored with service authority before browser admission (2.025125ms)
+✖ a foreign preparation lease cannot expose an unpersisted fence during first admission (1.580667ms)
+✖ detached authority and receipt loaders establish the same canonical origin before mutation (2.943375ms)
+✖ an approved Viewer initializes through user authority while edits and protected forgeries stay forbidden (0.586875ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 0
+ℹ fail 8
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 168.558
+
+✖ failing tests:
+
+test at tests/drawing-collaboration-initialization.test.mjs:69:1
+✖ initialization adopts only the durable winner and seeds user and service CAS tokens (5.657542ms)
+  TypeError: f.storage.initializeState is not a function
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:76:36)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+
+test at tests/drawing-collaboration-initialization.test.mjs:86:1
+✖ browser admission waits for initialization and discards the losing bootstrap origin (2.276333ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:95:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-initialization.test.mjs:104:1
+✖ stale graph initialization rebuilds at most three candidates, while other failures propagate (0.806542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 3
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:119:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 3,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-initialization.test.mjs:126:1
+✖ invalid winners never enter the payload or seed usable CAS tokens (1.137417ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:134:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /scope/,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-initialization.test.mjs:141:1
+✖ active metadata correction is stored with service authority before browser admission (2.025125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:152:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-initialization.test.mjs:157:1
+✖ a foreign preparation lease cannot expose an unpersisted fence during first admission (1.580667ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:162:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-initialization.test.mjs:169:1
+✖ detached authority and receipt loaders establish the same canonical origin before mutation (2.943375ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(f.persisted)
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:181:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-initialization.test.mjs:191:1
+✖ an approved Viewer initializes through user authority while edits and protected forgeries stay forbidden (0.586875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:197:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

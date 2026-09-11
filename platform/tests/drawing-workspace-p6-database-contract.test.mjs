@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
@@ -110,6 +111,19 @@ async function createAuthority({ optIn = false, populated = false } = {}) {
     await db.close();
     throw error;
   }
+}
+
+async function applyMaterialBlankSpecificationContract(db) {
+  for (const file of [
+    "20260902080000_material_blank_specification_contract.sql",
+    "20260902080100_material_blank_specification_validate.sql",
+  ])
+    await db.exec(
+      await readFile(
+        new URL(`../supabase/migrations/${file}`, import.meta.url),
+        "utf8",
+      ),
+    );
 }
 
 async function insertWallQuantity(db, seed, overrides = {}) {
@@ -1439,6 +1453,38 @@ test("material handoff independently verifies approval, ancestry, totals, and re
   }
 });
 
+test("material handoff preserves a price resource with no specification", async () => {
+  const { db, seed } = await createAuthority({ populated: true });
+  try {
+    await applyMaterialBlankSpecificationContract(db);
+    await p6SetSession(db, null, p6Ids.maker);
+    await db.query(
+      `update public.lukas_qto_price_resources
+       set specification=''
+       where id=$1 and project_id=$2`,
+      [p6Ids.materialResource, p6Ids.project],
+    );
+    await approveBoq11(db, seed);
+    const payload = p6MaterialPayload();
+    payload.plans[0].specification = "";
+    await p6SetSession(db, "service_role", p6Ids.maker);
+    const inserted = await insertMaterialHandoff(db, {
+      plans: payload.plans,
+      links: payload.links,
+    });
+    assert.deepEqual(inserted.rows[0].value, { insertedOrReplayed: 1 });
+    const plan = await db.query(
+      `select specification
+       from public.lukas_qto_material_plans
+       where id=$1 and project_id=$2`,
+      [p6Ids.materialPlan, p6Ids.project],
+    );
+    assert.equal(plan.rows[0].specification, "");
+  } finally {
+    await db.close();
+  }
+});
+
 test("P6 catalog proves fixed grants, search paths, triggers, and indexes", async (t) => {
   const { db } = await createAuthority();
   try {
@@ -1731,9 +1777,85 @@ test("P6 SQL measurement matches every exact P4 golden boundary", async () => {
       ),
       "1.000000000000",
     );
-    await assert.rejects(
-      measure({ type: "circle", center: { x: 0, y: 0 }, radius: 10 }, "length"),
-      (error) => error.code === "P6Q01",
+    assert.equal(
+      await measure(
+        { type: "line", start: { x: 0, y: 0 }, end: { x: 300, y: 400 } },
+        "length",
+      ),
+      "0.500000000000",
+    );
+    assert.equal(
+      await measure(
+        {
+          type: "polyline",
+          points: [
+            { x: 0, y: 0 },
+            { x: 300, y: 400 },
+            { x: 600, y: 400 },
+          ],
+          closed: false,
+        },
+        "length",
+      ),
+      "0.800000000000",
+    );
+    assert.equal(
+      await measure(
+        {
+          type: "polyline",
+          points: [
+            { x: 0, y: 0 },
+            { x: 300, y: 400 },
+            { x: 600, y: 400 },
+          ],
+          closed: true,
+        },
+        "length",
+      ),
+      "1.521110255000",
+    );
+    assert.equal(
+      await measure(
+        {
+          type: "polyline",
+          points: [
+            { x: 0, y: 0 },
+            { x: 300, y: 400 },
+            { x: 600, y: 400 },
+          ],
+          closed: true,
+        },
+        "area",
+      ),
+      "0.060000000000",
+    );
+    const primitiveRectangle = {
+      type: "rectangle",
+      origin: { x: 10, y: 20 },
+      width: 200,
+      height: 100,
+      rotation: 30,
+    };
+    assert.equal(
+      await measure(primitiveRectangle, "length"),
+      "0.600000000000",
+    );
+    assert.equal(
+      await measure(primitiveRectangle, "area"),
+      "0.020000000000",
+    );
+    const primitiveCircle = {
+      type: "circle",
+      center: { x: 0, y: 0 },
+      radius: 30,
+    };
+    assert.equal(
+      await measure(primitiveCircle, "length"),
+      "0.188495559000",
+    );
+    assert.equal(
+      await measure(primitiveCircle, "area"),
+      "0.002827433388",
     );
     await assertSqlState(
       measure(
@@ -1757,6 +1879,172 @@ test("P6 SQL measurement matches every exact P4 golden boundary", async () => {
       ),
       "P6Q01",
     );
+  } finally {
+    await db.close();
+  }
+});
+
+test("P6 snapshot authority applies PDF calibration and rejects inexact graphs", async () => {
+  const { db } = await createAuthority();
+  const objectId = "68000000-0000-4000-8000-000000000001";
+  const layerId = "68000000-0000-4000-8000-000000000002";
+  const canvasId = "68000000-0000-4000-8000-000000000003";
+  const pageId = "68000000-0000-4000-8000-000000000004";
+  const calibration = {
+    normalizedStart: { x: 0, y: 0 },
+    normalizedEnd: { x: 1, y: 0 },
+    realLengthMillimeters: 10_000,
+    millimetersPerNormalizedUnit: 10_000,
+  };
+  const snapshot = (geometry, overrides = {}) => ({
+    schemaVersion: 2,
+    objects: [
+      {
+        id: objectId,
+        lineageId: objectId,
+        pageId,
+        layerId,
+        name: "Calibrated object",
+        type: geometry.type,
+        geometry,
+        styleId: null,
+        style: { stroke: "#111111", strokeWidth: 1, fill: null },
+        version: 1,
+      },
+    ],
+    layers: [
+      {
+        id: layerId,
+        pageId,
+        canvasId,
+        name: "Work",
+        sortOrder: 1,
+        visible: true,
+        locked: false,
+        systemKind: "work",
+        version: 1,
+      },
+    ],
+    canvases: [
+      {
+        id: canvasId,
+        pageId,
+        name: "PDF",
+        spaceKind: "paper",
+        widthMillimeters: 100,
+        heightMillimeters: 200,
+        background: {
+          sourceFileId: p6Ids.drawingFile,
+          sourceSha256: p6Sha.drawing,
+          pdfPageNumber: 1,
+          calibration,
+        },
+        sortOrder: 0,
+        version: 1,
+      },
+    ],
+    ...overrides,
+  });
+  const measure = async (canonical, kind) => {
+    const result = await db.query(
+      `select private.lukas_drawing_p6_measure_snapshot(
+        $1::jsonb,$2::uuid,$3
+      )::numeric(29,12) value`,
+      [JSON.stringify(canonical), objectId, kind],
+    );
+    return result.rows[0].value;
+  };
+  try {
+    assert.equal(
+      await measure(
+        snapshot({
+          type: "line",
+          start: { x: 10, y: 50 },
+          end: { x: 60, y: 50 },
+        }),
+        "length",
+      ),
+      "5.000000000000",
+    );
+    assert.equal(
+      await measure(
+        snapshot({
+          type: "line",
+          start: { x: 10, y: 10 },
+          end: { x: 10, y: 110 },
+        }),
+        "length",
+      ),
+      "5.000000000000",
+    );
+    assert.equal(
+      await measure(
+        snapshot({
+          type: "line",
+          start: { x: 10, y: 10 },
+          end: { x: 60, y: 110 },
+        }),
+        "length",
+      ),
+      "7.071067812000",
+    );
+    const axisRectangle = snapshot({
+      type: "rectangle",
+      origin: { x: 10, y: 10 },
+      width: 50,
+      height: 100,
+      rotation: 0,
+    });
+    assert.equal(await measure(axisRectangle, "length"), "20.000000000000");
+    assert.equal(await measure(axisRectangle, "area"), "25.000000000000");
+    for (const geometry of [
+      { type: "circle", center: { x: 20, y: 20 }, radius: 10 },
+      {
+        type: "arc",
+        semanticVersion: 1,
+        center: { x: 20, y: 20 },
+        radius: 10,
+        startAngleDegrees: 0,
+        sweepAngleDegrees: 90,
+      },
+      {
+        type: "rectangle",
+        origin: { x: 10, y: 10 },
+        width: 50,
+        height: 100,
+        rotation: 30,
+      },
+    ]) {
+      await assertSqlState(measure(snapshot(geometry), "length"), "P6Q01");
+      await assertSqlState(measure(snapshot(geometry), "count"), "P6Q01");
+    }
+    await assertSqlState(
+      measure(
+        snapshot(
+          { type: "line", start: { x: 0, y: 0 }, end: { x: 50, y: 0 } },
+          { layers: [] },
+        ),
+        "length",
+      ),
+      "P6Q03",
+    );
+    const invalidCalibration = snapshot({
+      type: "line",
+      start: { x: 0, y: 0 },
+      end: { x: 50, y: 0 },
+    });
+    invalidCalibration.canvases[0].background.calibration = null;
+    await assertSqlState(measure(invalidCalibration, "length"), "P6Q01");
+    for (const role of ["public", "anon", "authenticated", "service_role"]) {
+      const privileges = await db.query(
+        `select pg_catalog.has_function_privilege(
+          $1,'private.lukas_drawing_p6_measure_snapshot(jsonb,uuid,text)',
+          'EXECUTE'
+        ) allowed`,
+        [role],
+      );
+      assert.equal(privileges.rows[0].allowed, false, role);
+    }
   } finally {
     await db.close();
   }

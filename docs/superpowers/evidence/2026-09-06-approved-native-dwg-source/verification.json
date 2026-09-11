@@ -1,0 +1,17 @@
+{
+  "status": "approved-source-to-native-dwg-internally-verified",
+  "database": "marked-disposable-postgresql",
+  "transport": "actual-SQL-RPC-payload-with-checked-adapter-transport-shim",
+  "nativeManifestHash": "56bbd9685cc66a94307c3f2f3daa0b931bc526db4d43c2656d5fe1437789b8f9",
+  "snapshotSha256": "f7e36b840e64d27560a031b09954685844c0a5755369937bf1639ce322f41407",
+  "structureSha256": "ffa54a46fcdc82a6bbb61db4938f3545119bb48e2031c765872ba5624fcf7f4a",
+  "dwgSha256": "a9a14bcd0f8a505eae4e09d53ef18b5a08515c4542a25fed0f57b4a8d3a040d5",
+  "dwgBytes": 13003,
+  "modelEntities": 19,
+  "blocks": 1,
+  "originalPayloadUnchanged": true,
+  "sourceTextHashVerified": true,
+  "productionDwgQualified": false,
+  "independentRecipientCadVerified": false,
+  "queueOrPublicationImplemented": false
+}

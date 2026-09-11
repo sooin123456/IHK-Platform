@@ -17,7 +17,7 @@ export type DrawingActivityItem =
       clientOperationId: string;
       revisionId: string;
       action: string;
-      detail: unknown;
+      detail: { type: string | null; itemCount: number | null };
       provenance: { originalOperationId: string | null };
     }
   | {
@@ -43,6 +43,20 @@ type HistoryQuery = {
 };
 
 type HistoryClient = { from(table: string): HistoryQuery };
+
+function summarizeDrawingOperation(detail: unknown) {
+  const value =
+    detail && typeof detail === "object" && !Array.isArray(detail)
+      ? (detail as Record<string, unknown>)
+      : {};
+  const items = [value.actions, value.updates, value.objects].find(
+    Array.isArray,
+  ) as unknown[] | undefined;
+  return {
+    type: typeof value.type === "string" ? value.type : null,
+    itemCount: items ? items.length : null,
+  };
+}
 
 export function encodeDrawingHistoryCursor(cursor: DrawingHistoryCursor) {
   return Buffer.from(
@@ -129,7 +143,7 @@ export async function loadDrawingActivityPage(
       clientOperationId: String(row.client_operation_id),
       revisionId: String(row.revision_id),
       action: String(row.history_action ?? row.operation_type),
-      detail: row.forward,
+      detail: summarizeDrawingOperation(row.forward),
       provenance: {
         originalOperationId:
           typeof row.original_operation_id === "string"

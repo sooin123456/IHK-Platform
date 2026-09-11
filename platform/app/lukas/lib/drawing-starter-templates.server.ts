@@ -421,7 +421,7 @@ export async function createDrawingWorkspaceStart(
     organizationId: string;
     projectId: string;
     title: string;
-    sourceFile: { id: string; kind: "pdf" } | null;
+    sourceFile: { id: string; kind: "pdf" | "ifc" } | null;
     definition: DrawingStarterDefinition | null;
     starterVersion?: 1;
     clientRequestId: string;

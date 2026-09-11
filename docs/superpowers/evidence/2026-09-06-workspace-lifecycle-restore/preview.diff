@@ -1,0 +1,115 @@
+--- /tmp/1hk-r2-restore-x55wft/local-drawing-workspace-preview.tsx	2026-09-06 17:48:55
++++ platform/app/lukas/screens/local-drawing-workspace-preview.tsx	2026-09-06 18:07:01
+@@ -1266,6 +1266,7 @@
+     new URL(request.url).searchParams.get("p5ReleaseTest") === "1";
+   const legacyPreviewTest = [
+     "realtimeTest",
++    "connectionLifecycleTest",
+     "collaborationRetryTest",
+     "bootstrapReadOnlyTest",
+     "verticalTest",
+@@ -1310,7 +1311,10 @@
+         : undefined),
+   });
+   validateLocalDrawingWorkspacePreviewFixture(fixture);
++  const connectionLifecycleTest =
++    new URL(request.url).searchParams.get("connectionLifecycleTest") === "1";
+   const realtimeTest =
++    connectionLifecycleTest ||
+     new URL(request.url).searchParams.get("realtimeTest") === "1";
+   const collaborationRetryTest =
+     new URL(request.url).searchParams.get("collaborationRetryTest") === "1";
+@@ -1461,6 +1465,7 @@
+       : undefined,
+     previewLoaderNonce: realtimeTest ? crypto.randomUUID() : null,
+     collaborationRetryTest,
++    connectionLifecycleTest,
+     awarenessTest,
+     realtimeTest,
+     verticalTest,
+@@ -1658,6 +1663,9 @@
+   const [realtimeInvalidations, setRealtimeInvalidations] = useState(0);
+   const [alternateUser, setAlternateUser] = useState(false);
+   const [viewer, setViewer] = useState(false);
++  const [heldConnections, setHeldConnections] = useState<number[]>([]);
++  const [openedConnections, setOpenedConnections] = useState(0);
++  const releaseConnectionsRef = useRef(new Map<number, () => void>());
+   const [localResources, setLocalResources] = useState(0);
+   const [providers, setProviders] = useState(0);
+   const [retryLifecycle, setRetryLifecycle] = useState("starting");
+@@ -1677,6 +1685,34 @@
+     useState(false);
+   const persistenceAttempts = useRef(0);
+   const providerAttempts = useRef(0);
++  const lifecycleConnectionFactory = useMemo(() => {
++    let attempts = 0;
++    const connect = previewCollaborationConnectionFactory();
++    return async (
++      options: Parameters<typeof openDrawingCollaborationConnection>[0],
++    ) => {
++      const attempt = ++attempts;
++      if (attempt > 1) {
++        setHeldConnections((held) => [...held, attempt]);
++        await new Promise<void>((resolve) => {
++          releaseConnectionsRef.current.set(attempt, () => {
++            releaseConnectionsRef.current.delete(attempt);
++            setHeldConnections((held) => held.filter((id) => id !== attempt));
++            resolve();
++          });
++        });
++      }
++      const connection = await connect(options);
++      setOpenedConnections((opened) => opened + 1);
++      return connection;
++    };
++  }, []);
++  useEffect(
++    () => () => {
++      for (const release of releaseConnectionsRef.current.values()) release();
++    },
++    [],
++  );
+   const realtimeAdapter = useMemo(() => createPreviewRealtimeAdapter(), []);
+   const onInvalidate = useCallback(
+     () => setRealtimeInvalidations((count) => count + 1),
+@@ -1850,7 +1886,9 @@
+         }
+         previewMode
+         collaborationConnectionFactory={
+-          loaderData.collaborationRetryTest
++          loaderData.connectionLifecycleTest
++            ? lifecycleConnectionFactory
++            : loaderData.collaborationRetryTest
+             ? retryConnectionFactory
+             : loaderData.localMultiplayerTest
+               ? localMultiplayerConnectionFactory
+@@ -2018,9 +2056,28 @@
+           >
+             실시간 갱신 시험
+           </button>
+-          <button onClick={() => setAlternateUser(true)} type="button">
++          <button
++            onClick={() => setAlternateUser((previous) => !previous)}
++            type="button"
++          >
+             테스트 사용자 전환
+           </button>
++          {loaderData.connectionLifecycleTest ? (
++            <>
++              <output aria-label="실제 미리보기 연결 횟수">
++                {openedConnections}
++              </output>
++              {heldConnections.map((attempt) => (
++                <button
++                  key={attempt}
++                  onClick={() => releaseConnectionsRef.current.get(attempt)?.()}
++                  type="button"
++                >
++                  연결 시도 {attempt} 허용
++                </button>
++              ))}
++            </>
++          ) : null}
+           <button onClick={() => setViewer(true)} type="button">
+             테스트 보기 권한
+           </button>

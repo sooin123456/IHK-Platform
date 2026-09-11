@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1044mm" height="594mm" viewBox="0 0 1044 594">
+<rect x="0" y="0" width="1044" height="594" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/case" transform="matrix(1 0 0 1 72 72)">
+<rect x="0" y="0" width="900" height="450" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/door-split" transform="matrix(1 0 0 1 72 72)">
+<line x1="450" y1="0" x2="450" y2="450" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/pull-left" transform="matrix(1 0 0 1 72 72)">
+<circle cx="400" cy="225" r="20" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/pull-right" transform="matrix(1 0 0 1 72 72)">
+<circle cx="500" cy="225" r="20" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+</svg>

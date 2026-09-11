@@ -1,0 +1,70 @@
+TAP version 13
+# Subtest: request identity is reused only for the exact six-field source and reset for retry
+ok 1 - request identity is reused only for the exact six-field source and reset for retry
+  ---
+  duration_ms: 0.403292
+  type: 'test'
+  ...
+# Subtest: an uncertain request identity survives control unmount and reopen in session storage
+ok 2 - an uncertain request identity survives control unmount and reopen in session storage
+  ---
+  duration_ms: 0.400958
+  type: 'test'
+  ...
+# Subtest: one in-flight request suppresses double click and ignores a stale scope response
+ok 3 - one in-flight request suppresses double click and ignores a stale scope response
+  ---
+  duration_ms: 0.147333
+  type: 'test'
+  ...
+# Subtest: poll scheduling exists only for an open active job and aborts on close
+ok 4 - poll scheduling exists only for an open active job and aborts on close
+  ---
+  duration_ms: 0.097208
+  type: 'test'
+  ...
+# Subtest: the rendered control honestly exposes pending, retrying, failed and completed states
+ok 5 - the rendered control honestly exposes pending, retrying, failed and completed states
+  ---
+  duration_ms: 9.01575
+  type: 'test'
+  ...
+# Subtest: client status validation refuses unbounded errors and incomplete completed receipts
+ok 6 - client status validation refuses unbounded errors and incomplete completed receipts
+  ---
+  duration_ms: 0.1365
+  type: 'test'
+  ...
+# Subtest: unsupported imported or multi-canvas sources render actionable errors
+ok 7 - unsupported imported or multi-canvas sources render actionable errors
+  ---
+  duration_ms: 0.741375
+  type: 'test'
+  ...
+# Subtest: native DWG paths preserve exact scope and fixed artifact names
+ok 8 - native DWG paths preserve exact scope and fixed artifact names
+  ---
+  duration_ms: 0.070709
+  type: 'test'
+  ...
+# Subtest: browser control resumes status after replay returns the same accepted job
+ok 9 - browser control resumes status after replay returns the same accepted job
+  ---
+  duration_ms: 608.110792
+  type: 'test'
+  ...
+# Subtest: browser control ignores a duplicate click before mutating the live request
+ok 10 - browser control ignores a duplicate click before mutating the live request
+  ---
+  duration_ms: 301.024334
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1265.504042

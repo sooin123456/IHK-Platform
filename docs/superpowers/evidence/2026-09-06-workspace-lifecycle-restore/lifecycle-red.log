@@ -1,0 +1,36 @@
+
+Running 1 test using 1 worker
+
+(node:30013) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/1] [chromium] › e2e/drawing-workspace-shell.spec.ts:689:1 › user replacement never borrows the previous room's connected status while admission is pending
+  1) [chromium] › e2e/drawing-workspace-shell.spec.ts:689:1 › user replacement never borrows the previous room's connected status while admission is pending 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('status', { name: '공동 편집 상태: connecting', exact: true })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('status', { name: '공동 편집 상태: connecting', exact: true })
+
+
+      696 |   const release = page.getByRole("button", { name: "새 사용자 연결 허용" });
+      697 |   await expect(release).toBeVisible();
+    > 698 |   await expect(page.getByRole("status", { name: "공동 편집 상태: connecting", exact: true })).toBeVisible();
+          |                                                                                         ^
+      699 |   await expect(page.getByRole("status", { name: "공동 편집 상태: connected", exact: true })).toHaveCount(0);
+      700 |   await release.click();
+      701 |   await expect(page.getByRole("status", { name: "공동 편집 상태: connected", exact: true })).toBeVisible();
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:698:89
+
+    Error Context: test-results/drawing-workspace-shell-us-828b8--while-admission-is-pending-chromium/error-context.md
+
+
+  1 failed
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:689:1 › user replacement never borrows the previous room's connected status while admission is pending 

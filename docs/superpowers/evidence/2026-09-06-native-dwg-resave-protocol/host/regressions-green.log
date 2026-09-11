@@ -1,0 +1,15 @@
+Command (cwd platform):
+node --test tests/drawing-native-dwg-resave-protocol.test.mjs tests/drawing-native-dwg-resave-sandbox.test.mjs tests/drawing-native-dwg-sandbox.test.mjs tests/drawing-native-dwg-reader.test.mjs tests/drawing-native-dwg-selected-edits.test.mjs tests/drawing-native-dwg-source.test.mjs tests/drawing-native-dwg-resave-source.test.mjs
+
+Terminal completion output excerpt:
+ℹ tests 186
+ℹ suites 0
+ℹ pass 186
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 39011.943
+exit_code=0
+
+Includes 6 protocol tests, 18 new finite resaver lifecycle tests, 18 unchanged reader lifecycle cases, reader native-process tests and selected/source/approved-resave-source regression cases and subtests. No skips. Initial focused run was 42/42.

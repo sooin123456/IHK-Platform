@@ -23,19 +23,34 @@ import {
   serializeCookieHeader,
 } from "@supabase/ssr";
 
+type ServerClientContext = [SupabaseClient<Database>, Headers];
+
+const serverClientByRequest = new WeakMap<Request, ServerClientContext>();
+
+function shareCookieUserLookup(client: SupabaseClient<Database>) {
+  const getUser = client.auth.getUser.bind(client.auth);
+  let cookieUserLookup: ReturnType<typeof getUser> | undefined;
+
+  client.auth.getUser = ((jwt?: string) => {
+    if (jwt !== undefined) return getUser(jwt);
+    cookieUserLookup ??= getUser();
+    return cookieUserLookup;
+  }) as typeof client.auth.getUser;
+}
+
 /**
  * Creates a Supabase client for server-side operations with proper cookie handling
- * 
+ *
  * This function creates a Supabase client that can be used in server-side code (loaders, actions)
  * while properly handling authentication cookies. It returns both the client and headers that
  * need to be included in the response to maintain the authentication state.
- * 
+ *
  * The function:
  * 1. Creates a new Headers object to collect Set-Cookie headers
  * 2. Creates a Supabase client with environment variables
  * 3. Sets up cookie handlers to read cookies from the request and write cookies to the response
  * 4. Returns both the client and headers for use in server functions
- * 
+ *
  * @example
  * // In a loader or action function
  * export async function loader({ request }: LoaderArgs) {
@@ -43,13 +58,16 @@ import {
  *   const { data } = await client.from('table').select();
  *   return json({ data }, { headers });
  * }
- * 
+ *
  * @param request - The incoming request object containing cookies
  * @returns A tuple with the Supabase client and headers for the response
  */
 export default function makeServerClient(
   request: Request,
-): [SupabaseClient<Database>, Headers] {
+): ServerClientContext {
+  const cached = serverClientByRequest.get(request);
+  if (cached) return cached;
+
   // Create headers object to collect Set-Cookie headers
   const headers = new Headers();
 
@@ -77,6 +95,10 @@ export default function makeServerClient(
     },
   );
 
+  shareCookieUserLookup(client);
+
   // Return both the client and headers
-  return [client, headers];
+  const context: ServerClientContext = [client, headers];
+  serverClientByRequest.set(request, context);
+  return context;
 }

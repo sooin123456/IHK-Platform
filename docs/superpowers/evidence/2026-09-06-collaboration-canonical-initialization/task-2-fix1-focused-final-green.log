@@ -1,0 +1,12 @@
+[onLoadDocument] Drawing collaboration reconciliation is not durable; retry admission.
+[onLoadDocument] Drawing collaboration canonical initialization is unavailable.
+✔ real WebSocket reports drawing-reconciling and explicit token retry adopts the same durable winner (24.630083ms)
+✔ failed Hocuspocus initial admission destroys its unregistered payload (1.364583ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 163.757333

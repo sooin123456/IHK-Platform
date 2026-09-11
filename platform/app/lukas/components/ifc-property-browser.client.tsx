@@ -21,6 +21,10 @@ import {
   applyIfcControlledView,
   type IfcCameraState,
 } from "~/lukas/lib/ifc-anchor";
+import {
+  ifcDerivativeRefreshDelay,
+  ifcDerivativeStatusPresentation,
+} from "~/lukas/lib/drawing-ifc-derivative-status";
 import { startDrawingWorkspaceStage } from "~/lukas/lib/drawing-runtime";
 import type { IfcRenderDerivativeDescriptor } from "~/lukas/lib/ifc-render-descriptor";
 import {
@@ -64,6 +68,7 @@ type Props = {
   remoteGlobalIds?: readonly string[];
   onElementSelection?: (selection: IfcElementSelection) => void;
   onViewerDispose?: (evidence: IfcModelViewerDisposeEvidence) => void;
+  onDerivativeRefresh?: () => void | Promise<void>;
   activeAnchor?: {
     elementId: string;
     camera: IfcCameraState;
@@ -184,16 +189,6 @@ function acquireIfcRenderBundle(
   };
 }
 
-function unavailableIfcDerivativeMessage(
-  derivative: IfcRenderDerivativeDescriptor | null | undefined,
-) {
-  if (derivative?.status === "pending")
-    return "검증된 IFC GLB 파생물을 생성 중입니다. 원본 IFC는 브라우저로 전송하지 않습니다.";
-  if (derivative?.status === "failed")
-    return "검증된 IFC GLB 파생물을 만들지 못했습니다. 원본 IFC는 브라우저로 전송하지 않습니다.";
-  return "검증된 IFC GLB 파생물이 아직 준비되지 않았습니다.";
-}
-
 export default function IfcPropertyBrowser({
   compact = false,
   fileName,
@@ -209,6 +204,7 @@ export default function IfcPropertyBrowser({
   remoteGlobalIds = [],
   onElementSelection,
   onViewerDispose,
+  onDerivativeRefresh,
 }: Props) {
   const sourceKey = [
     originalSourceKey,
@@ -229,9 +225,7 @@ export default function IfcPropertyBrowser({
   const [properties, setProperties] = useState<DisplayProperty[]>([]);
   const [query, setQuery] = useState("");
   const resultPageSize = ifcElementResultPageSize(compact);
-  const [visibleResultLimit, setVisibleResultLimit] = useState(
-    resultPageSize,
-  );
+  const [visibleResultLimit, setVisibleResultLimit] = useState(resultPageSize);
   const [status, setStatus] = useState("IFC 파일을 준비하고 있습니다.");
   const [error, setError] = useState<string | null>(null);
   const [viewerReady, setViewerReady] = useState(false);
@@ -255,6 +249,8 @@ export default function IfcPropertyBrowser({
   onElementSelectionRef.current = onElementSelection;
   const onViewerDisposeRef = useRef(onViewerDispose);
   onViewerDisposeRef.current = onViewerDispose;
+  const onDerivativeRefreshRef = useRef(onDerivativeRefresh);
+  onDerivativeRefreshRef.current = onDerivativeRefresh;
   const visibleRef = useRef(visible);
   const firstPaintLifecycleKeyRef = useRef(firstPaintLifecycleKey ?? sourceKey);
   firstPaintLifecycleKeyRef.current = firstPaintLifecycleKey ?? sourceKey;
@@ -265,12 +261,44 @@ export default function IfcPropertyBrowser({
   useEffect(() => setVisibleResultLimit(resultPageSize), [resultPageSize]);
 
   useEffect(() => {
+    let cancelled = false;
+    let refreshCount = 0;
+    let refreshTimer: number | null = null;
+    const schedule = () => {
+      if (cancelled || !onDerivativeRefreshRef.current) return;
+      const delay = ifcDerivativeRefreshDelay(derivative?.status, refreshCount);
+      if (delay === null) return;
+      refreshTimer = window.setTimeout(async () => {
+        if (cancelled) return;
+        if (document.visibilityState === "hidden") {
+          schedule();
+          return;
+        }
+        try {
+          await onDerivativeRefreshRef.current?.();
+        } catch {
+          // A later bounded refresh may recover a transient route error.
+        }
+        if (cancelled) return;
+        refreshCount += 1;
+        schedule();
+      }, delay);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+    };
+  }, [derivative?.sourceSha256, derivative?.status]);
+
+  useEffect(() => {
     const generation = ++loadGenerationRef.current;
     const finishIfcStage = startDrawingWorkspaceStage("ifc");
     const descriptor = renderBundleRef.current;
     if (!descriptor) {
-      const message = unavailableIfcDerivativeMessage(derivative);
-      const generating = derivative?.status === "pending";
+      const presentation = ifcDerivativeStatusPresentation(derivative?.status);
+      const message = presentation.message;
+      const generating = presentation.waiting;
       setElements([]);
       setElementsSourceKey(null);
       setViewerReady(false);
@@ -370,7 +398,7 @@ export default function IfcPropertyBrowser({
       viewerRef.current?.dispose();
       viewerRef.current = null;
     };
-  }, [derivative, fetchCapabilityKey, sourceKey]);
+  }, [derivative?.status, fetchCapabilityKey, sourceKey]);
 
   async function mountViewer(generation = loadGenerationRef.current) {
     const input = loadedViewerInputRef.current;
@@ -609,9 +637,9 @@ export default function IfcPropertyBrowser({
   }
 
   return (
-    <div className="space-y-5">
-      <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className={`space-y-5 ${compact ? "h-full overflow-auto" : ""}`}>
+      <section className={`overflow-hidden rounded-2xl border bg-card shadow-sm ${compact ? "flex max-h-full min-h-0 flex-col" : ""}`}>
+        <div className={`flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between ${compact ? "shrink-0" : ""}`}>
           <div>
             <div className="flex items-center gap-2 font-semibold">
               <Cuboid className="size-4 text-primary" /> IFC 3D 모델
@@ -644,7 +672,7 @@ export default function IfcPropertyBrowser({
           </div>
         </div>
         <div
-          className={`relative overflow-hidden bg-slate-100 dark:bg-slate-950 ${compact ? "h-[20rem]" : "min-h-[22rem] sm:h-[34rem]"}`}
+          className={`relative overflow-hidden bg-slate-100 dark:bg-slate-950 ${compact ? "h-[20rem] min-h-0 shrink" : "min-h-[22rem] sm:h-[34rem]"}`}
         >
           <div
             aria-label="IFC 3D 모델 화면"
@@ -730,6 +758,7 @@ export default function IfcPropertyBrowser({
                   setVisibleResultLimit(resultPageSize);
                 }}
                 placeholder="이름, 유형, #ID 검색"
+                type="search"
                 value={query}
               />
             </label>
@@ -790,9 +819,7 @@ export default function IfcPropertyBrowser({
                 aria-label={`IFC 요소 ${Math.min(resultPageSize, hiddenElementCount)}개 더 보기`}
                 className="mt-2 min-h-11 w-full rounded-xl border border-dashed px-3 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() =>
-                  setVisibleResultLimit(
-                    (current) => current + resultPageSize,
-                  )
+                  setVisibleResultLimit((current) => current + resultPageSize)
                 }
                 type="button"
               >

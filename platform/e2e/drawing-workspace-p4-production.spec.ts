@@ -164,20 +164,31 @@ test.describe.serial("P4 hosted semantic authority", () => {
     ).toHaveText(
       `서버 증거 · P4_MEASUREMENT_V1 · 체크포인트 ${lineage.operationCheckpoint} · Postgres 권한 확인 로드 · revision ${lineage.revisionId}`,
     );
-    const serializedLoaderEvidence = await page
-      .locator("[data-drawing-server-evidence]")
-      .getAttribute("data-drawing-server-evidence");
-    expect(serializedLoaderEvidence).not.toBeNull();
-    const loaderEvidence = JSON.parse(
-      serializedLoaderEvidence!,
-    ) as typeof evidence;
-    expect(loaderEvidence).toEqual(evidence);
-    assertDrawingP4HostedServerEvidence({
-      evidence: loaderEvidence,
-      evidenceError: null,
-      current: drawingMeasurementEvidenceCurrent(lineage, state, false),
-      objects,
-    });
+    const evidenceMarker = page.locator("[data-drawing-server-evidence]");
+    await expect(evidenceMarker).toHaveAttribute(
+      "data-drawing-server-evidence",
+      "confirmed",
+    );
+    for (const [attribute, value] of Object.entries({
+      "data-drawing-server-evidence-document-id": lineage.documentId,
+      "data-drawing-server-evidence-revision-id": lineage.revisionId,
+      "data-drawing-server-evidence-revision-version": String(
+        lineage.revisionVersion,
+      ),
+      "data-drawing-server-evidence-snapshot-sha256": lineage.snapshotSha256,
+      "data-drawing-server-evidence-operation-checkpoint": String(
+        lineage.operationCheckpoint,
+      ),
+      "data-drawing-server-evidence-rule-version": evidence.ruleVersion,
+    })) {
+      await expect(evidenceMarker).toHaveAttribute(attribute, value);
+    }
+    const evidenceMarkup = await evidenceMarker.evaluate(
+      (element) => element.outerHTML,
+    );
+    expect(evidenceMarkup).not.toContain("&quot;measurements&quot;");
+    expect(evidenceMarkup).not.toContain("&quot;objectFingerprints&quot;");
+    expect(evidenceMarkup).not.toContain("&quot;schedules&quot;");
     await expect(
       page.getByRole("table", { name: "Room schedule · 서버 증거" }),
     ).toContainText("P4-101 P4 hosted room 0.024 m² 1");

@@ -1,0 +1,1316 @@
+# Exact pre-task dirty snapshot review
+
+Base and head commit (unchanged): 9f5f56d93db325ff935772252f9d4fb64d69f98c
+No commits or index mutations. This is NOT the diff against HEAD.
+[
+  {
+    "path": "platform/collaboration/src/freeze.ts",
+    "baselineSha256": "462bb38c93f1573dfb4ddd0b6b0dba191be7e7bc3684934de957c4b7213c712d",
+    "candidateSha256": "c751afc3a5de9d8d0dc41de45c2d89014145014209dcc4cdd100751ee86faac0"
+  },
+  {
+    "path": "platform/collaboration/src/server.ts",
+    "baselineSha256": "6ff6fb588a2fd1712f5df9471ade75e0bb2e0103127e7dd477365809ad57b4c7",
+    "candidateSha256": "b1c8908502c1461be782fd4f4d883afa5e1dbe0843ccab5cf710d5caaf0e34fe"
+  },
+  {
+    "path": "platform/tests/drawing-review-freeze.test.mjs",
+    "baselineSha256": "1b55de93fd74bbc72d3205c9199bf15a80cc4a000decd3fc521f7246d8f402ba",
+    "candidateSha256": "52c3890f61b00dd127e3e573cacd6c58a82a1e50a61c0f2a3104838d78df277c"
+  }
+]
+
+--- baseline/platform/collaboration/src/freeze.ts
++++ candidate/platform/collaboration/src/freeze.ts
+@@ -81,70 +81,85 @@
+     revisionId: string;
+     requestId: string;
+     ownerToken: string;
+   }): Promise<void>;
+   beginFreeze(input: {
+     projectId: string;
+     revisionId: string;
+     requestId: string;
+     yjsState: Uint8Array;
+     baseOperationSequence: number;
+     ownerToken: string;
+   }): Promise<DrawingFreezeState>;
+   completeFreeze(input: {
+     projectId: string;
+     revisionId: string;
+     requestId: string;
+     yjsState: Uint8Array;
+     manifest: DrawingFreezeManifest;
+     ownerToken: string;
+   }): Promise<DrawingFreezeState>;
+   releaseFreeze(input: {
+     projectId: string;
+     revisionId: string;
+     requestId: string;
+     yjsState: Uint8Array;
+     ownerToken: string;
+   }): Promise<DrawingFreezeState>;
+   syncReleasedState(input: {
+     projectId: string;
+     revisionId: string;
+     requestId: string;
+     yjsState: Uint8Array;
+     ownerToken: string;
+   }): Promise<DrawingFreezeState>;
+ };
++
++export function reconcileDrawingFreezeMetadata(
++  document: Y.Doc,
++  freezeState: DrawingFreezeState["state"],
++  requestId: string | null,
++): void {
++  const meta = document.getMap("serverMeta");
++  const stateChanged = meta.get("freezeState") !== freezeState;
++  const requestChanged = meta.get("freezeRequestId") !== requestId;
++  if (!stateChanged && !requestChanged) return;
++  document.transact(() => {
++    if (stateChanged) meta.set("freezeState", freezeState);
++    if (requestChanged) meta.set("freezeRequestId", requestId);
++  }, DRAWING_COLLABORATION_SERVER_ORIGIN);
++}
+ 
+ function canonical(value: unknown): unknown {
+   if (Array.isArray(value)) return value.map(canonical);
+   if (!value || typeof value !== "object") return value;
+   return Object.fromEntries(
+     Object.entries(value as Record<string, unknown>)
+       .sort(([left], [right]) => left.localeCompare(right))
+       .map(([key, entry]) => [key, canonical(entry)]),
+   );
+ }
+ 
+ function digest(value: unknown) {
+   return createHash("sha256")
+     .update(JSON.stringify(canonical(value)))
+     .digest("hex");
+ }
+ 
+ export function createDrawingFreezeSecretVerifier(secret: string) {
+   if (Buffer.byteLength(secret) < 32)
+     throw new Error("Internal drawing freeze secret is too short.");
+   const expected = Buffer.from(secret);
+   return (supplied: string | undefined) => {
+     const candidate = Buffer.from(supplied ?? "");
+     const comparable =
+       candidate.byteLength === expected.byteLength
+         ? candidate
+         : Buffer.alloc(expected.byteLength);
+     if (!timingSafeEqual(expected, comparable))
+       throw new Error("Drawing freeze authentication failed.");
+   };
+ }
+ 
+ export function drawingFreezeManifest(document: Y.Doc): DrawingFreezeManifest {
+   const meta = DrawingCollaborationMetaSchema.parse(
+     document.getMap("serverMeta").toJSON(),
+@@ -234,74 +249,71 @@
+   clearInterval?: typeof globalThis.clearInterval;
+ }) {
+   const now = input.now ?? Date.now;
+   const completedLeaseMs = input.completedLeaseMs ?? 60_000;
+   const ownerToken = input.ownerToken ?? randomUUID();
+   const leaseMs = input.leaseMs ?? 30_000;
+   const heartbeatMs = input.heartbeatMs ?? 10_000;
+   const setInterval = input.setInterval ?? globalThis.setInterval;
+   const clearInterval = input.clearInterval ?? globalThis.clearInterval;
+   type FreezeOwner = {
+     requestId: string;
+     phase: "in_flight" | "completed";
+     expiresAt: number;
+     promise: Promise<ReturnType<typeof result>>;
+     heartbeat: ReturnType<typeof setInterval> | null;
+     leaseError: unknown;
+   };
+   type FreezePreparation = {
+     requestId: string;
+     count: number;
+     heartbeat: ReturnType<typeof setInterval> | null;
+     promise: Promise<void>;
+   };
+   const owners = new Map<string, FreezeOwner>();
+   const preparations = new Map<string, FreezePreparation>();
+   const forgetOwner = (roomName: string, owner?: FreezeOwner) => {
+     const current = owners.get(roomName);
+     if (!current || (owner && current !== owner)) return;
+     if (current.heartbeat !== null) clearInterval(current.heartbeat);
+     owners.delete(roomName);
+   };
+   const fenceDocument = (document: Y.Doc, state: DrawingFreezeState) => {
+     const requestId = state.ownerRequestId ?? state.requestId;
+     if (!requestId) throw new Error("Drawing freeze lease request is missing.");
+     const freezeState = state.state === "frozen" ? "frozen" : "freezing";
+-    document.transact(() => {
+-      document.getMap("serverMeta").set("freezeState", freezeState);
+-      document.getMap("serverMeta").set("freezeRequestId", requestId);
+-    }, DRAWING_COLLABORATION_SERVER_ORIGIN);
++    reconcileDrawingFreezeMetadata(document, freezeState, requestId);
+     return result({ ...state, state: freezeState, requestId });
+   };
+   const leaseIsLive = (state: DrawingFreezeState) =>
+     Boolean(state.ownerToken && (state.leaseExpiresAtMs ?? 0) > now());
+   const acquireRecovery = async (
+     scope: { projectId: string; revisionId: string },
+     document: Y.Doc,
+     requestId: string,
+   ) => {
+     const meta = DrawingCollaborationMetaSchema.parse(
+       document.getMap("serverMeta").toJSON(),
+     );
+     try {
+       await input.database.acquireFreezeLease({
+         ...scope,
+         requestId,
+         ownerToken,
+         leaseMs,
+         yjsState: Y.encodeStateAsUpdate(document),
+         baseOperationSequence: meta.baseOperationSequence,
+       });
+     } catch (error) {
+       const authoritative = await input.database
+         .readFreeze(scope)
+         .catch(() => null);
+       if (authoritative && leaseIsLive(authoritative))
+         fenceDocument(document, authoritative);
+       throw error;
+     }
+   };
+   const prepare = async ({
+     roomName,
+     requestId,
+   }: {
+     roomName: string;
+@@ -692,91 +704,82 @@
+       if (!state) return null;
+       const owner = owners.get(roomName);
+       const committed = ["review_requested", "reviewed", "approved"].includes(
+         state.revisionStatus ?? "",
+       );
+       if (committed) {
+         if (
+           leaseIsLive(state) &&
+           state.ownerToken === ownerToken &&
+           state.ownerRequestId
+         )
+           await input.database.releaseFreezeLease({
+             ...scope,
+             requestId: state.ownerRequestId,
+             ownerToken,
+           });
+         forgetOwner(roomName);
+       } else if (
+         leaseIsLive(state) &&
+         (!owner ||
+           state.ownerToken !== ownerToken ||
+           state.ownerRequestId !== owner.requestId)
+       ) {
+         return fenceDocument(document, state);
+       }
+       if (owner && (state.state === "released" || committed))
+         forgetOwner(roomName, owner);
+       else if (owner) {
+         if (state.requestId && state.requestId !== owner.requestId)
+           throw new Error(
+             "Drawing freeze owner does not match persisted state.",
+           );
+         if (owner.phase === "completed" && owner.expiresAt <= now())
+           forgetOwner(roomName, owner);
+         else if (["active", "freezing"].includes(state.state)) {
+-          document.transact(() => {
+-            document.getMap("serverMeta").set("freezeState", "freezing");
+-            document
+-              .getMap("serverMeta")
+-              .set("freezeRequestId", owner.requestId);
+-          }, DRAWING_COLLABORATION_SERVER_ORIGIN);
++          reconcileDrawingFreezeMetadata(
++            document,
++            "freezing",
++            owner.requestId,
++          );
+           return result({
+             ...state,
+             state: "freezing",
+             requestId: owner.requestId,
+           });
+         } else if (state.state === "frozen") {
+-          const serverMeta = document.getMap("serverMeta");
+-          if (
+-            serverMeta.get("freezeState") !== "frozen" ||
+-            serverMeta.get("freezeRequestId") !== owner.requestId
+-          )
+-            document.transact(() => {
+-              serverMeta.set("freezeState", "frozen");
+-              serverMeta.set("freezeRequestId", owner.requestId);
+-            }, DRAWING_COLLABORATION_SERVER_ORIGIN);
++          reconcileDrawingFreezeMetadata(document, "frozen", owner.requestId);
+           return frozenResult(state, document);
+         } else {
+           return result(state);
+         }
+       }
+       if (state.state === "released") {
+         if (!state.requestId)
+           throw new Error("Released drawing freeze request is missing.");
+         const serverMeta = document.getMap("serverMeta");
+         if (
+           serverMeta.get("freezeState") === "released" &&
+           serverMeta.get("freezeRequestId") === state.requestId
+         )
+           return result(state);
+         await acquireRecovery(scope, document, state.requestId);
+         const candidate = new Y.Doc();
+         try {
+           Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document));
+           candidate.transact(() => {
+             candidate.getMap("serverMeta").set("freezeState", "released");
+             candidate
+               .getMap("serverMeta")
+               .set("freezeRequestId", state.requestId);
+           });
+           const synchronized = await input.database.syncReleasedState({
+             ...scope,
+             requestId: state.requestId,
+             ownerToken,
+             yjsState: Y.encodeStateAsUpdate(candidate),
+           });
+           Y.applyUpdate(
+             document,
+             Y.encodeStateAsUpdate(candidate),
+             DRAWING_COLLABORATION_SERVER_ORIGIN,
+           );
+@@ -790,114 +793,95 @@
+           throw new Error("Drawing freeze request is missing.");
+         if (state.frozenSubjectRevisionVersion !== state.revisionVersion)
+           throw new Error("Drawing freeze subject version changed.");
+         if (state.revisionStatus === "draft") {
+           await ownedFreeze({
+             document,
+             roomName,
+             requestId: state.requestId,
+           });
+           const completed = await input.database.readFreeze(scope);
+           if (
+             completed?.state !== "frozen" ||
+             completed.requestId !== state.requestId
+           )
+             throw new Error(
+               "Interrupted drawing freeze changed during recovery.",
+             );
+           if (
+             ["review_requested", "approved"].includes(
+               completed.revisionStatus ?? "",
+             )
+           )
+             return frozenResult(completed, document);
+           if (completed.revisionStatus !== "draft" || completed.reviewCommitted)
+             throw new Error(
+               "Interrupted drawing freeze changed during recovery.",
+             );
+           const released = await releaseDocument(
+             scope,
+             document,
+             state.requestId,
+           );
+           forgetOwner(roomName);
+           return result(released);
+         }
+-        document.transact(() => {
+-          document.getMap("serverMeta").set("freezeState", "freezing");
+-          document.getMap("serverMeta").set("freezeRequestId", state.requestId);
+-        }, DRAWING_COLLABORATION_SERVER_ORIGIN);
++        reconcileDrawingFreezeMetadata(document, "freezing", state.requestId);
+         return result(state);
+       }
+       if (state.state === "frozen") {
+         if (state.frozenSubjectRevisionVersion !== state.revisionVersion)
+           throw new Error("Drawing freeze subject version changed.");
+         if (!state.requestId)
+           throw new Error("Frozen drawing freeze request is missing.");
+         if (state.revisionStatus === "draft") {
+           if (state.reviewCommitted)
+             throw new Error("Rejected drawing freeze was not released.");
+           await acquireRecovery(scope, document, state.requestId);
+           const released = await releaseDocument(
+             scope,
+             document,
+             state.requestId,
+           );
+           forgetOwner(roomName);
+           return result(released);
+         }
+-        const serverMeta = document.getMap("serverMeta");
+-        if (
+-          serverMeta.get("freezeState") !== "frozen" ||
+-          serverMeta.get("freezeRequestId") !== state.requestId
+-        )
+-          document.transact(() => {
+-            serverMeta.set("freezeState", "frozen");
+-            serverMeta.set("freezeRequestId", state.requestId);
+-          }, DRAWING_COLLABORATION_SERVER_ORIGIN);
++        reconcileDrawingFreezeMetadata(document, "frozen", state.requestId);
+         return frozenResult(state, document);
+       }
+       if (state.state === "active") {
+-        const serverMeta = document.getMap("serverMeta");
+-        if (
+-          serverMeta.get("freezeState") !== "active" ||
+-          serverMeta.get("freezeRequestId") !== null
+-        )
+-          document.transact(() => {
+-            serverMeta.set("freezeState", "active");
+-            serverMeta.set("freezeRequestId", null);
+-          }, DRAWING_COLLABORATION_SERVER_ORIGIN);
++        reconcileDrawingFreezeMetadata(document, "active", null);
+       }
+       return result(state);
+     },
+     freeze: ownedFreeze,
+     async release({
+       document,
+       roomName,
+       requestId,
+     }: {
+       document: Y.Doc;
+       roomName: string;
+       requestId: string;
+     }) {
+       const scope = parseDrawingRoomName(roomName);
+       const owner = owners.get(roomName);
+       if (owner?.requestId === requestId && owner.phase === "in_flight")
+         throw new Error("Drawing freeze is still in progress.");
+       const authoritative = await input.database.readFreeze(scope);
+       if (
+         !authoritative ||
+         authoritative.requestId !== requestId ||
+         authoritative.revisionStatus !== "draft" ||
+         !["freezing", "frozen"].includes(authoritative.state)
+       )
+         throw new Error("Drawing freeze cannot be released.");
+       if (
+         leaseIsLive(authoritative) &&
+         authoritative.ownerToken !== ownerToken
+       ) {
+         fenceDocument(document, authoritative);
+         throw new Error("Drawing freeze lease is busy.");
+       }
+       if (!leaseIsLive(authoritative))
+         await acquireRecovery(scope, document, requestId);
+       const released = await releaseDocument(scope, document, requestId);
+--- baseline/platform/collaboration/src/server.ts
++++ candidate/platform/collaboration/src/server.ts
+@@ -21,70 +21,71 @@
+   DrawingCollaborationClientAppendSchema,
+   DrawingCollaborationMetaSchema,
+   DrawingCollaborationOperationSchema,
+   DrawingCollaborationStatusSchema,
+   drawingCollaborationOperationFromSnapshotOutcome,
+   parseDrawingRoomName,
+   resolveDrawingCollaborationOperation,
+   type DrawingCollaborationOperation,
+   validateDrawingCollaborationAppend,
+ } from "../../app/lukas/lib/drawing-collaboration-protocol.ts";
+ import {
+   appendDrawingCollaborationOperation,
+   readDrawingCollaborationLedger,
+ } from "../../app/lukas/lib/drawing-collaboration-yjs.ts";
+ import {
+   authorizeDrawingRoom,
+   createDrawingAccessTokenVerifier,
+   type DrawingConnectionContext,
+   type DrawingRoomAuthorization,
+   type VerifiedDrawingUser,
+ } from "./auth.ts";
+ import {
+   parseDrawingCollaborationConfig,
+   type DrawingCollaborationConfig,
+ } from "./config.ts";
+ import {
+   createDrawingCollaborationStorage,
+   createPostgresDrawingCollaborationDatabase,
+   type DrawingAcceptedOperation,
+   type DrawingCollaborationDatabase,
+   type DrawingStorageScope,
+ } from "./storage.ts";
+ import {
+   createDrawingFreezeCoordinator,
+   createDrawingFreezeSecretVerifier,
++  reconcileDrawingFreezeMetadata,
+ } from "./freeze.ts";
+ 
+ type CollaborationStorage = ReturnType<
+   typeof createDrawingCollaborationStorage
+ >;
+ type DrawingRuntimeContext = DrawingConnectionContext & {
+   serviceAuthority?: boolean;
+ };
+ type TrackedConnection = {
+   context: DrawingRuntimeContext;
+   readOnly: boolean;
+   close: (event?: { code: number; reason: string }) => void;
+   requestToken?: () => void;
+   document?: {
+     awareness: Awareness;
+     getClients: (connection: any) => Set<any>;
+   };
+ };
+ 
+ class OutcomeReceiptAuthenticationError extends Error {}
+ 
+ export const DRAWING_OUTCOME_RECEIPT_MAX_BYTES = 96 * 1024;
+ 
+ const ReceiptSchema = z
+   .object({
+     receiptId: z.string().uuid(),
+     roomName: z.string().transform((value, context) => {
+       try {
+         parseDrawingRoomName(value);
+         return value;
+       } catch {
+         context.addIssue({
+           code: z.ZodIssueCode.custom,
+           message: "Invalid room.",
+         });
+@@ -922,76 +923,71 @@
+         });
+       }
+       return stored;
+     },
+   };
+ 
+   const preparingFreezeRequests = new Map<
+     string,
+     { requestId: string; count: number }
+   >();
+   const freezeCoordinator = dependencies.storage.freeze
+     ? createDrawingFreezeCoordinator({
+         database: dependencies.storage.freeze,
+         now,
+         setInterval: dependencies.setInterval,
+         clearInterval: dependencies.clearInterval,
+         reconcile: async (document) => {
+           if (dependencies.storage.nativeOperations)
+             await reconcileNativeDrawingOperations(
+               document,
+               dependencies.storage.nativeOperations,
+             );
+           if (!dependencies.storage.lookupOperations) return;
+           const revisionId = String(
+             document.getMap("serverMeta").get("revisionId"),
+           );
+           await reconcileAcceptedDrawingOperations(document, (ids) =>
+             dependencies.storage.lookupOperations!(revisionId, ids),
+           );
+         },
+       })
+     : null;
+   const reconcileLoadedDocument = async (document: Y.Doc, roomName: string) => {
+     const preparing = preparingFreezeRequests.get(roomName);
+     if (preparing) {
+-      document.transact(() => {
+-        document.getMap("serverMeta").set("freezeState", "freezing");
+-        document
+-          .getMap("serverMeta")
+-          .set("freezeRequestId", preparing.requestId);
+-      }, DRAWING_COLLABORATION_SERVER_ORIGIN);
++      reconcileDrawingFreezeMetadata(document, "freezing", preparing.requestId);
+       return {
+         freezeState: "freezing" as const,
+         freezeRequestId: preparing.requestId,
+       };
+     }
+     return (
+       (await freezeCoordinator?.reconcileLoaded({ document, roomName })) ?? null
+     );
+   };
+ 
+   const server = new Server<DrawingRuntimeContext>({
+     port: dependencies.config.port,
+     stopOnSignals: false,
+     quiet: true,
+     debounce: dependencies.config.debounceMs,
+     maxDebounce: dependencies.config.maxDebounceMs,
+     unloadImmediately: false,
+     maxUnauthenticatedQueueSize: 1024 * 1024,
+     maxUnauthenticatedQueueMessages: 100,
+     maxPendingDocuments: 4,
+     async onAuthenticate(payload) {
+       const context = await hooks.authenticate({
+         token: payload.token,
+         origin: payload.requestHeaders.get("origin"),
+         roomName: payload.documentName,
+       });
+       payload.connectionConfig.readOnly = !context.canWrite;
+       return context;
+     },
+     async onTokenSync(payload) {
+       const couldWrite = payload.context.canWrite;
+       const context = await hooks.tokenSync({
+         token: payload.token,
+         origin: payload.requestHeaders.get("origin"),
+         roomName: payload.documentName,
+--- baseline/platform/tests/drawing-review-freeze.test.mjs
++++ candidate/platform/tests/drawing-review-freeze.test.mjs
+@@ -1,112 +1,133 @@
+ import assert from "node:assert/strict";
+ import { randomUUID } from "node:crypto";
+ import test from "node:test";
+ 
+ import * as Y from "yjs";
+ 
++import * as drawingFreezeModule from "../collaboration/src/freeze.ts";
+ import {
+   createDrawingFreezeSecretVerifier,
+   createDrawingFreezeCoordinator as createProductionFreezeCoordinator,
+   drawingFreezeManifest,
+ } from "../collaboration/src/freeze.ts";
++import { DRAWING_COLLABORATION_SERVER_ORIGIN } from "../app/lukas/lib/drawing-collaboration-protocol.ts";
+ import {
+   createDrawingCollaborationServer as createProductionCollaborationServer,
+   validateDrawingClientUpdate,
+ } from "../collaboration/src/server.ts";
+ import { requestDrawingCollaborativeReview } from "../app/lukas/lib/drawing-workspace.server.ts";
+ 
+ const ids = {
+   project: "00000000-0000-4000-8000-000000000901",
+   revision: "00000000-0000-4000-8000-000000000902",
+   actor: "00000000-0000-4000-8000-000000000903",
+   operation: "00000000-0000-4000-8000-000000000904",
+   layer: "00000000-0000-4000-8000-000000000905",
+ };
+ const roomName = `drawing:${ids.project}:${ids.revision}`;
+ 
+ function operation(overrides = {}) {
+   return {
+     clientOperationId: ids.operation,
+     revisionId: ids.revision,
+     actorId: ids.actor,
+     schemaVersion: 1,
+     type: "add_layer",
+     baseVersions: {},
+     forward: {
+       type: "add_layer",
+       layer: {
+         id: ids.layer,
+         name: "Annotations",
+         visible: true,
+         locked: false,
+         version: 1,
+       },
+     },
+     inverse: {},
+     createdAt: "2026-08-26T00:00:00.000Z",
+     ...overrides,
+   };
+ }
+ 
+ function document(status = "acked") {
+   const doc = new Y.Doc();
+   const meta = doc.getMap("serverMeta");
+   meta.set("schemaVersion", 1);
+   meta.set("projectId", ids.project);
+   meta.set("revisionId", ids.revision);
+   meta.set("baseSnapshotSha256", "a".repeat(64));
+   meta.set("baseOperationSequence", 0);
+   meta.set("freezeState", "active");
+   meta.set("freezeRequestId", null);
+   doc.getArray("operations").push([operation()]);
+   doc.getArray("operationOrder").push([ids.operation]);
+   doc.getMap("operationStatus").set(ids.operation, {
+     operationId: ids.operation,
+     status,
+     authoritativeSequence: status === "acked" ? 1 : null,
+     resultVersions: status === "acked" ? { [ids.layer]: 1 } : {},
+   });
+   return doc;
+ }
+ 
+ function deferred() {
+   let resolve;
+   const promise = new Promise((nextResolve) => {
+     resolve = nextResolve;
+   });
+   return { promise, resolve };
++}
++
++async function assertIdentityStable(doc, reconcile) {
++  const bytes = Y.encodeStateAsUpdate(doc);
++  const vector = Y.encodeStateVector(doc);
++  let updates = 0;
++  const onUpdate = () => {
++    updates += 1;
++  };
++  doc.on("update", onUpdate);
++  try {
++    await reconcile();
++    await reconcile();
++    assert.deepEqual(Y.encodeStateAsUpdate(doc), bytes);
++    assert.deepEqual(Y.encodeStateVector(doc), vector);
++    assert.equal(updates, 0);
++  } finally {
++    doc.off("update", onUpdate);
++  }
+ }
+ 
+ function createDrawingFreezeCoordinator(input) {
+   if (input.database.acquireFreezeLease)
+     return createProductionFreezeCoordinator({
+       ...input,
+       setInterval: input.setInterval ?? (() => 1),
+       clearInterval: input.clearInterval ?? (() => {}),
+     });
+   const testOwnerToken = input.ownerToken ?? randomUUID();
+   let leaseRequestId = null;
+   let leaseExpiresAtMs = null;
+   const now = input.now ?? Date.now;
+   const readFreeze = input.database.readFreeze.bind(input.database);
+   const releaseFreeze = input.database.releaseFreeze?.bind(input.database);
+   const syncReleasedState = input.database.syncReleasedState?.bind(
+     input.database,
+   );
+   return createProductionFreezeCoordinator({
+     ...input,
+     ownerToken: testOwnerToken,
+     setInterval: input.setInterval ?? (() => 1),
+     clearInterval: input.clearInterval ?? (() => {}),
+     database: {
+       ...input.database,
+       acquireFreezeLease: async (value) => {
+         leaseRequestId = value.requestId;
+         leaseExpiresAtMs = now() + value.leaseMs;
+       },
+       renewFreezeLease: async (value) => {
+         leaseExpiresAtMs = now() + value.leaseMs;
+       },
+       releaseFreezeLease: async () => {
+         leaseRequestId = null;
+         leaseExpiresAtMs = null;
+@@ -287,70 +308,73 @@
+           await allowRead.promise;
+         }
+         return store.snapshot();
+       },
+     }),
+     ownerToken: randomUUID(),
+     now: () => clock,
+     leaseMs: 100,
+     setInterval: () => 1,
+     clearInterval: () => {},
+   });
+   const foreign = createDrawingFreezeCoordinator({
+     database: store.database(),
+     ownerToken: randomUUID(),
+     now: () => clock,
+     leaseMs: 100,
+     setInterval: () => 1,
+     clearInterval: () => {},
+   });
+   const freezing = owner.freeze({
+     document: ownerDocument,
+     roomName,
+     requestId,
+   });
+   await readStarted.promise;
+   try {
+     const held = await foreign.reconcileLoaded({
+       document: foreignDocument,
+       roomName,
+     });
+     assert.equal(held.freezeState, "freezing");
+     assert.equal(held.freezeRequestId, requestId);
+     assert.equal(
+       foreignDocument.getMap("serverMeta").get("freezeState"),
+       "freezing",
++    );
++    await assertIdentityStable(foreignDocument, () =>
++      foreign.reconcileLoaded({ document: foreignDocument, roomName }),
+     );
+     assert.throws(() =>
+       validateDrawingClientUpdate(
+         foreignDocument,
+         Y.encodeStateAsUpdate(document()),
+         {
+           userId: ids.actor,
+           projectId: ids.project,
+           revisionId: ids.revision,
+           canWrite: true,
+         },
+       ),
+     );
+     assert.deepEqual(store.calls, { begins: 0, completes: 0, releases: 0 });
+   } finally {
+     allowRead.resolve();
+     await freezing.catch(() => undefined);
+   }
+   const frozen = await freezing;
+   assert.equal(frozen.freezeState, "frozen");
+   assert.deepEqual(store.calls, { begins: 1, completes: 1, releases: 0 });
+   clock += 1;
+ });
+ 
+ test("an expired persisted lease permits one takeover and denies stale completion", async () => {
+   let clock = 0;
+   const store = leasedFreezeStore(() => clock);
+   const ownerPaused = deferred();
+   const resumeOwner = deferred();
+   const requestId = randomUUID();
+   const ownerDocument = document();
+   const takeoverDocument = document();
+   const owner = createDrawingFreezeCoordinator({
+     database: store.database(),
+     reconcile: async () => {
+@@ -709,96 +733,103 @@
+       state = {
+         state: "freezing",
+         requestId: input.requestId,
+         revisionStatus: "draft",
+         revisionVersion: 1,
+         frozenSubjectRevisionVersion: 1,
+       };
+       return state;
+     },
+     async completeFreeze(input) {
+       state = {
+         ...state,
+         state: "frozen",
+         manifestSha256: input.manifest.sha256,
+         manifestCount: input.manifest.count,
+         frozenBaseOperationSequence: input.manifest.baseOperationSequence,
+         stateVectorBase64: input.manifest.stateVectorBase64,
+         operationStatuses: input.manifest.operationStatuses,
+       };
+       return state;
+     },
+     async releaseFreeze() {
+       throw new Error("must not release");
+     },
+     async syncReleasedState() {
+       throw new Error("unused");
+     },
+   };
+   const coordinator = createDrawingFreezeCoordinator({ database });
+   const freeze = coordinator.freeze({
+     document: ownerDocument,
+     roomName,
+     requestId,
+   });
+   await readStarted.promise;
+-  const held = await coordinator.reconcileLoaded({
+-    document: loadedDocument,
+-    roomName,
+-  });
+-  assert.equal(held.freezeState, "freezing");
+-  assert.equal(
+-    loadedDocument.getMap("serverMeta").get("freezeState"),
+-    "freezing",
+-  );
+-  assert.equal(
+-    loadedDocument.getMap("serverMeta").get("freezeRequestId"),
+-    requestId,
+-  );
+-  assert.throws(() =>
+-    validateDrawingClientUpdate(
+-      loadedDocument,
+-      Y.encodeStateAsUpdate(document()),
+-      {
+-        userId: ids.actor,
+-        projectId: ids.project,
+-        revisionId: ids.revision,
+-        canWrite: true,
+-      },
+-    ),
+-  );
+-  allowOwnerRead.resolve();
++  try {
++    const held = await coordinator.reconcileLoaded({
++      document: loadedDocument,
++      roomName,
++    });
++    assert.equal(held.freezeState, "freezing");
++    assert.equal(
++      loadedDocument.getMap("serverMeta").get("freezeState"),
++      "freezing",
++    );
++    assert.equal(
++      loadedDocument.getMap("serverMeta").get("freezeRequestId"),
++      requestId,
++    );
++    await assertIdentityStable(loadedDocument, () =>
++      coordinator.reconcileLoaded({ document: loadedDocument, roomName }),
++    );
++    assert.throws(() =>
++      validateDrawingClientUpdate(
++        loadedDocument,
++        Y.encodeStateAsUpdate(document()),
++        {
++          userId: ids.actor,
++          projectId: ids.project,
++          revisionId: ids.revision,
++          canWrite: true,
++        },
++      ),
++    );
++  } finally {
++    allowOwnerRead.resolve();
++    await freeze.catch(() => undefined);
++  }
+   const frozen = await freeze;
+   assert.equal(frozen.freezeState, "frozen");
+ });
+ 
+ test("the server owns a room before deferred detached storage load", async () => {
+   const storedDocument = document();
+   const liveDocument = document();
+   const requestId = randomUUID();
+   const loadStarted = deferred();
+   const allowLoad = deferred();
+   let failLoad = true;
+   let state = {
+     state: "active",
+     requestId: null,
+     revisionStatus: "draft",
+     revisionVersion: 1,
+   };
+   const runtime = createDrawingCollaborationServer({
+     config: {
+       port: 0,
+       supabaseUrl: "https://example.supabase.co",
+       databaseUrl: "postgres://unused",
+       allowedOrigins: new Set(["https://app.example.com"]),
+       internalSecret: "i".repeat(32),
+       freezeSecret: "f".repeat(32),
+       authorizationIntervalMs: 30_000,
+       debounceMs: 10,
+       maxDebounceMs: 20,
+     },
+     verifyToken: async () => ({
+       userId: ids.actor,
+       email: null,
+       expiresAtMs: Date.now() + 60_000,
+     }),
+     authorize: async () => ({
+@@ -826,133 +857,225 @@
+             requestId: input.requestId,
+             revisionStatus: "draft",
+             revisionVersion: 1,
+             frozenSubjectRevisionVersion: 1,
+           };
+           return state;
+         },
+         async completeFreeze(input) {
+           state = {
+             ...state,
+             state: "frozen",
+             manifestSha256: input.manifest.sha256,
+             manifestCount: input.manifest.count,
+             frozenBaseOperationSequence: input.manifest.baseOperationSequence,
+             stateVectorBase64: input.manifest.stateVectorBase64,
+             operationStatuses: input.manifest.operationStatuses,
+           };
+           return state;
+         },
+         async releaseFreeze() {
+           throw new Error("must not release");
+         },
+         async syncReleasedState() {
+           throw new Error("unused");
+         },
+       },
+     },
+     setInterval: () => 1,
+     clearInterval: () => {},
+   });
+   const freezing = runtime.applyFreezeRequest(
+     JSON.stringify({ action: "freeze", roomName, freezeRequestId: requestId }),
+     "f".repeat(32),
+   );
+   await loadStarted.promise;
+-  for (const persistedState of ["active", "released", "freezing", "frozen"]) {
++  try {
++    for (const persistedState of ["active", "released", "freezing", "frozen"]) {
++      state = {
++        state: persistedState,
++        requestId: persistedState === "active" ? null : requestId,
++        revisionStatus: "draft",
++        revisionVersion: 1,
++        ...(persistedState === "freezing" || persistedState === "frozen"
++          ? { frozenSubjectRevisionVersion: 1 }
++          : {}),
++      };
++      const candidate = persistedState === "active" ? liveDocument : document();
++      runtime.hocuspocus.documents.set(roomName, candidate);
++      const held = await runtime.reconcileLoadedDocument(candidate, roomName);
++      assert.equal(held.freezeState, "freezing");
++      await runtime.runReconciliationCheck();
++      assert.equal(
++        candidate.getMap("serverMeta").get("freezeState"),
++        "freezing",
++      );
++      assert.equal(
++        candidate.getMap("serverMeta").get("freezeRequestId"),
++        requestId,
++      );
++      await assertIdentityStable(candidate, () =>
++        runtime.reconcileLoadedDocument(candidate, roomName),
++      );
++      runtime.hocuspocus.documents.delete(roomName);
++    }
+     state = {
+-      state: persistedState,
+-      requestId: persistedState === "active" ? null : requestId,
++      state: "active",
++      requestId: null,
+       revisionStatus: "draft",
+       revisionVersion: 1,
+-      ...(persistedState === "freezing" || persistedState === "frozen"
+-        ? { frozenSubjectRevisionVersion: 1 }
+-        : {}),
+     };
+-    const candidate = persistedState === "active" ? liveDocument : document();
+-    runtime.hocuspocus.documents.set(roomName, candidate);
+-    const held = await runtime.reconcileLoadedDocument(candidate, roomName);
+-    assert.equal(held.freezeState, "freezing");
+-    await runtime.runReconciliationCheck();
+-    assert.equal(candidate.getMap("serverMeta").get("freezeState"), "freezing");
+     assert.equal(
+-      candidate.getMap("serverMeta").get("freezeRequestId"),
++      liveDocument.getMap("serverMeta").get("freezeState"),
++      "freezing",
++    );
++    assert.equal(
++      liveDocument.getMap("serverMeta").get("freezeRequestId"),
+       requestId,
+     );
++    assert.throws(() =>
++      validateDrawingClientUpdate(
++        liveDocument,
++        Y.encodeStateAsUpdate(document()),
++        {
++          userId: ids.actor,
++          projectId: ids.project,
++          revisionId: ids.revision,
++          canWrite: true,
++        },
++      ),
++    );
++    runtime.hocuspocus.documents.set(roomName, liveDocument);
++    allowLoad.resolve();
++    await assert.rejects(freezing, /detached load failed/);
++    assert.equal(liveDocument.getMap("serverMeta").get("freezeState"), "active");
++    assert.equal(liveDocument.getMap("serverMeta").get("freezeRequestId"), null);
+     runtime.hocuspocus.documents.delete(roomName);
++    await assertIdentityStable(liveDocument, () =>
++      runtime.reconcileLoadedDocument(liveDocument, roomName),
++    );
++    failLoad = false;
++    const frozen = await runtime.applyFreezeRequest(
++      JSON.stringify({ action: "freeze", roomName, freezeRequestId: requestId }),
++      "f".repeat(32),
++    );
++    assert.equal(frozen.freezeState, "frozen");
++  } finally {
++    allowLoad.resolve();
++    await freezing.catch(() => undefined);
++    runtime.hocuspocus.documents.delete(roomName);
++    await runtime.stop();
+   }
+-  state = {
+-    state: "active",
+-    requestId: null,
+-    revisionStatus: "draft",
++});
++
++test("a committed freezing snapshot reconciles without mutating its identity", async () => {
++  const doc = document();
++  const requestId = "00000000-0000-4000-8000-000000000906";
++  const state = {
++    state: "freezing",
++    requestId,
++    revisionStatus: "review_requested",
+     revisionVersion: 1,
++    frozenSubjectRevisionVersion: 1,
+   };
+-  assert.equal(
+-    liveDocument.getMap("serverMeta").get("freezeState"),
+-    "freezing",
+-  );
+-  assert.equal(
+-    liveDocument.getMap("serverMeta").get("freezeRequestId"),
+-    requestId,
+-  );
+-  assert.throws(() =>
+-    validateDrawingClientUpdate(
+-      liveDocument,
+-      Y.encodeStateAsUpdate(document()),
+-      {
+-        userId: ids.actor,
+-        projectId: ids.project,
+-        revisionId: ids.revision,
+-        canWrite: true,
++  const unexpectedMutation = () => {
++    throw new Error("freeze mutation must not run");
++  };
++  const coordinator = createProductionFreezeCoordinator({
++    database: {
++      async readFreeze() {
++        return state;
+       },
+-    ),
++      acquireFreezeLease: unexpectedMutation,
++      renewFreezeLease: unexpectedMutation,
++      releaseFreezeLease: unexpectedMutation,
++      beginFreeze: unexpectedMutation,
++      completeFreeze: unexpectedMutation,
++      releaseFreeze: unexpectedMutation,
++      syncReleasedState: unexpectedMutation,
++    },
++  });
++  const reconciled = await coordinator.reconcileLoaded({ document: doc, roomName });
++  assert.equal(reconciled.freezeState, "freezing");
++  assert.equal(reconciled.freezeRequestId, requestId);
++  await assertIdentityStable(doc, () =>
++    coordinator.reconcileLoaded({ document: doc, roomName }),
+   );
+-  runtime.hocuspocus.documents.set(roomName, liveDocument);
+-  allowLoad.resolve();
+-  await assert.rejects(freezing, /detached load failed/);
+-  assert.equal(liveDocument.getMap("serverMeta").get("freezeState"), "active");
+-  assert.equal(liveDocument.getMap("serverMeta").get("freezeRequestId"), null);
+-  runtime.hocuspocus.documents.delete(roomName);
+-  failLoad = false;
+-  const frozen = await runtime.applyFreezeRequest(
+-    JSON.stringify({ action: "freeze", roomName, freezeRequestId: requestId }),
+-    "f".repeat(32),
+-  );
+-  assert.equal(frozen.freezeState, "frozen");
+-  await runtime.stop();
+ });
+ 
++test("freeze metadata reconciliation changes only the differing field", async () => {
++  const doc = document();
++  const meta = doc.getMap("serverMeta");
++  const keysChanged = [];
++  const origins = [];
++  const observer = (event, transaction) => {
++    keysChanged.push([...event.keysChanged].sort());
++    origins.push(transaction.origin);
++  };
++  meta.observe(observer);
++  try {
++    drawingFreezeModule.reconcileDrawingFreezeMetadata(doc, "freezing", null);
++    assert.deepEqual(keysChanged, [["freezeState"]]);
++    assert.deepEqual(origins, [DRAWING_COLLABORATION_SERVER_ORIGIN]);
++
++    keysChanged.length = 0;
++    origins.length = 0;
++    const requestId = "00000000-0000-4000-8000-000000000907";
++    drawingFreezeModule.reconcileDrawingFreezeMetadata(
++      doc,
++      "freezing",
++      requestId,
++    );
++    assert.deepEqual(keysChanged, [["freezeRequestId"]]);
++    assert.deepEqual(origins, [DRAWING_COLLABORATION_SERVER_ORIGIN]);
++
++    keysChanged.length = 0;
++    origins.length = 0;
++    await assertIdentityStable(doc, () =>
++      drawingFreezeModule.reconcileDrawingFreezeMetadata(
++        doc,
++        "freezing",
++        requestId,
++      ),
++    );
++    assert.deepEqual(keysChanged, []);
++    assert.deepEqual(origins, []);
++  } finally {
++    meta.unobserve(observer);
++  }
++});
++
+ test("a live Hocuspocus freeze persists only through the freeze transaction", async () => {
+   const source = document();
+   const requestId = randomUUID();
+   const freezeStore = leasedFreezeStore(Date.now);
+   const freezeDatabase = freezeStore.database();
+   const completeFreeze = freezeDatabase.completeFreeze;
+   const completeEntered = deferred();
+   const allowComplete = deferred();
+   const completedStates = [];
+   let durableComplete = false;
+   let unloadedBeforeComplete = false;
+   let actorStores = 0;
+   let serviceStores = 0;
+   freezeDatabase.completeFreeze = async (input) => {
+     completedStates.push(input.yjsState);
+     completeEntered.resolve();
+     await allowComplete.promise;
+     const frozen = await completeFreeze(input);
+     durableComplete = true;
+     return frozen;
+   };
+   const runtime = createDrawingCollaborationServer({
+     config: {
+       port: 0,
+       supabaseUrl: "https://example.supabase.co",
+       databaseUrl: "postgres://unused",
+       allowedOrigins: new Set(["https://app.example.com"]),
+       internalSecret: "i".repeat(32),
+       freezeSecret: "f".repeat(32),
+       authorizationIntervalMs: 30_000,
+       debounceMs: 1,
+       maxDebounceMs: 2,
+     },
+     verifyToken: async () => ({
+       userId: ids.actor,
+@@ -1559,70 +1682,73 @@
+   assert.equal(recovered.freezeState, "released");
+   assert.equal(interrupted.getMap("serverMeta").get("freezeState"), "released");
+   await restarted.stop();
+ 
+   state = {
+     state: "released",
+     requestId,
+     revisionStatus: "draft",
+     revisionVersion: 2,
+   };
+   let synchronized = false;
+   database.syncReleasedState = async (input) => {
+     synchronized = true;
+     const restored = new Y.Doc();
+     Y.applyUpdate(restored, input.yjsState);
+     assert.equal(restored.getMap("serverMeta").get("freezeState"), "released");
+     restored.destroy();
+     return state;
+   };
+   const afterRejection = new Y.Doc();
+   Y.applyUpdate(afterRejection, Y.encodeStateAsUpdate(interrupted));
+   afterRejection.transact(() => {
+     afterRejection.getMap("serverMeta").set("freezeState", "frozen");
+     afterRejection.getMap("serverMeta").set("freezeRequestId", requestId);
+   });
+   const secondRestart = createRuntime();
+   const released = await secondRestart.reconcileLoadedDocument(
+     afterRejection,
+     roomName,
+   );
+   assert.equal(released.freezeState, "released");
+   assert.equal(synchronized, true);
+   assert.equal(
+     afterRejection.getMap("serverMeta").get("freezeState"),
+     "released",
++  );
++  await assertIdentityStable(afterRejection, () =>
++    secondRestart.reconcileLoadedDocument(afterRejection, roomName),
+   );
+   await secondRestart.stop();
+ });
+ 
+ test("fresh servers replay exact committed freezes without acquiring a draft lease", async () => {
+   for (const revisionStatus of ["review_requested", "reviewed", "approved"]) {
+     const doc = document();
+     const requestId = randomUUID();
+     doc.getMap("serverMeta").set("freezeState", "frozen");
+     doc.getMap("serverMeta").set("freezeRequestId", requestId);
+     const manifest = drawingFreezeManifest(doc);
+     const state = {
+       state: "frozen",
+       requestId,
+       revisionStatus,
+       revisionVersion: 1,
+       frozenSubjectRevisionVersion: 1,
+       manifestSha256: manifest.sha256,
+       manifestCount: manifest.count,
+       frozenBaseOperationSequence: manifest.baseOperationSequence,
+       stateVectorBase64: manifest.stateVectorBase64,
+       operationStatuses: manifest.operationStatuses,
+       reviewCommitted: true,
+     };
+     let leaseAcquires = 0;
+     let serviceLoads = 0;
+     const runtime = createDrawingCollaborationServer({
+       config: {
+         port: 0,
+         supabaseUrl: "https://example.supabase.co",
+         databaseUrl: "postgres://unused",
+         allowedOrigins: new Set(["https://app.example.com"]),
+         internalSecret: "i".repeat(32),
+         freezeSecret: "f".repeat(32),
+         authorizationIntervalMs: 30_000,
+@@ -1645,70 +1771,73 @@
+           serviceLoads += 1;
+           return { yjsState: Y.encodeStateAsUpdate(doc) };
+         },
+         store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+         bootstrap: async () => ({
+           sha256: "a".repeat(64),
+           operationSequence: 0,
+         }),
+         freeze: {
+           async acquireFreezeLease() {
+             leaseAcquires += 1;
+             throw new Error("Drawing revision is permanently frozen");
+           },
+           async readFreeze() {
+             return state;
+           },
+           async beginFreeze() {
+             throw new Error("unused");
+           },
+           async completeFreeze() {
+             throw new Error("unused");
+           },
+           async releaseFreeze() {
+             throw new Error("unused");
+           },
+           async syncReleasedState() {
+             throw new Error("must remain frozen");
+           },
+         },
+       },
+       setInterval: () => 1,
+       clearInterval: () => {},
+     });
+     const recovered = await runtime.reconcileLoadedDocument(doc, roomName);
+     assert.equal(recovered.freezeState, "frozen");
++    await assertIdentityStable(doc, () =>
++      runtime.reconcileLoadedDocument(doc, roomName),
++    );
+     const replayed = await runtime.applyFreezeRequest(
+       JSON.stringify({
+         action: "freeze",
+         roomName,
+         freezeRequestId: requestId,
+       }),
+       "f".repeat(32),
+     );
+     assert.equal(replayed.freezeState, "frozen");
+     assert.equal(replayed.freezeRequestId, requestId);
+     assert.equal(serviceLoads, 1);
+     assert.equal(leaseAcquires, 0);
+     await assert.rejects(
+       runtime.applyFreezeRequest(
+         JSON.stringify({
+           action: "freeze",
+           roomName,
+           freezeRequestId: randomUUID(),
+         }),
+         "f".repeat(32),
+       ),
+       /permanently frozen/i,
+     );
+     assert.equal(serviceLoads, 1);
+     assert.equal(leaseAcquires, 1);
+     await runtime.stop();
+   }
+ });
+ 
+ test("rejection authority immediately releases an already-loaded live room", async () => {
+   const doc = document();
+   const requestId = randomUUID();
+   doc.getMap("serverMeta").set("freezeState", "frozen");
+   doc.getMap("serverMeta").set("freezeRequestId", requestId);
+   const state = {

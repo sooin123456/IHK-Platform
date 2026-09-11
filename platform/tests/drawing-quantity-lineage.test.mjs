@@ -230,9 +230,19 @@ test("P6 derives exact material quantities with six-place half-away rounding", (
   );
 });
 
+test("P6 preserves an intentionally blank material specification", () => {
+  const [plan] = deriveP6MaterialPlans([
+    { ...materialA, resourceSpecification: "" },
+  ]);
+  assert.equal(plan.specification, "");
+  assert.equal(plan.designQuantity, "12.34567");
+});
+
 test("P6 material handoff rejects incompatible, duplicate, negative, and overflowing components", () => {
   for (const components of [
     [materialA, { ...materialA }],
+    [{ ...materialA, resourceSpecification: undefined }],
+    [{ ...materialA, resourceSpecification: "x".repeat(201) }],
     ...["resourceCode", "resourceName", "resourceSpecification", "resourceUnit"].map(
       (field) => [
         materialA,

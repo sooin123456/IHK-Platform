@@ -1,0 +1,32 @@
+[
+  {
+    "path": "platform/app/lukas/lib/drawing-collaboration-client.ts",
+    "sha256": "107d7ffd8762b7bf979cb9ea4dc78709ea692c7b4d0a97d1580d45041445f32f",
+    "baselineSha256": "75134620a346b4cce55f2b3ef47f91034ee941e32cc347e41d2ee659cdc33bbd"
+  },
+  {
+    "path": "platform/app/lukas/components/drawing-collaboration-presence.tsx",
+    "sha256": "2e76c9435a67b6dd2f2f55252cf2238a87ba50225276b7c0a8b63969c2811743",
+    "baselineSha256": "3a35002077798a2589601d1bc6808371b951fb699b273b167fc7eab5ad6f331b"
+  },
+  {
+    "path": "platform/tests/drawing-workspace-collaboration.test.mjs",
+    "sha256": "7ee583561eb2d811090dd15b86ab9f1a9dde44593eb2b56db32736f04b9f72b3",
+    "baselineSha256": "174f475377992b6de19853e1ca49f162ba471d9776cd8b0cba09d307f8eef28d"
+  },
+  {
+    "path": "platform/tests/drawing-collaboration-initialization.test.mjs",
+    "sha256": "3bd76f83e932d016da0d880b392ada773626bbcd83565696586607bfb2111f5e",
+    "baselineSha256": "36dacb2ea54638e290e81f57b8b92dd6aa7f8bc41000e7599a903ab92b4dc8dc"
+  },
+  {
+    "path": "platform/tests/drawing-collaboration-connection.test.mjs",
+    "sha256": "e710129ac838ed1531b3796a0e93217090331c2997ff763c92a0fab824281ff1",
+    "baselineSha256": null
+  },
+  {
+    "path": "platform/tests/drawing-collaboration-status.test.mjs",
+    "sha256": "da5f294b075eedaefd2ee8462810c5af4d5d7628308208fe979825fb0dbfdf51",
+    "baselineSha256": null
+  }
+]

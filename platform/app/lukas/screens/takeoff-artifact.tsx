@@ -1,10 +1,12 @@
 import type { Route } from "./+types/takeoff-artifact";
 
 import { ArrowLeft, Calculator, Download, ShieldCheck } from "lucide-react";
-import { Link, redirect } from "react-router";
+import { Link, data, redirect } from "react-router";
 
 import { Button } from "~/core/components/ui/button";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 import { verifyConcreteTakeoffBundle } from "~/lukas/lib/concrete-takeoff-artifact.server";
 
 const maxDisplayRows = 1000;
@@ -18,165 +20,181 @@ export const meta: Route.MetaFunction = ({ data }) => [
 ];
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const [client] = makeServerClient(request);
+  const [client, headers] = makeServerClient(request);
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user) throw redirect("/login");
-  const { data: project } = await client
-    .from("lukas_qto_projects")
-    .select("id, name")
-    .eq("id", params.projectId)
-    .single();
-  if (!project)
-    throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
-  const { data: artifact } = await client
-    .from("lukas_qto_takeoff_artifacts")
-    .select(
-      "id, format_version, report_file_id, manifest_file_id, report_sha256, manifest_sha256, row_count, input_sha256, status_counts, created_at",
-    )
-    .eq("id", params.artifactId)
-    .eq("project_id", project.id)
-    .single();
-  if (!artifact)
-    throw new Response("산출 근거를 찾을 수 없습니다.", { status: 404 });
-  const { data: inputLinks, error: inputLinksError } = await client
-    .from("lukas_qto_takeoff_inputs")
-    .select("input_role, file_id, source_sha256")
-    .eq("artifact_id", artifact.id);
-  if (inputLinksError || !inputLinks || inputLinks.length !== 7)
-    throw new Response("산출 근거의 7개 입력 파일 연결이 완전하지 않습니다.", {
-      status: 409,
-    });
-  const linkedFileIds = [
-    ...new Set([
-      artifact.report_file_id,
-      artifact.manifest_file_id,
-      ...inputLinks.map((link) => link.file_id),
-    ]),
-  ];
-  const { data: files, error: filesError } = await client
-    .from("lukas_qto_files")
-    .select("id, kind, original_filename, storage_path, sha256, byte_size")
-    .eq("project_id", project.id)
-    .in("id", linkedFileIds);
-  if (
-    filesError ||
-    !files ||
-    linkedFileIds.some((id) => !files.some((file) => file.id === id))
-  )
-    throw new Response("산출 근거 원본 파일을 찾을 수 없습니다.", {
-      status: 409,
-    });
-  const reportFile = files.find((file) => file.id === artifact.report_file_id);
-  const manifestFile = files.find(
-    (file) => file.id === artifact.manifest_file_id,
-  );
-  if (!reportFile || !manifestFile)
-    throw new Response("산출 근거 파일 연결이 끊어졌습니다.", { status: 409 });
-  const inputEvidence = inputLinks
-    .map((link) => {
-      const file = files.find((candidate) => candidate.id === link.file_id);
-      const registeredHashes =
-        artifact.input_sha256 &&
-        typeof artifact.input_sha256 === "object" &&
-        !Array.isArray(artifact.input_sha256)
-          ? (artifact.input_sha256 as Record<string, unknown>)
-          : {};
-      if (
-        !file ||
-        file.sha256 !== link.source_sha256 ||
-        registeredHashes[link.input_role] !== link.source_sha256
-      )
-        throw new Response(
-          "입력 파일의 등록 정보와 산출 근거 기록이 일치하지 않습니다.",
-          { status: 409 },
-        );
-      return {
-        role: link.input_role,
-        fileId: file.id,
-        filename: file.original_filename,
-        kind: file.kind,
-        sha256: file.sha256,
-      };
-    })
-    .sort((left, right) => left.role.localeCompare(right.role));
-  if (
-    reportFile.byte_size > 20 * 1024 * 1024 ||
-    manifestFile.byte_size > 20 * 1024 * 1024
-  )
-    throw new Response("웹 검증 허용 크기를 초과했습니다.", { status: 413 });
-  const [
-    { data: reportBlob, error: reportError },
-    { data: manifestBlob, error: manifestError },
-  ] = await Promise.all([
-    client.storage.from("lukas-qto").download(reportFile.storage_path),
-    client.storage.from("lukas-qto").download(manifestFile.storage_path),
-  ]);
-  if (reportError || manifestError || !reportBlob || !manifestBlob)
-    throw new Response("산출 근거 파일을 다시 읽지 못했습니다.", {
-      status: 500,
-    });
-  let verified: ReturnType<typeof verifyConcreteTakeoffBundle>;
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   try {
-    verified = verifyConcreteTakeoffBundle(
-      new Uint8Array(await reportBlob.arrayBuffer()),
-      reportFile.original_filename,
-      new Uint8Array(await manifestBlob.arrayBuffer()),
+    const { data: project } = await client
+      .from("lukas_qto_projects")
+      .select("id, name")
+      .eq("id", params.projectId)
+      .single();
+    if (!project)
+      throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+    const { data: artifact } = await client
+      .from("lukas_qto_takeoff_artifacts")
+      .select(
+        "id, format_version, report_file_id, manifest_file_id, report_sha256, manifest_sha256, row_count, input_sha256, status_counts, created_at",
+      )
+      .eq("id", params.artifactId)
+      .eq("project_id", project.id)
+      .single();
+    if (!artifact)
+      throw new Response("산출 근거를 찾을 수 없습니다.", { status: 404 });
+    const { data: inputLinks, error: inputLinksError } = await client
+      .from("lukas_qto_takeoff_inputs")
+      .select("input_role, file_id, source_sha256")
+      .eq("artifact_id", artifact.id);
+    if (inputLinksError || !inputLinks || inputLinks.length !== 7)
+      throw new Response(
+        "산출 근거의 7개 입력 파일 연결이 완전하지 않습니다.",
+        {
+          status: 409,
+        },
+      );
+    const linkedFileIds = [
+      ...new Set([
+        artifact.report_file_id,
+        artifact.manifest_file_id,
+        ...inputLinks.map((link) => link.file_id),
+      ]),
+    ];
+    const { data: files, error: filesError } = await client
+      .from("lukas_qto_files")
+      .select("id, kind, original_filename, storage_path, sha256, byte_size")
+      .eq("project_id", project.id)
+      .in("id", linkedFileIds);
+    if (
+      filesError ||
+      !files ||
+      linkedFileIds.some((id) => !files.some((file) => file.id === id))
+    )
+      throw new Response("산출 근거 원본 파일을 찾을 수 없습니다.", {
+        status: 409,
+      });
+    const reportFile = files.find(
+      (file) => file.id === artifact.report_file_id,
+    );
+    const manifestFile = files.find(
+      (file) => file.id === artifact.manifest_file_id,
+    );
+    if (!reportFile || !manifestFile)
+      throw new Response("산출 근거 파일 연결이 끊어졌습니다.", {
+        status: 409,
+      });
+    const inputEvidence = inputLinks
+      .map((link) => {
+        const file = files.find((candidate) => candidate.id === link.file_id);
+        const registeredHashes =
+          artifact.input_sha256 &&
+          typeof artifact.input_sha256 === "object" &&
+          !Array.isArray(artifact.input_sha256)
+            ? (artifact.input_sha256 as Record<string, unknown>)
+            : {};
+        if (
+          !file ||
+          file.sha256 !== link.source_sha256 ||
+          registeredHashes[link.input_role] !== link.source_sha256
+        )
+          throw new Response(
+            "입력 파일의 등록 정보와 산출 근거 기록이 일치하지 않습니다.",
+            { status: 409 },
+          );
+        return {
+          role: link.input_role,
+          fileId: file.id,
+          filename: file.original_filename,
+          kind: file.kind,
+          sha256: file.sha256,
+        };
+      })
+      .sort((left, right) => left.role.localeCompare(right.role));
+    if (
+      reportFile.byte_size > 20 * 1024 * 1024 ||
+      manifestFile.byte_size > 20 * 1024 * 1024
+    )
+      throw new Response("웹 검증 허용 크기를 초과했습니다.", { status: 413 });
+    const [
+      { data: reportBlob, error: reportError },
+      { data: manifestBlob, error: manifestError },
+    ] = await Promise.all([
+      client.storage.from("lukas-qto").download(reportFile.storage_path),
+      client.storage.from("lukas-qto").download(manifestFile.storage_path),
+    ]);
+    if (reportError || manifestError || !reportBlob || !manifestBlob)
+      throw new Response("산출 근거 파일을 다시 읽지 못했습니다.", {
+        status: 500,
+      });
+    let verified: ReturnType<typeof verifyConcreteTakeoffBundle>;
+    try {
+      verified = verifyConcreteTakeoffBundle(
+        new Uint8Array(await reportBlob.arrayBuffer()),
+        reportFile.original_filename,
+        new Uint8Array(await manifestBlob.arrayBuffer()),
+      );
+    } catch (error) {
+      throw new Response(
+        error instanceof Error
+          ? `산출 근거 파일 변경 확인 실패: ${error.message}`
+          : "산출 근거 파일이 등록 당시 상태와 같은지 확인하지 못했습니다.",
+        { status: 409 },
+      );
+    }
+    if (
+      verified.reportSha256 !== artifact.report_sha256 ||
+      verified.manifestSha256 !== artifact.manifest_sha256 ||
+      verified.reportSha256 !== reportFile.sha256 ||
+      verified.manifestSha256 !== manifestFile.sha256 ||
+      verified.rowCount !== artifact.row_count ||
+      canonical(verified.inputSha256) !== canonical(artifact.input_sha256) ||
+      canonical(verified.statusCounts) !== canonical(artifact.status_counts)
+    ) {
+      throw new Response(
+        "등록된 메타데이터와 다시 검증한 산출 근거가 일치하지 않습니다.",
+        { status: 409 },
+      );
+    }
+    const [{ data: reportLink }, { data: manifestLink }] = await Promise.all([
+      client.storage
+        .from("lukas-qto")
+        .createSignedUrl(reportFile.storage_path, 300),
+      client.storage
+        .from("lukas-qto")
+        .createSignedUrl(manifestFile.storage_path, 300),
+    ]);
+    const { data: approvals, error: approvalsError } = await client
+      .from("lukas_qto_takeoff_approvals")
+      .select("id, decision, note, decision_sequence, created_at")
+      .eq("artifact_id", artifact.id)
+      .order("decision_sequence", { ascending: true });
+    if (approvalsError)
+      throw new Response("사람 승인 이력을 불러오지 못했습니다.", {
+        status: 500,
+      });
+    return data(
+      {
+        project,
+        artifact,
+        inputSha256: verified.inputSha256,
+        inputEvidence,
+        statusCounts: verified.statusCounts,
+        approvals: approvals ?? [],
+        rows: verified.rows.slice(0, maxDisplayRows),
+        totalRows: verified.rows.length,
+        reportFilename: reportFile.original_filename,
+        reportUrl: reportLink?.signedUrl ?? null,
+        manifestFilename: manifestFile.original_filename,
+        manifestUrl: manifestLink?.signedUrl ?? null,
+      },
+      { headers },
     );
   } catch (error) {
-    throw new Response(
-      error instanceof Error
-        ? `산출 근거 파일 변경 확인 실패: ${error.message}`
-        : "산출 근거 파일이 등록 당시 상태와 같은지 확인하지 못했습니다.",
-      { status: 409 },
-    );
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
   }
-  if (
-    verified.reportSha256 !== artifact.report_sha256 ||
-    verified.manifestSha256 !== artifact.manifest_sha256 ||
-    verified.reportSha256 !== reportFile.sha256 ||
-    verified.manifestSha256 !== manifestFile.sha256 ||
-    verified.rowCount !== artifact.row_count ||
-    canonical(verified.inputSha256) !== canonical(artifact.input_sha256) ||
-    canonical(verified.statusCounts) !== canonical(artifact.status_counts)
-  ) {
-    throw new Response(
-      "등록된 메타데이터와 다시 검증한 산출 근거가 일치하지 않습니다.",
-      { status: 409 },
-    );
-  }
-  const [{ data: reportLink }, { data: manifestLink }] = await Promise.all([
-    client.storage
-      .from("lukas-qto")
-      .createSignedUrl(reportFile.storage_path, 300),
-    client.storage
-      .from("lukas-qto")
-      .createSignedUrl(manifestFile.storage_path, 300),
-  ]);
-  const { data: approvals, error: approvalsError } = await client
-    .from("lukas_qto_takeoff_approvals")
-    .select("id, decision, note, decision_sequence, created_at")
-    .eq("artifact_id", artifact.id)
-    .order("decision_sequence", { ascending: true });
-  if (approvalsError)
-    throw new Response("사람 승인 이력을 불러오지 못했습니다.", {
-      status: 500,
-    });
-  return {
-    project,
-    artifact,
-    inputSha256: verified.inputSha256,
-    inputEvidence,
-    statusCounts: verified.statusCounts,
-    approvals: approvals ?? [],
-    rows: verified.rows.slice(0, maxDisplayRows),
-    totalRows: verified.rows.length,
-    reportFilename: reportFile.original_filename,
-    reportUrl: reportLink?.signedUrl ?? null,
-    manifestFilename: manifestFile.original_filename,
-    manifestUrl: manifestLink?.signedUrl ?? null,
-  };
 }
 
 function canonical(value: unknown): string {

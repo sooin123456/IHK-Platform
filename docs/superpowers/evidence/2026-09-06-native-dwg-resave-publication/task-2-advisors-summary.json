@@ -1,0 +1,201 @@
+{
+  "database": "m1_62538_575a06d3bd89",
+  "total": 278,
+  "counts": {
+    "INFO:unindexed_foreign_keys": 135,
+    "WARN:auth_rls_initplan": 11,
+    "INFO:unused_index": 109,
+    "WARN:multiple_permissive_policies": 1,
+    "INFO:rls_enabled_no_policy": 22
+  },
+  "resave": [
+    {
+      "name": "unused_index",
+      "title": "Unused Index",
+      "level": "INFO",
+      "facing": "EXTERNAL",
+      "categories": [
+        "PERFORMANCE"
+      ],
+      "description": "Detects if an index has never been used and may be a candidate for removal.",
+      "detail": "Index `drawing_resave_claim_idx` on table `public.lukas_drawing_native_dwg_resave_jobs` has not been used",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index",
+      "metadata": {
+        "name": "lukas_drawing_native_dwg_resave_jobs",
+        "type": "table",
+        "schema": "public"
+      },
+      "cacheKey": "unused_index_public_lukas_drawing_native_dwg_resave_jobs_drawing_resave_claim_idx"
+    },
+    {
+      "name": "unused_index",
+      "title": "Unused Index",
+      "level": "INFO",
+      "facing": "EXTERNAL",
+      "categories": [
+        "PERFORMANCE"
+      ],
+      "description": "Detects if an index has never been used and may be a candidate for removal.",
+      "detail": "Index `drawing_resave_attempt_project_idx` on table `public.lukas_drawing_native_dwg_resave_attempts` has not been used",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index",
+      "metadata": {
+        "name": "lukas_drawing_native_dwg_resave_attempts",
+        "type": "table",
+        "schema": "public"
+      },
+      "cacheKey": "unused_index_public_lukas_drawing_native_dwg_resave_attempts_drawing_resave_attempt_project_idx"
+    },
+    {
+      "name": "unused_index",
+      "title": "Unused Index",
+      "level": "INFO",
+      "facing": "EXTERNAL",
+      "categories": [
+        "PERFORMANCE"
+      ],
+      "description": "Detects if an index has never been used and may be a candidate for removal.",
+      "detail": "Index `drawing_resave_attempt_job_project_idx` on table `public.lukas_drawing_native_dwg_resave_attempts` has not been used",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index",
+      "metadata": {
+        "name": "lukas_drawing_native_dwg_resave_attempts",
+        "type": "table",
+        "schema": "public"
+      },
+      "cacheKey": "unused_index_public_lukas_drawing_native_dwg_resave_attempts_drawing_resave_attempt_job_project_idx"
+    },
+    {
+      "name": "rls_enabled_no_policy",
+      "title": "RLS Enabled No Policy",
+      "level": "INFO",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects cases where row level security (RLS) has been enabled on a table but no RLS policies have been created.",
+      "detail": "Table `public.lukas_drawing_native_dwg_resave_artifacts` has RLS enabled, but no policies exist",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy",
+      "metadata": {
+        "name": "lukas_drawing_native_dwg_resave_artifacts",
+        "type": "table",
+        "schema": "public"
+      },
+      "cacheKey": "rls_enabled_no_policy_public_lukas_drawing_native_dwg_resave_artifacts"
+    },
+    {
+      "name": "rls_enabled_no_policy",
+      "title": "RLS Enabled No Policy",
+      "level": "INFO",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects cases where row level security (RLS) has been enabled on a table but no RLS policies have been created.",
+      "detail": "Table `public.lukas_drawing_native_dwg_resave_attempts` has RLS enabled, but no policies exist",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy",
+      "metadata": {
+        "name": "lukas_drawing_native_dwg_resave_attempts",
+        "type": "table",
+        "schema": "public"
+      },
+      "cacheKey": "rls_enabled_no_policy_public_lukas_drawing_native_dwg_resave_attempts"
+    },
+    {
+      "name": "rls_enabled_no_policy",
+      "title": "RLS Enabled No Policy",
+      "level": "INFO",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects cases where row level security (RLS) has been enabled on a table but no RLS policies have been created.",
+      "detail": "Table `public.lukas_drawing_native_dwg_resave_exports` has RLS enabled, but no policies exist",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy",
+      "metadata": {
+        "name": "lukas_drawing_native_dwg_resave_exports",
+        "type": "table",
+        "schema": "public"
+      },
+      "cacheKey": "rls_enabled_no_policy_public_lukas_drawing_native_dwg_resave_exports"
+    },
+    {
+      "name": "rls_enabled_no_policy",
+      "title": "RLS Enabled No Policy",
+      "level": "INFO",
+      "facing": "EXTERNAL",
+      "categories": [
+        "SECURITY"
+      ],
+      "description": "Detects cases where row level security (RLS) has been enabled on a table but no RLS policies have been created.",
+      "detail": "Table `public.lukas_drawing_native_dwg_resave_jobs` has RLS enabled, but no policies exist",
+      "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy",
+      "metadata": {
+        "name": "lukas_drawing_native_dwg_resave_jobs",
+        "type": "table",
+        "schema": "public"
+      },
+      "cacheKey": "rls_enabled_no_policy_public_lukas_drawing_native_dwg_resave_jobs"
+    }
+  ],
+  "warnings": [
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_price_books` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_price_resources` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_sections` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_lines` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_wbs_nodes` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_wbs_allocations` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_quantity_mappings` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_source_exclusions` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_rate_components` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_approvals` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_boq_versions` has a row level security policy `verified email sessions only` that re-evaluates current_setting() or auth.<function>() for each row. This produces suboptimal query performance at scale. Resolve the issue by replacing `auth.<function>()` with `(select auth.<function>())`. See [docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select) for more info."
+    },
+    {
+      "name": "multiple_permissive_policies",
+      "level": "WARN",
+      "detail": "Table `public.lukas_qto_files` has multiple permissive policies for role `authenticated` for action `DELETE`. Policies include `{\"material evidence uploaders delete unreferenced files\",\"project owners delete files\"}`"
+    }
+  ]
+}

@@ -29,7 +29,7 @@ const productionEnvironment = {
   P5_E2E_STORAGE_CORS_ORIGIN: "https://drawing.onehk.kr",
 };
 
-test("P5 operation resource routes reuse the authenticated actions and notices close renderer licenses", async () => {
+test("P5 routes reuse authenticated actions and notices separate renderer dependencies from redistributed fixtures", async () => {
   const [routes, productionResource, localResource, notice] = await Promise.all(
     [
       readFile(new URL("../app/routes.ts", import.meta.url), "utf8"),
@@ -63,7 +63,14 @@ test("P5 operation resource routes reuse the authenticated actions and notices c
   );
   assert.match(notice, /\| pdfjs-dist\s+\| 6\.2\.108\s+\|.*Apache-2\.0/);
   assert.match(notice, /\| three\s+\| 0\.185\.1\s+\|.*MIT/);
-  assert.doesNotMatch(notice, /web-ifc|MPL-2\.0/i);
+  const dependencyNotice = notice.split(
+    "## Redistributed IFC fixture provenance",
+    1,
+  )[0];
+  assert.doesNotMatch(dependencyNotice, /web-ifc|MPL-2\.0/i);
+  assert.match(notice, /Redistributed IFC fixture provenance/);
+  assert.match(notice, /engine_web-ifc/);
+  assert.match(notice, /MPL-2\.0/);
 });
 
 test("P5 browser scripts use installed Playwright and isolate pending manifest lifecycle", async () => {

@@ -1,0 +1,113 @@
+PASS refuses an input located inside the output directory
+PASS rejects an output name that escapes the explicit output directory
+PASS reports a removed untouched entity
+PASS reports a changed untouched entity
+PASS rejects an output-directory symlink that aliases the input parent
+PASS bounds a directory collision at the working-copy path
+PASS inventories supported orientation and alignment fields
+PASS marks non-empty insert attributes as an explicit semantic inventory gap
+PASS diagnoses duplicate entity handles instead of silently collapsing them
+/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-ad9e4e0732f2439db893fedf9bccef6c/result/qualification-report.json
+internal-synthetic=passed production=not-qualified
+no-edit failures=0; edit failures=not-requested
+PASS qualifies without silently editing the first entities
+/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-1415d732d4544292b85597184873cc4f/result/qualification-report.json
+internal-synthetic=passed production=not-qualified
+no-edit failures=0; edit failures=0
+PASS edits only explicit non-first handles on a pinned DWG copy
+qualification failed: InvalidDataException: DWG edit source SHA-256 does not match the working copy.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-e30889f2321b4925a70760129e6df85d/result/qualification-report.json
+qualification rejected: InvalidDataException: DWG edit JSON contains a duplicate or unknown field.
+qualification rejected: InvalidDataException: DWG edit schema is unsupported.
+qualification rejected: InvalidDataException: DWG edit coordinate policy is unsupported.
+qualification rejected: InvalidDataException: DWG edit count must be between 1 and 10000.
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-2d719027229f4d799830703e76cfba0f/result/qualification-report.json
+qualification rejected: InvalidDataException: DWG edit handle is invalid or duplicated.
+qualification rejected: InvalidDataException: DWG edit handle is invalid or duplicated.
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-982f152542ef4ec3aa98a5e8ca2d83fa/result/qualification-report.json
+qualification rejected: InvalidDataException: DWG edit JSON is missing a required field.
+qualification rejected: InvalidDataException: DWG edit point must have exactly three coordinates.
+qualification rejected: InvalidDataException: DWG edit number is non-finite or out of range.
+qualification rejected: InvalidDataException: DWG edited LINE must have nonzero length.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG edit JSON string is required.
+qualification rejected: InvalidDataException: DWG edit JSON contains a duplicate or unknown field.
+qualification rejected: InvalidOperationException: Cannot read incomplete UTF-16 JSON text as string with missing low surrogate.
+qualification rejected: InvalidDataException: DWG edit request exceeds 2 MiB.
+qualification rejected: InvalidDataException: DWG edit count must be between 1 and 10000.
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-a023fc971fe744d79323784f08a0daf9/result/qualification-report.json
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-6943f43de64b483b91cf5a498a239494/result/qualification-report.json
+PASS rejects malformed, stale, duplicate and unsupported edit targets without output
+PASS validates every selected target before mutating any entity
+/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-f195bc64fa1a4271b37cb06bc88eeb03/result/qualification-report.json
+internal-synthetic=passed production=not-qualified
+no-edit failures=0; edit failures=0
+PASS edits all five strict v2 geometry types and preserves selected identities
+PASS retains polyline vertices by index for closure, movement and count changes
+PASS rejects lossy retained polyline vertex identifiers before mutation
+qualification rejected: InvalidDataException: DWG edit JSON contains a duplicate or unknown field.
+qualification rejected: InvalidDataException: DWG edit JSON is missing a required field.
+qualification rejected: InvalidDataException: DWG v2 edit points must be planar WCS coordinates.
+qualification rejected: InvalidDataException: DWG edit radius must be positive.
+qualification rejected: InvalidDataException: DWG edit height must be positive.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG edited ARC angle difference must be nonzero and at most 2π.
+qualification rejected: InvalidDataException: DWG edited ARC angle difference must be nonzero and at most 2π.
+qualification rejected: InvalidDataException: DWG edit number is non-finite or out of range.
+qualification rejected: InvalidDataException: DWG edited LWPOLYLINE must have at least two points.
+qualification rejected: InvalidDataException: DWG edited LWPOLYLINE must have at least two distinct points.
+qualification rejected: InvalidDataException: DWG edited LWPOLYLINE closed flag must be boolean.
+qualification failed: InvalidDataException: DWG v2 edit target or result is not supported reader geometry.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-5eb6b656227843d68e1c15f867ae7f97/result/qualification-report.json
+qualification failed: InvalidDataException: DWG v2 edit target or result is not supported reader geometry.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-85f7d69910444215a8a939a379f1443a/result/qualification-report.json
+qualification failed: InvalidDataException: DWG v2 edit target or result is not supported reader geometry.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-2d5b3afae2024e37b94e87c4a1d023f3/result/qualification-report.json
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-5e2b6b7304f249d6ade7288d6b91813c/result/qualification-report.json
+qualification failed: InvalidDataException: DWG edit target is missing, not model space, or has a different type.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-dcc80750babd49138d92ccdfb53b2f00/result/qualification-report.json
+qualification failed: InvalidDataException: DWG v2 edit target or result is not supported reader geometry.
+failure report: /private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-8d5bf118a9c8452c9c45d11863affe15/result/qualification-report.json
+PASS rejects invalid v2 payloads and reader-ineligible targets atomically
+qualification rejected: JsonReaderException: Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. LineNumber: 0 | BytePositionInLine: 34.
+qualification rejected: InvalidOperationException: Cannot read incomplete UTF-16 JSON text as string with missing low surrogate.
+qualification rejected: InvalidDataException: DWG TEXT edit must be bounded plain single-line text.
+qualification rejected: InvalidDataException: DWG edit request exceeds 2 MiB.
+qualification rejected: InvalidDataException: DWG edited LWPOLYLINE point budget exceeded.
+PASS rejects malformed and over-budget v2 requests
+PASS rejects retained unknown objects before mutating v2 targets
+PASS rejects resulting document point overflow before mutating v2 targets
+PASS detects an unrequested LINE normal change
+PASS detects a switch between similarly numbered style and block references
+PASS reads literal native geometry and preserves source bytes
+PASS counts unsupported native geometry without fabrication
+PASS keeps attribute definitions out of plain TEXT import
+PASS rejects malformed native input and existing output
+PASS rejects external DWG references without producing output
+PASS accepts a full-turn ARC and appearance-only PLINEGEN
+PASS counts classic polyline vertices in the global budget
+PASS publishes one durable report under concurrent output
+PASS rejects corrupt DWG instead of reporting failsafe coverage
+PASS pipes a real generated DWG through the actual stream CLI
+PASS reads a non-seekable chunked native DWG stream
+PASS rejects malformed native streams without partial success output
+PASS bounds generated native stream input without partial success output
+PASS resaves exact v2 geometry through the actual framed native CLI
+PASS detects unrequested passive viewport geometry plot and ownership changes
+PASS resaves non-seekable chunked native frames
+FAIL rejects malformed resave frames and requests without success bytes: extra CLI arguments are rejected generically
+PASS rejects resave inventory gaps Xrefs and ineligible targets
+PASS bounds native resave output memory before growth
+40 passed, 1 failed

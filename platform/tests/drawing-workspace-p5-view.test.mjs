@@ -187,6 +187,40 @@ test("split IFC review starts with a compact result batch without shrinking the 
   assert.equal(ifcPropertyBrowser.ifcElementResultPageSize(false), 50);
 });
 
+test("IFC element filtering exposes a semantic searchbox", async () => {
+  const source = await readFile(
+    new URL(
+      "../app/lukas/components/ifc-property-browser.client.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(source, /aria-label="IFC 요소 검색"[\s\S]{0,500}type="search"/);
+});
+
+test("canonical workspace owns explicit PDF and IFC revision relink controls with visible lineage", async () => {
+  const source = await readFile(
+    new URL("../app/lukas/components/drawing-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /aria-label="개정 근거 재연결"/);
+  assert.match(source, /name="previous_anchor_id"/);
+  assert.match(source, /name="new_anchor_id"/);
+  assert.match(source, /name="current_file_id"/);
+  assert.match(source, /name="anchor_json"/);
+  assert.match(source, /name="note"[\s\S]{0,300}required/);
+  assert.match(
+    source,
+    /regionPicker=\{revisionRelinkPdfPicker \?\? canvasRegionPicker\}/,
+  );
+  assert.match(
+    source,
+    /onAnchorSelected=\{[\s\S]{0,250}completeRevisionRelinkIfcPick/,
+  );
+  assert.match(source, /anchor\.active \? "사용 중" : "해제됨"/);
+  assert.match(source, /anchor\.replaces_anchor_id/);
+});
+
 test("IFC first-usable geometry requires a mapped visible finite nonempty rendered mesh", () => {
   const root = new THREE.Group();
   const mesh = new THREE.Mesh(
@@ -220,6 +254,39 @@ test("IFC first-usable geometry requires a mapped visible finite nonempty render
     new THREE.Vector3(1, 1, 1),
   );
   assert.equal(ifcViewer.hasVisibleIfcRenderGeometry(root, mapped), false);
+});
+
+test("IFC line selection uses a line material while mesh selection keeps a mesh material", () => {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial(),
+  );
+  const lines = new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(1, 0, 0),
+    ]),
+    new THREE.LineBasicMaterial(),
+  );
+  const meshHighlight = new THREE.MeshBasicMaterial();
+  const lineHighlight = new THREE.LineBasicMaterial();
+
+  assert.equal(
+    ifcViewer.ifcPrimitiveHighlightMaterial?.(
+      mesh,
+      meshHighlight,
+      lineHighlight,
+    ),
+    meshHighlight,
+  );
+  assert.equal(
+    ifcViewer.ifcPrimitiveHighlightMaterial?.(
+      lines,
+      meshHighlight,
+      lineHighlight,
+    ),
+    lineHighlight,
+  );
 });
 
 test("IFC initial fit waits until armed with a ready visible non-zero viewport and runs once", () => {

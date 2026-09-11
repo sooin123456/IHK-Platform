@@ -10,7 +10,10 @@ import {
   createVisibilityRenderGate,
   markDrawingFirstUsable,
 } from "~/lukas/lib/drawing-runtime";
-import type { OwnedIfcRenderModel } from "~/lukas/lib/ifc-render-model.client";
+import type {
+  IfcRenderedPrimitive,
+  OwnedIfcRenderModel,
+} from "~/lukas/lib/ifc-render-model.client";
 
 export type IfcModelViewerStatus = {
   phase: "loading" | "ready" | "error" | "disposed";
@@ -50,11 +53,6 @@ export type IfcModelViewer = {
   readonly renderedElementCount: number;
 };
 
-type RenderedIfcMesh = THREE.Mesh<
-  THREE.BufferGeometry,
-  THREE.Material | THREE.Material[]
->;
-
 const HIGHLIGHT_COLOR = 0x6d5dfc;
 const REMOTE_HIGHLIGHT_COLOR = 0x22d3ee;
 let viewerInstanceSequence = 0;
@@ -77,7 +75,7 @@ function hasVisibleAncestors(object: THREE.Object3D, root: THREE.Object3D) {
 
 export function hasVisibleIfcRenderGeometry(
   root: THREE.Object3D,
-  elementMeshes: ReadonlyMap<number, readonly THREE.Mesh[]>,
+  elementMeshes: ReadonlyMap<number, readonly IfcRenderedPrimitive[]>,
 ) {
   root.updateMatrixWorld(true);
   for (const meshes of elementMeshes.values()) {
@@ -117,6 +115,14 @@ export function hasVisibleIfcRenderGeometry(
     }
   }
   return false;
+}
+
+export function ifcPrimitiveHighlightMaterial(
+  primitive: IfcRenderedPrimitive,
+  meshMaterial: THREE.Material,
+  lineMaterial: THREE.Material,
+) {
+  return primitive instanceof THREE.LineSegments ? lineMaterial : meshMaterial;
 }
 
 export function createIfcInitialFitOnce(fit: () => void) {
@@ -209,10 +215,10 @@ export function createIfcModelViewer({
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
-  const elementMeshes = new Map<number, RenderedIfcMesh[]>(
+  const elementMeshes = new Map<number, IfcRenderedPrimitive[]>(
     [...model.elementMeshes].map(([expressId, meshes]) => [
       expressId,
-      [...meshes] as RenderedIfcMesh[],
+      [...meshes],
     ]),
   );
   for (const meshes of elementMeshes.values())
@@ -238,6 +244,18 @@ export function createIfcModelViewer({
     opacity: 0.82,
     roughness: 0.72,
     side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+  });
+  const lineHighlightMaterial = new THREE.LineBasicMaterial({
+    color: HIGHLIGHT_COLOR,
+    opacity: 0.92,
+    transparent: true,
+    depthWrite: false,
+  });
+  const remoteLineHighlightMaterial = new THREE.LineBasicMaterial({
+    color: REMOTE_HIGHLIGHT_COLOR,
+    opacity: 0.82,
     transparent: true,
     depthWrite: false,
   });
@@ -336,9 +354,17 @@ export function createIfcModelViewer({
       for (const mesh of elementMeshes.get(id) ?? [])
         mesh.material =
           id === selectedExpressId
-            ? highlightMaterial
+            ? ifcPrimitiveHighlightMaterial(
+                mesh,
+                highlightMaterial,
+                lineHighlightMaterial,
+              )
             : remoteExpressIds.has(id)
-              ? remoteHighlightMaterial
+              ? ifcPrimitiveHighlightMaterial(
+                  mesh,
+                  remoteHighlightMaterial,
+                  remoteLineHighlightMaterial,
+                )
               : mesh.userData.originalMaterial;
     }
     render();
@@ -357,7 +383,11 @@ export function createIfcModelViewer({
       if (id === selectedExpressId) continue;
       for (const mesh of elementMeshes.get(id) ?? [])
         mesh.material = remoteExpressIds.has(id)
-          ? remoteHighlightMaterial
+          ? ifcPrimitiveHighlightMaterial(
+              mesh,
+              remoteHighlightMaterial,
+              remoteLineHighlightMaterial,
+            )
           : mesh.userData.originalMaterial;
     }
     render();
@@ -512,6 +542,8 @@ export function createIfcModelViewer({
     controls.dispose();
     highlightMaterial.dispose();
     remoteHighlightMaterial.dispose();
+    lineHighlightMaterial.dispose();
+    remoteLineHighlightMaterial.dispose();
     model.dispose();
     renderer.renderLists.dispose();
     renderer.dispose();

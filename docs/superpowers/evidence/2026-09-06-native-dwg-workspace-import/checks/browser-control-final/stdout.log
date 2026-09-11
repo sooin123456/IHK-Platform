@@ -1,0 +1,16 @@
+
+Running 9 tests using 1 worker
+
+12:11:55 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+12:11:56 PM [vite] (client) ✨ new dependencies optimized: react/jsx-dev-runtime, react, react-dom/client, zod
+  ✓  1 e2e/drawing-native-dwg-import-control.spec.ts:173:1 › queued analysis survives remount; analyzed requires explicit apply (2.9s)
+  ✓  2 e2e/drawing-native-dwg-import-control.spec.ts:200:1 › lost request response retries same durable request after reload (359ms)
+  ✓  3 e2e/drawing-native-dwg-import-control.spec.ts:220:1 › failed is terminal and requires explicit new request; unauthorized is surfaced (2.6s)
+  ✓  4 e2e/drawing-native-dwg-import-control.spec.ts:240:1 › scope switch discards a pending response (338ms)
+  ✓  5 e2e/drawing-native-dwg-import-control.spec.ts:260:1 › viewer cannot request; offline stops polling (2.6s)
+  ✓  6 e2e/drawing-native-dwg-import-control.spec.ts:277:1 › storage failure prevents network (228ms)
+  ✓  7 e2e/drawing-native-dwg-import-control.spec.ts:291:1 › unit and source changes require explicit analysis with a new identity (360ms)
+  ✓  8 e2e/drawing-native-dwg-import-control.spec.ts:323:1 › network failure stops polling until explicit check (2.6s)
+  ✓  9 e2e/drawing-native-dwg-import-control.spec.ts:339:1 › apply needs persistence readiness and ignores preparation after authority revocation (335ms)
+
+  9 passed (13.0s)

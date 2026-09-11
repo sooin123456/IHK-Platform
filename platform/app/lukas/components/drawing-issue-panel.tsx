@@ -15,6 +15,7 @@ import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import {
   canAssignDrawingIssue,
+  canRelinkDrawingRevision,
   canRecordDrawingApproval,
   canTransitionDrawingIssue,
   drawingIssueStatuses,
@@ -133,6 +134,7 @@ export default function DrawingIssuePanel({
     [approvals, selected?.id],
   );
   const mayWrite = role !== "viewer";
+  const mayRelink = canRelinkDrawingRevision(role);
   const selectedRequiresRelink = revisionReview.some(
     (item) => item.issueId === selected?.id,
   );
@@ -153,7 +155,7 @@ export default function DrawingIssuePanel({
         </span>
       </div>
 
-      {revisionReview.length > 0 ? (
+      {revisionReview.length > 0 && mayRelink ? (
         <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
           <p className="flex items-center gap-2 text-sm font-bold">
             <RefreshCw className="size-4" /> 개정 도면 재검토{" "}
@@ -341,7 +343,7 @@ export default function DrawingIssuePanel({
           ) : null}
 
           {pendingAnchor &&
-          mayWrite &&
+          mayRelink &&
           relinkCandidate &&
           relinkNewAnchorId &&
           relinkCandidate.issueId === selected.id &&
@@ -424,7 +426,7 @@ export default function DrawingIssuePanel({
           ) : null}
 
           {pendingAnchor &&
-          mayWrite &&
+          mayRelink &&
           selectedRequiresRelink &&
           !relinkCandidate ? (
             <p

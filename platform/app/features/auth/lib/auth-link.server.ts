@@ -49,6 +49,24 @@ export function safeAuthNextPath(value: string | null | undefined) {
   }
 }
 
+function authPathWithNext(requestUrl: string, authPath: string) {
+  try {
+    const request = new URL(requestUrl);
+    const next = safeAuthNextPath(`${request.pathname}${request.search}`);
+    return next ? `${authPath}?next=${encodeURIComponent(next)}` : authPath;
+  } catch {
+    return authPath;
+  }
+}
+
+export function authLoginPath(requestUrl: string) {
+  return authPathWithNext(requestUrl, "/login");
+}
+
+export function authMagicLinkPath(requestUrl: string) {
+  return authPathWithNext(requestUrl, "/auth/magic-link");
+}
+
 export function resolveAuthOrigin(
   requestUrl: string,
   configuredAppUrl = process.env.APP_URL,
@@ -60,7 +78,8 @@ export function resolveAuthOrigin(
   // requested on 127.0.0.1:4173 open a server that is not running.
   if (isLoopbackHost(requestOrigin.hostname)) return requestOrigin.origin;
 
-  if (!configuredAppUrl) return requestOrigin.origin;
+  if (!configuredAppUrl)
+    throw new Error("APP_URL is required outside local development");
   const configuredOrigin = new URL(configuredAppUrl);
   if (configuredOrigin.protocol !== "https:") {
     throw new Error("APP_URL must use HTTPS outside local development");

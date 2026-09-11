@@ -6,10 +6,12 @@ import {
   drawingIssuePageInfo,
   drawingIssueRange,
   mergeFocusedIssue,
+  mergeFocusedIssues,
   reconcileDrawingIssueSelection,
   parseDrawingIssueId,
   parseDrawingIssuePage,
 } from "../app/lukas/lib/drawing-pagination.ts";
+import * as drawingPagination from "../app/lukas/lib/drawing-pagination.ts";
 
 test("drawing issue pages use stable 50-row database ranges", () => {
   assert.equal(parseDrawingIssuePage(null), 1);
@@ -59,6 +61,42 @@ test("a directly opened old issue remains available outside the current page", (
   assert.equal(mergeFocusedIssue(page, null), page);
 });
 
+test("revision review keeps every off-page issue once and preserves candidate order", () => {
+  const page = [{ id: "new-1" }, { id: "shared" }];
+  const focused = [
+    { id: "old-2" },
+    { id: "shared" },
+    { id: "old-1" },
+    { id: "old-2" },
+  ];
+
+  assert.deepEqual(mergeFocusedIssues(page, focused), [
+    { id: "old-2" },
+    { id: "old-1" },
+    ...page,
+  ]);
+  assert.equal(mergeFocusedIssues(page, []), page);
+});
+
+test("revision review pagination keeps the in-progress relink candidate visible", () => {
+  const active = { previousAnchorId: "anchor-old", issueId: "issue-old" };
+  const page = [
+    { previousAnchorId: "anchor-new-1", issueId: "issue-new-1" },
+    { previousAnchorId: "anchor-new-2", issueId: "issue-new-2" },
+  ];
+
+  assert.equal(typeof drawingPagination.mergeFocusedRevisionReview, "function");
+  assert.deepEqual(drawingPagination.mergeFocusedRevisionReview(page, active), [
+    active,
+    ...page,
+  ]);
+  assert.equal(
+    drawingPagination.mergeFocusedRevisionReview(page, page[1]),
+    page,
+  );
+  assert.equal(drawingPagination.mergeFocusedRevisionReview(page, null), page);
+});
+
 test("URL issue changes win once without undoing a later manual selection", () => {
   const issues = [{ id: "a" }, { id: "b" }];
   assert.equal(reconcileDrawingIssueSelection(issues, "a", "b", "a"), "b");
@@ -67,4 +105,14 @@ test("URL issue changes win once without undoing a later manual selection", () =
     reconcileDrawingIssueSelection([{ id: "c" }], "a", null, null),
     "c",
   );
+});
+
+test("canonical workspace selection keeps a valid manual issue and otherwise falls back to the first current issue", () => {
+  const issues = [{ id: "a" }, { id: "b" }];
+  assert.equal(reconcileDrawingIssueSelection(issues, "b", null, null), "b");
+  assert.equal(
+    reconcileDrawingIssueSelection(issues, "missing", null, null),
+    "a",
+  );
+  assert.equal(reconcileDrawingIssueSelection([], "b", null, null), null);
 });

@@ -8,6 +8,7 @@ import { type PluginOption, defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig((config) => {
+  const p4FunctionalViteCacheDir = process.env.P4_FUNCTIONAL_VITE_CACHE_DIR;
   const sentryConfig: SentryReactRouterBuildOptions = {
     org: process.env.SENTRY_ORG,
     project: process.env.SENTRY_PROJECT,
@@ -22,15 +23,18 @@ export default defineConfig((config) => {
     plugins = [...plugins, sentryReactRouter(sentryConfig, config)];
   }
   return {
+    ...(p4FunctionalViteCacheDir ? { cacheDir: p4FunctionalViteCacheDir } : {}),
     optimizeDeps: {
       include: [
         "@hocuspocus/provider",
         "@radix-ui/react-dialog",
+        "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-slot",
         "@sentry/react-router",
         "@supabase/ssr",
         "class-variance-authority",
         "clsx",
+        "gltf-validator",
         "i18next",
         "i18next-browser-languagedetector",
         "lucide-react",

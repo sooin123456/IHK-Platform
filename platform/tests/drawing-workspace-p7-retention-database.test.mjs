@@ -25,6 +25,26 @@ async function migration() {
   return readFile(new URL(matches[0], migrations), "utf8");
 }
 
+async function exportLineageMigrations() {
+  const matches = (await readdir(migrations)).filter(
+    (name) =>
+      name.endsWith("_drawing_export_revision_lineage.sql") ||
+      name.endsWith("_drawing_export_approved_snapshot_required.sql"),
+  );
+  assert.equal(
+    matches.length,
+    2,
+    "drawing export lineage and approved-snapshot migrations are present",
+  );
+  return Promise.all(
+    matches.sort().map((name) => readFile(new URL(name, migrations), "utf8")),
+  );
+}
+
+async function applyExportLineageMigrations(db) {
+  for (const sql of await exportLineageMigrations()) await db.exec(sql);
+}
+
 test("retention migration replaces project deletion with guarded archive authority", async () => {
   const sql = await migration();
   assert.match(
@@ -201,7 +221,7 @@ const runtimeIds = Object.freeze({
   restoreRehearsal: "73000000-0000-4000-8000-000000000015",
 });
 
-async function runtimeDatabase() {
+async function runtimeDatabase({ applyExportLineage = true } = {}) {
   const db = new PGlite({ extensions: { pgcrypto } });
   await applyP6AuthorityFixture(db);
   await db.exec(await readP6Migration());
@@ -224,6 +244,23 @@ async function runtimeDatabase() {
           where m.organization_id=o.id and m.user_id=(select auth.uid())) end
       from public.lukas_qto_organizations o where o.id=p_organization_id
     $$;
+    create function private.lukas_drawing_p2_canonical_snapshot(
+      p_revision_id uuid,p_include_instance_lineage boolean
+    ) returns jsonb language sql stable security invoker set search_path='' as $$
+      select pg_catalog.jsonb_build_object(
+        'schemaVersion',2,
+        'revision',pg_catalog.jsonb_build_object(
+          'id',r.id,'documentId',r.document_id,'projectId',r.project_id,
+          'version',r.version
+        ),
+        'includeInstanceLineage',p_include_instance_lineage,
+        'operationSequence',coalesce((
+          select pg_catalog.max(s.operation_sequence)
+          from public.lukas_drawing_snapshots s where s.revision_id=r.id
+        ),0)
+      )
+      from public.lukas_drawing_revisions r where r.id=p_revision_id
+    $$;
     create table public.lukas_drawing_issue_approvals(
       id uuid primary key,project_id uuid not null,decision text not null
     );
@@ -244,6 +281,7 @@ async function runtimeDatabase() {
     grant execute on function private.lukas_qto_organization_role(uuid) to authenticated,service_role;
   `);
   await db.exec(await migration());
+  if (applyExportLineage) await applyExportLineageMigrations(db);
   await p6SeedPopulatedAuthority(db, calculateVerifiedBoq(p6LegacyInput));
   await p6SetSession(db, null);
   await db.query(
@@ -283,6 +321,23 @@ async function runtimeDatabase() {
     ],
   );
   return db;
+}
+
+async function drawingCheckpoint(db) {
+  const {
+    rows: [checkpoint],
+  } = await db.query(
+    `select
+      (graph->>'operationSequence')::bigint "operationCheckpoint",
+      pg_catalog.encode(extensions.digest(
+        pg_catalog.convert_to(graph::text,'UTF8'),'sha256'
+      ),'hex') "checkpointSha256"
+    from (
+      select private.lukas_drawing_p2_canonical_snapshot($1::uuid,true) graph
+    ) current_checkpoint`,
+    [p6Ids.revision],
+  );
+  return checkpoint;
 }
 
 test("PGlite archives and holds approved project evidence through exact organization RPCs", async (context) => {
@@ -459,25 +514,116 @@ test("PGlite export evidence is exact, idempotent, append-only, and cross-org de
   context.after(() => db.close());
   const sha = "8".repeat(64);
   await p6SetSession(db, null, p6Ids.owner);
+  const checkpoint = await drawingCheckpoint(db);
   const {
     rows: [first],
   } = await db.query(
-    `select public.lukas_qto_record_project_export($1,'drawing_pdf',$2,128,$3)`,
-    [p6Ids.project, sha, runtimeIds.exportRequest],
+    `select public.lukas_qto_record_drawing_export(
+      $1,'drawing_pdf',$2,128,$3,$4,$5,$6,$7,$8)`,
+    [
+      p6Ids.project,
+      sha,
+      runtimeIds.exportRequest,
+      p6Ids.document,
+      p6Ids.revision,
+      7,
+      checkpoint.operationCheckpoint,
+      checkpoint.checkpointSha256,
+    ],
   );
   const {
     rows: [retry],
   } = await db.query(
-    `select public.lukas_qto_record_project_export($1,'drawing_pdf',$2,128,$3)`,
-    [p6Ids.project, sha, runtimeIds.exportRequest],
+    `select public.lukas_qto_record_drawing_export(
+      $1,'drawing_pdf',$2,128,$3,$4,$5,$6,$7,$8)`,
+    [
+      p6Ids.project,
+      sha,
+      runtimeIds.exportRequest,
+      p6Ids.document,
+      p6Ids.revision,
+      7,
+      checkpoint.operationCheckpoint,
+      checkpoint.checkpointSha256,
+    ],
   );
   assert.deepEqual(retry, first);
+  const {
+    rows: [evidence],
+  } = await db.query(
+    `select workspace_id,revision_id,revision_version,operation_checkpoint,
+      checkpoint_sha256,revision_snapshot_sha256,
+      artifact_sha256,artifact_byte_size
+      from public.lukas_qto_export_events where request_id=$1`,
+    [runtimeIds.exportRequest],
+  );
+  const {
+    rows: [{ sha256: snapshotSha256 }],
+  } = await db.query(
+    `select sha256 from public.lukas_drawing_snapshots
+      where revision_id=$1 and revision_version=7`,
+    [p6Ids.revision],
+  );
+  assert.deepEqual(evidence, {
+    workspace_id: p6Ids.document,
+    revision_id: p6Ids.revision,
+    revision_version: 7,
+    operation_checkpoint: checkpoint.operationCheckpoint,
+    checkpoint_sha256: checkpoint.checkpointSha256,
+    revision_snapshot_sha256: snapshotSha256,
+    artifact_sha256: sha,
+    artifact_byte_size: 128,
+  });
   await assert.rejects(
     db.query(
-      `select public.lukas_qto_record_project_export($1,'drawing_pdf',$2,129,$3)`,
-      [p6Ids.project, sha, runtimeIds.exportRequest],
+      `select public.lukas_qto_record_drawing_export(
+        $1,'drawing_pdf',$2,129,$3,$4,$5,$6,$7,$8)`,
+      [
+        p6Ids.project,
+        sha,
+        runtimeIds.exportRequest,
+        p6Ids.document,
+        p6Ids.revision,
+        7,
+        checkpoint.operationCheckpoint,
+        checkpoint.checkpointSha256,
+      ],
     ),
     /identity was reused/i,
+  );
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_record_drawing_export(
+        $1,'drawing_png',$2,128,$3,$4,$5,$6,$7,$8)`,
+      [
+        p6Ids.project,
+        sha,
+        crypto.randomUUID(),
+        p6Ids.document,
+        p6Ids.revision,
+        8,
+        checkpoint.operationCheckpoint,
+        checkpoint.checkpointSha256,
+      ],
+    ),
+    /drawing export lineage is invalid/i,
+  );
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_record_drawing_export(
+        $1,'drawing_svg',$2,128,$3,$4,$5,$6,$7,$8)`,
+      [
+        p6Ids.project,
+        sha,
+        crypto.randomUUID(),
+        p6Ids.otherDocument,
+        p6Ids.revision,
+        7,
+        checkpoint.operationCheckpoint,
+        checkpoint.checkpointSha256,
+      ],
+    ),
+    /drawing export lineage is invalid/i,
   );
   await assert.rejects(
     db.query(`delete from public.lukas_qto_export_events where request_id=$1`, [
@@ -502,6 +648,212 @@ test("PGlite export evidence is exact, idempotent, append-only, and cross-org de
     ),
     /authority denied/i,
   );
+});
+
+test("PGlite drawing export refuses an unapproved revision and records no receipt", async (context) => {
+  const db = await runtimeDatabase();
+  context.after(() => db.close());
+  const requestId = crypto.randomUUID();
+  const sha = "c".repeat(64);
+  await p6SetSession(db, null, p6Ids.owner);
+  const checkpoint = await drawingCheckpoint(db);
+  await db.query(
+    `delete from public.lukas_drawing_revision_approvals
+      where revision_id=$1 and subject_version=7 and decision='approved'`,
+    [p6Ids.revision],
+  );
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_record_drawing_export(
+        $1,'drawing_pdf',$2,64,$3,$4,$5,7,$6,$7)`,
+      [
+        p6Ids.project,
+        sha,
+        requestId,
+        p6Ids.document,
+        p6Ids.revision,
+        checkpoint.operationCheckpoint,
+        checkpoint.checkpointSha256,
+      ],
+    ),
+    /approved snapshot is required/i,
+  );
+  const {
+    rows: [{ count }],
+  } = await db.query(
+    `select count(*)::int count from public.lukas_qto_export_events
+      where request_id=$1`,
+    [requestId],
+  );
+  assert.equal(count, 0);
+});
+
+test("PGlite preserves non-drawing export idempotency across the lineage migration", async (context) => {
+  const db = await runtimeDatabase({ applyExportLineage: false });
+  context.after(() => db.close());
+  const requestId = crypto.randomUUID();
+  const sha = "9".repeat(64);
+  await p6SetSession(db, null, p6Ids.owner);
+  await db.query(
+    `select public.lukas_qto_record_project_export($1,'ids_bcfzip',$2,64,$3)`,
+    [p6Ids.project, sha, requestId],
+  );
+  await applyExportLineageMigrations(db);
+  await db.query(
+    `select public.lukas_qto_record_project_export($1,'ids_bcfzip',$2,64,$3)`,
+    [p6Ids.project, sha, requestId],
+  );
+  const {
+    rows: [{ count }],
+  } = await db.query(
+    `select count(*)::int count from public.lukas_qto_export_events
+      where request_id=$1`,
+    [requestId],
+  );
+  assert.equal(count, 1);
+});
+
+test("PGlite preserves a pre-migration five-field drawing retry through v2", async (context) => {
+  const db = await runtimeDatabase({ applyExportLineage: false });
+  context.after(() => db.close());
+  const requestId = crypto.randomUUID();
+  const sha = "7".repeat(64);
+  await p6SetSession(db, null, p6Ids.owner);
+  await db.query(
+    `select public.lukas_qto_record_project_export(
+      $1,'drawing_svg',$2,64,$3)`,
+    [p6Ids.project, sha, requestId],
+  );
+  await applyExportLineageMigrations(db);
+  const checkpoint = await drawingCheckpoint(db);
+  await db.query(
+    `select public.lukas_qto_record_drawing_export(
+      $1,'drawing_svg',$2,64,$3,$4,$5,7,$6,$7)`,
+    [
+      p6Ids.project,
+      sha,
+      requestId,
+      p6Ids.document,
+      p6Ids.revision,
+      checkpoint.operationCheckpoint,
+      checkpoint.checkpointSha256,
+    ],
+  );
+  const {
+    rows: [evidence],
+  } = await db.query(
+    `select count(*)::int count,
+      pg_catalog.bool_or(workspace_id is not null) has_lineage
+      from public.lukas_qto_export_events where request_id=$1`,
+    [requestId],
+  );
+  assert.deepEqual(evidence, { count: 1, has_lineage: false });
+});
+
+test("PGlite drawing v2 rejects anonymous authenticated owners and stale checkpoints", async (context) => {
+  const db = await runtimeDatabase();
+  context.after(() => db.close());
+  const sha = "6".repeat(64);
+  await p6SetSession(db, null, p6Ids.owner);
+  const checkpoint = await drawingCheckpoint(db);
+  await p6SetSession(db, "authenticated", p6Ids.owner, { anonymous: true });
+  await assert.rejects(
+    db.query(
+      `select public.lukas_qto_record_drawing_export(
+        $1,'drawing_pdf',$2,64,$3,$4,$5,7,$6,$7)`,
+      [
+        p6Ids.project,
+        sha,
+        crypto.randomUUID(),
+        p6Ids.document,
+        p6Ids.revision,
+        checkpoint.operationCheckpoint,
+        checkpoint.checkpointSha256,
+      ],
+    ),
+    /authority denied/i,
+  );
+  await p6SetSession(db, null, p6Ids.owner);
+  for (const stale of [
+    {
+      operationCheckpoint: checkpoint.operationCheckpoint + 1,
+      checkpointSha256: checkpoint.checkpointSha256,
+    },
+    {
+      operationCheckpoint: checkpoint.operationCheckpoint,
+      checkpointSha256: "5".repeat(64),
+    },
+    {
+      operationCheckpoint: checkpoint.operationCheckpoint,
+      checkpointSha256: null,
+    },
+  ])
+    await assert.rejects(
+      db.query(
+        `select public.lukas_qto_record_drawing_export(
+          $1,'drawing_png',$2,64,$3,$4,$5,7,$6,$7)`,
+        [
+          p6Ids.project,
+          sha,
+          crypto.randomUUID(),
+          p6Ids.document,
+          p6Ids.revision,
+          stale.operationCheckpoint,
+          stale.checkpointSha256,
+        ],
+      ),
+      /drawing export (?:checkpoint|evidence) is invalid/i,
+    );
+});
+
+test("PGlite retries an existing version-fixed export after the live revision advances", async (context) => {
+  const db = await runtimeDatabase();
+  context.after(() => db.close());
+  const requestId = crypto.randomUUID();
+  const sha = "a".repeat(64);
+  await p6SetSession(db, null, p6Ids.owner);
+  const checkpoint = await drawingCheckpoint(db);
+  await db.query(
+    `select public.lukas_qto_record_drawing_export(
+      $1,'drawing_svg',$2,64,$3,$4,$5,7,$6,$7)`,
+    [
+      p6Ids.project,
+      sha,
+      requestId,
+      p6Ids.document,
+      p6Ids.revision,
+      checkpoint.operationCheckpoint,
+      checkpoint.checkpointSha256,
+    ],
+  );
+  await db.exec(`
+    alter table public.lukas_drawing_revisions disable trigger user;
+    update public.lukas_drawing_revisions set version=8
+      where id='${p6Ids.revision}'::uuid;
+    alter table public.lukas_drawing_revisions enable trigger user;
+  `);
+  await db.query(
+    `select public.lukas_qto_record_drawing_export(
+      $1,'drawing_svg',$2,64,$3,$4,$5,7,$6,$7)`,
+    [
+      p6Ids.project,
+      sha,
+      requestId,
+      p6Ids.document,
+      p6Ids.revision,
+      checkpoint.operationCheckpoint,
+      checkpoint.checkpointSha256,
+    ],
+  );
+  const {
+    rows: [{ count, revision_version: revisionVersion }],
+  } = await db.query(
+    `select count(*)::int count,max(revision_version)::int revision_version
+      from public.lukas_qto_export_events where request_id=$1`,
+    [requestId],
+  );
+  assert.equal(count, 1);
+  assert.equal(revisionVersion, 7);
 });
 
 test("PGlite preserves Revit download evidence as append-only after Task 5", async (context) => {

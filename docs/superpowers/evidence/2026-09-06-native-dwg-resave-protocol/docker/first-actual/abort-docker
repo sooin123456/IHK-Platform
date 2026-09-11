@@ -1,0 +1,16 @@
+#!/opt/homebrew/Cellar/node/26.5.0/bin/node
+import {spawnSync} from 'node:child_process';
+import fs from 'node:fs';
+const actual="/opt/homebrew/bin/docker",args=process.argv.slice(2),log="/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/task-2-actual-first/abort-calls.jsonl",marker="/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/task-2-actual-first/abort-running";
+const op=args[4],id=args.at(-1),common=args.slice(0,4);
+const call=(a,stdio='pipe')=>spawnSync(actual,a,{stdio,env:process.env,timeout:30000});
+fs.appendFileSync(log,JSON.stringify({args})+'\n');
+if(op==='start'){
+ const pre=call([...common,'container','inspect',id]);if(pre.status!==0)process.exit(71);
+ fs.writeFileSync("/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/task-2-actual-first/abort-before.json",pre.stdout);
+ if(true){const s=call([...common,'start',id]);if(s.status!==0)process.exit(72);fs.writeFileSync(marker,id);await new Promise(resolve=>setTimeout(resolve,5000));}
+ const r=call(true?[...common,'attach',id]:args,'inherit');
+ const post=call([...common,'container','inspect',id]);if(post.status===0)fs.writeFileSync("/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/task-2-actual-first/abort-after.json",post.stdout);
+ process.exit(r.status??73);
+}
+const r=call(args,'inherit');process.exit(r.status??74);

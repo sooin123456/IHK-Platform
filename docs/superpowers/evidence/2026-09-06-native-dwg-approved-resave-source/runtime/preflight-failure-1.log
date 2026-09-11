@@ -1,0 +1,13 @@
+Command:
+node .superpowers/sdd/2026-09-06-native-dwg-approved-resave-source/runtime-validation/run-runtime-validation.mjs /tmp/1hk-r2-r5-runtime.bQ2KdI
+
+Exit: 1 before .NET publish or service start.
+
+Error:
+Runtime snapshot must be a canonical non-symlink path.
+
+Root cause:
+On macOS `/tmp` resolves to `/private/tmp`; the owned mktemp directory was valid,
+but the first evidence wrapper compared the caller spelling to realpath byte-for-byte.
+The corrected wrapper canonicalizes the admitted `/tmp/1hk-r2-r5-runtime.*` argument
+and then validates the resolved `/private/tmp/1hk-r2-r5-runtime.*` boundary.

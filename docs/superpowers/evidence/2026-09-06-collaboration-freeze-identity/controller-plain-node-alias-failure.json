@@ -1,0 +1,55 @@
+{
+  "records": [
+    {
+      "path": "platform/collaboration/src/freeze.ts",
+      "baselineSha256": "462bb38c93f1573dfb4ddd0b6b0dba191be7e7bc3684934de957c4b7213c712d",
+      "candidateSha256": "c751afc3a5de9d8d0dc41de45c2d89014145014209dcc4cdd100751ee86faac0"
+    },
+    {
+      "path": "platform/collaboration/src/server.ts",
+      "baselineSha256": "6ff6fb588a2fd1712f5df9471ade75e0bb2e0103127e7dd477365809ad57b4c7",
+      "candidateSha256": "b1c8908502c1461be782fd4f4d883afa5e1dbe0843ccab5cf710d5caaf0e34fe"
+    },
+    {
+      "path": "platform/tests/drawing-review-freeze.test.mjs",
+      "baselineSha256": "1b55de93fd74bbc72d3205c9199bf15a80cc4a000decd3fc521f7246d8f402ba",
+      "candidateSha256": "52c3890f61b00dd127e3e573cacd6c58a82a1e50a61c0f2a3104838d78df277c"
+    }
+  ],
+  "results": [
+    {
+      "name": "controller-regression",
+      "command": [
+        "/opt/homebrew/Cellar/node/26.5.0/bin/node",
+        "--experimental-strip-types",
+        "--test",
+        "tests/drawing-collaboration-e2e-contract.test.mjs",
+        "tests/drawing-collaboration-policy.test.mjs",
+        "tests/drawing-collaboration-protocol.test.mjs",
+        "tests/drawing-collaboration-service.test.mjs",
+        "tests/drawing-collaboration.test.mjs",
+        "tests/drawing-native-collaboration.test.mjs",
+        "tests/drawing-review-freeze.test.mjs",
+        "tests/drawing-workspace-collaboration.test.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "error": null,
+      "logSha256": "5f76cf3ebe0df876d648f84d96d63772aeea517a1fd1fc4ca5a1befee07ff41f",
+      "tail": "ℹ pass 140\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1668.258667\n\n✖ failing tests:\n\ntest at tests/drawing-collaboration.test.mjs:1:1\n✖ tests/drawing-collaboration.test.mjs (84.034375ms)\n  'test failed'\n"
+    },
+    {
+      "name": "controller-typecheck",
+      "command": [
+        "npm",
+        "run",
+        "typecheck:collaboration"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "logSha256": "70ada2597c2dc89777b3689bd034960e7eb0488e7a67ba2b2c28c53e9bfd34b5",
+      "tail": "\n> supaplate@1.0 typecheck:collaboration\n> tsc -p collaboration/tsconfig.json --noEmit\n\n"
+    }
+  ]
+}

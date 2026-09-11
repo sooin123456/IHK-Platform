@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { resolveAuthOrigin } from "../../features/auth/lib/auth-link.server.ts";
+
 export const ORGANIZATION_ADMIN_PAGE_SIZE = 100;
 
 type OrganizationAdminListRpc =
@@ -286,7 +288,7 @@ type ProjectFeatureClient = RpcClient & {
   };
 };
 
-export async function assertProjectOrganizationFeature(
+export async function projectOrganizationFeatureEnabled(
   client: ProjectFeatureClient,
   projectId: string,
   feature: OrganizationFeature,
@@ -305,7 +307,15 @@ export async function assertProjectOrganizationFeature(
       p_feature: feature,
     },
   );
-  if (entitlement.error || entitlement.data !== true)
+  return !entitlement.error && entitlement.data === true;
+}
+
+export async function assertProjectOrganizationFeature(
+  client: ProjectFeatureClient,
+  projectId: string,
+  feature: OrganizationFeature,
+) {
+  if (!(await projectOrganizationFeatureEnabled(client, projectId, feature)))
     throw new Response("회사 플랜에서 이 기능을 사용할 수 없습니다.", {
       status: 403,
     });
@@ -388,6 +398,27 @@ export async function runOrganizationAdministrationMutation(
   return result.data;
 }
 
+export async function runOrganizationAdministrationMutationWithInvitationOrigin(
+  client: RpcClient,
+  organizationId: string,
+  mutation: OrganizationAdministrationMutation,
+  requestUrl: string,
+  configuredAppUrl = process.env.APP_URL,
+) {
+  const invitationOrigin =
+    mutation.intent === "invite_member"
+      ? resolveAuthOrigin(requestUrl, configuredAppUrl)
+      : null;
+  return {
+    result: await runOrganizationAdministrationMutation(
+      client,
+      organizationId,
+      mutation,
+    ),
+    invitationOrigin,
+  };
+}
+
 export async function loadOrganizationAdminPage<T>(
   client: RpcClient,
   rpc: OrganizationAdminListRpc,
@@ -448,21 +479,25 @@ export async function deliverOrganizationInvitationEmail(
   options: InvitationDeliveryOptions = {},
 ) {
   const apiKey = options.apiKey ?? process.env.RESEND_API_KEY;
-  if (!apiKey)
-    throw new Error("Organization invitation delivery provider is unavailable");
-  const send =
-    options.send ??
-    (async (message) => {
-      const { default: resendClient } =
-        await import("~/core/lib/resend-client.server");
-      return resendClient.emails.send(message);
+  if (!apiKey) return false;
+  try {
+    const send =
+      options.send ??
+      (async (message) => {
+        const { default: resendClient } = await import(
+          "~/core/lib/resend-client.server"
+        );
+        return resendClient.emails.send(message);
+      });
+    const acceptUrl = `${invitation.origin}/organization-invitations/${invitation.invitationId}/accept`;
+    const result = await send({
+      from: "1HK Platform <hello@supaplate.com>",
+      to: [invitation.email],
+      subject: `${invitation.organizationName} 회사 초대`,
+      html: `<p>${escapeHtml(invitation.organizationName)} 회사에 초대되었습니다.</p><p><a href="${escapeHtml(acceptUrl)}">로그인 또는 가입 후 초대 수락</a></p>`,
     });
-  const acceptUrl = `${invitation.origin}/organization-invitations/${invitation.invitationId}/accept`;
-  const result = await send({
-    from: "1HK Platform <hello@supaplate.com>",
-    to: [invitation.email],
-    subject: `${invitation.organizationName} 회사 초대`,
-    html: `<p>${escapeHtml(invitation.organizationName)} 회사에 초대되었습니다.</p><p><a href="${escapeHtml(acceptUrl)}">로그인 또는 가입 후 초대 수락</a></p>`,
-  });
-  if (result.error) throw new Error(result.error.message);
+    return !result.error;
+  } catch {
+    return false;
+  }
 }

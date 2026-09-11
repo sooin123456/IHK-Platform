@@ -1,0 +1,14 @@
+[package]
+name = "ifc-derivative"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+oxideav-ifc = { git = "https://github.com/OxideAV/oxideav-ifc.git", rev = "b6dce78735558c631950fc6a700440855ceb9953", default-features = false }
+ryu-js = "1"
+serde_json = "1"
+sha2 = "0.10"

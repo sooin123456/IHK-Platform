@@ -1,0 +1,332 @@
+{
+  "qualification": "experimental-unqualified",
+  "status": "passed-internal-semantic-comparison",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "canonicalSourceValidation": "producer-required",
+  "engine": {
+    "package": "ACadSharp",
+    "pinnedVersion": "3.7.1",
+    "assemblyVersion": "3.7.1.0",
+    "framework": ".NET 8.0"
+  },
+  "tolerances": {
+    "geometryAbsoluteMillimeters": 1E-07,
+    "angularRadians": 1E-10
+  },
+  "input": {
+    "fileName": "finishes-takeoff.cad.json",
+    "sha256": "ea88bceecb49b2142cdce12313998f1915f38bcace5551fe14ab12e042b2ad80",
+    "bytes": 12149,
+    "scope": {
+      "projectId": "90000000-0000-4000-8000-000000000001",
+      "documentId": "90000000-0000-4000-8000-000000000002",
+      "revisionId": "40000000-0000-4000-8400-000000000001",
+      "operationSequence": 0,
+      "structureSha256": "75bbdbfe8e5670e023ca208aa3fe4271a8541081944cf81c48244a3e693552dd"
+    },
+    "originalBytesPreserved": true
+  },
+  "outputs": {
+    "dwg": {
+      "fileName": "native.dwg",
+      "sha256": "7c598e8abc539eaf6543f3b9139a46678f0b97f9f30b4c25bc048ba35814b57b"
+    },
+    "sourceManifest": {
+      "fileName": "source-manifest.json",
+      "sha256": "ea88bceecb49b2142cdce12313998f1915f38bcace5551fe14ab12e042b2ad80"
+    },
+    "report": "native-report.json"
+  },
+  "outputProfile": {
+    "paper": "A3",
+    "orientation": "landscape",
+    "width": 420,
+    "height": 297,
+    "scaleDenominator": 50
+  },
+  "verification": {
+    "failures": [],
+    "entities": [
+      {
+        "id": "block/40000000-0000-4000-8400-000000000011/top/0",
+        "handle": "4F",
+        "owner": "B_40000000000040008400000000000011",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/40000000-0000-4000-8400-000000000011/top/1",
+        "handle": "50",
+        "owner": "B_40000000000040008400000000000011",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1200,0/1200,-600/0,-600"
+      },
+      {
+        "id": "block/40000000-0000-4000-8400-000000000011/modesty/2",
+        "handle": "51",
+        "owner": "B_40000000000040008400000000000011",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=100,-500,0;end=1100,-500,0"
+      },
+      {
+        "id": "object/40000000-0000-4000-8400-000000000009/0",
+        "handle": "52",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_40000000000040008400000000000004",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/40000000-0000-4000-8400-000000000009/1",
+        "handle": "53",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_40000000000040008400000000000004",
+        "geometry": "closed=True;points=3000,-3000/9000,-3000/9000,-7000/3000,-7000"
+      },
+      {
+        "id": "object/40000000-0000-4000-8400-000000000009/2",
+        "handle": "54",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_40000000000040008400000000000004",
+        "geometry": "origin=5100,-4930,0;height=140;width=1800;rotation=0;text=\uBC14\uB2E5 \uB9C8\uAC10 \uC608\uC81C \uC601\uC5ED 24\u33A1"
+      },
+      {
+        "id": "object/40000000-0000-4000-8400-000000000023/3",
+        "handle": "55",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_40000000000040008400000000000004",
+        "geometry": "origin=1500,-900,0;height=140;width=12000;rotation=0;text=\uB9C8\uAC10 \uC218\uB7C9 \uC608\uC81C\n\uC608\uC81C\u00B7\uAC00\uC815\uAC12 \u2014 \uD604\uC7A5 \uD655\uC778 \uD544\uC694"
+      },
+      {
+        "id": "object/40000000-0000-4000-8400-000000000010/4",
+        "handle": "57",
+        "owner": "*Model_Space",
+        "type": "DIMENSION",
+        "layer": "L_40000000000040008400000000000007",
+        "geometry": "first=3000,-3000,0;second=9000,-3000,0;definition=9000,-2400,0;measurement=6000;text=6000.0 mm"
+      },
+      {
+        "id": "instance/40000000-0000-4000-8400-000000000012",
+        "handle": "66",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_40000000000040008400000000000008",
+        "geometry": "block=B_40000000000040008400000000000011;origin=10500,-4000,0;scale=1,1,1;rotation=0"
+      }
+    ],
+    "layers": [
+      {
+        "id": "40000000-0000-4000-8400-000000000004",
+        "cadName": "L_40000000000040008400000000000004",
+        "sourceName": "\uC791\uC5C5",
+        "handle": "48",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "40000000-0000-4000-8400-000000000007",
+        "cadName": "L_40000000000040008400000000000007",
+        "sourceName": "\uCE58\uC218",
+        "handle": "49",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "40000000-0000-4000-8400-000000000008",
+        "cadName": "L_40000000000040008400000000000008",
+        "sourceName": "\uCC38\uACE0 \uAC00\uAD6C",
+        "handle": "4A",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "blocks": [
+      {
+        "id": "40000000-0000-4000-8400-000000000011",
+        "cadName": "B_40000000000040008400000000000011",
+        "sourceName": "Desk 1200 \u00D7 600 mm",
+        "handle": "4C",
+        "entityHandles": [
+          "4F",
+          "50",
+          "51"
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "name": "NATIVE_A3",
+        "paperWidth": 420,
+        "paperHeight": 297,
+        "paperUnits": "Millimeters",
+        "viewports": [
+          {
+            "handle": "47",
+            "id": 1,
+            "representsPaper": true,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 0,
+              "y": 0
+            },
+            "viewHeight": 0,
+            "scaleFactor": null
+          },
+          {
+            "handle": "67",
+            "id": 2,
+            "representsPaper": false,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 10500,
+              "y": -7425
+            },
+            "viewHeight": 14850,
+            "scaleFactor": 0.02
+          }
+        ]
+      }
+    ],
+    "quantizations": [
+      {
+        "entityId": "block/40000000-0000-4000-8400-000000000011/top/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/40000000-0000-4000-8400-000000000011/top/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/40000000-0000-4000-8400-000000000011/top/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/40000000-0000-4000-8400-000000000011/modesty/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "object/40000000-0000-4000-8400-000000000009/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/40000000-0000-4000-8400-000000000009/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/40000000-0000-4000-8400-000000000009/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/40000000-0000-4000-8400-000000000009/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/40000000-0000-4000-8400-000000000023/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/40000000-0000-4000-8400-000000000010/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      }
+    ],
+    "dimensionChildHandles": {
+      "object/40000000-0000-4000-8400-000000000010/4": [
+        "5B",
+        "5D",
+        "5E",
+        "5F",
+        "60",
+        "61",
+        "62",
+        "63",
+        "64",
+        "65"
+      ]
+    },
+    "actualInventory": {
+      "version": "AC1024",
+      "units": "Millimeters",
+      "modelEntityCount": 6,
+      "allBlockEntityCount": 21,
+      "layerCount": 5,
+      "blockRecordCount": 4,
+      "layoutCount": 2,
+      "textStyles": [
+        {
+          "handle": "2D",
+          "name": "Standard",
+          "fontFile": ""
+        },
+        {
+          "handle": "4B",
+          "name": "NATIVE_NOTO_SANS_KR",
+          "fontFile": "NotoSansKR-Regular.ttf"
+        }
+      ]
+    }
+  },
+  "diagnostics": {
+    "writer": [],
+    "reader": [
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle"
+    ]
+  },
+  "failures": [],
+  "warnings": [
+    "Canonical source validation and authority remain producer-required.",
+    "NotoSansKR-Regular.ttf is named but is not read, embedded, redistributed, or visually qualified.",
+    "MTEXT automatic font-dependent wrapping and recipient rendering are not qualified.",
+    "Independent CAD open/save/print verification was not performed.",
+    "This output does not qualify production DWG delivery or existing-DWG preservation."
+  ]
+}

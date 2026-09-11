@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import * as Y from "yjs";
 
@@ -8,6 +9,7 @@ import {
   drawingCollaborationLifecycleKey,
   drawingCollaborationPhaseForProviderStatus,
   drawingCollaborationProviderReady,
+  drawingCollaborationRecentOutcomesKey,
   openDrawingCollaborationLocalAttempt,
   reconcileDrawingCollaborationDraft,
   synchronizeDrawingCollaborationCheckpoint,
@@ -16,7 +18,15 @@ import {
   applyDrawingCommand,
   createDrawingDocumentState,
 } from "../app/lukas/lib/drawing-commands.ts";
-import { appendDrawingCollaborationOperation } from "../app/lukas/lib/drawing-collaboration-yjs.ts";
+import {
+  DRAWING_COLLABORATION_LIMITS,
+  DrawingCollaborationOperationSchema,
+} from "../app/lukas/lib/drawing-collaboration-protocol.ts";
+import {
+  appendDrawingCollaborationOperation,
+  readDrawingCollaborationLedger,
+} from "../app/lukas/lib/drawing-collaboration-yjs.ts";
+import { createDrawingOutbox } from "../app/lukas/lib/drawing-outbox.ts";
 import { createDrawingDraftAdapter } from "../app/lukas/lib/drawing-yjs-draft.ts";
 import { resolveDrawingOpening } from "../app/lukas/lib/drawing-semantic-geometry.ts";
 import { normalizeDrawingCanonicalSources } from "../app/lukas/lib/drawing-workspace.types.ts";
@@ -61,6 +71,107 @@ const operation = {
   },
   createdAt: "2026-08-26T00:00:00.000Z",
 };
+
+test("collaboration append publishes its envelope and order atomically", () => {
+  const local = new Y.Doc();
+  const remote = new Y.Doc();
+  let updateCount = 0;
+  local.on("update", (update) => {
+    updateCount += 1;
+    Y.applyUpdate(remote, update);
+    assert.doesNotThrow(() => readDrawingCollaborationLedger(remote));
+  });
+
+  appendDrawingCollaborationOperation(local, operation);
+
+  assert.equal(updateCount, 1);
+  assert.deepEqual(readDrawingCollaborationLedger(remote).operationOrder, [
+    operation.clientOperationId,
+  ]);
+  local.destroy();
+  remote.destroy();
+});
+
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(",")}}`;
+}
+
+function outcomeOperationSha256(outcome) {
+  return createHash("sha256")
+    .update(
+      canonicalJson({
+        actorId: outcome.actorId,
+        baseVersions: outcome.baseVersions,
+        clientOperationId: outcome.clientOperationId,
+        forward: outcome.forward,
+        ...(outcome.historyAction
+          ? {
+              historyAction: outcome.historyAction,
+              originalOperationId: outcome.originalOperationId,
+            }
+          : {}),
+        inverse: outcome.inverse,
+        revisionId: outcome.revisionId,
+        schemaVersion: 1,
+        type: outcome.operationType,
+      }),
+    )
+    .digest("hex");
+}
+
+function localOperationSha256(input, actorId = input.actorId) {
+  return outcomeOperationSha256({
+    actorId,
+    baseVersions: input.baseVersions,
+    clientOperationId: input.clientOperationId,
+    forward: input.forward,
+    ...(input.historyAction
+      ? {
+          historyAction: input.historyAction,
+          originalOperationId: input.originalOperationId,
+        }
+      : {}),
+    inverse: input.inverse,
+    operationType: input.type,
+    revisionId: input.revisionId,
+  });
+}
+
+function oversizedSnapshotOutcome() {
+  const objects = Array.from({ length: 250 }, (_, index) => ({
+    id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    name: `Snapshot import ${index} ${"x".repeat(120)}`,
+    layerId: ids.layer,
+    geometry: {
+      type: "line",
+      start: { x: index, y: index },
+      end: { x: index + 1, y: index + 1 },
+    },
+    style: { stroke: "#2563eb", strokeWidth: 2, fill: null },
+    version: 1,
+  }));
+  const outcome = {
+    revisionId: ids.revision,
+    clientOperationId: ids.operation,
+    actorId: ids.user,
+    operationType: "add_objects",
+    baseVersions: {},
+    forward: { type: "add_objects", objects },
+    inverse: {
+      type: "delete_objects",
+      objectIds: objects.map(({ id }) => id),
+    },
+    sequence: 7,
+    resultVersions: {},
+  };
+  return { ...outcome, operationSha256: outcomeOperationSha256(outcome) };
+}
 
 function semanticState() {
   const wall = {
@@ -220,6 +331,44 @@ test("collaboration lifecycle identity uses only user, project, and revision IDs
   );
 });
 
+test("authoritative checkpoint identity includes exact receipt digest and result versions", () => {
+  const receipt = {
+    revisionId: ids.revision,
+    clientOperationId: ids.operation,
+    actorId: ids.user,
+    sequence: 7,
+    resultVersions: { [ids.object]: 2, [ids.layer]: null },
+    operationSha256: "a".repeat(64),
+  };
+  const key = drawingCollaborationRecentOutcomesKey([receipt]);
+  assert.equal(
+    key,
+    drawingCollaborationRecentOutcomesKey([
+      {
+        ...receipt,
+        resultVersions: { [ids.layer]: null, [ids.object]: 2 },
+      },
+    ]),
+    "JSON property insertion order is not authoritative",
+  );
+  assert.notEqual(
+    key,
+    drawingCollaborationRecentOutcomesKey([
+      { ...receipt, operationSha256: "b".repeat(64) },
+    ]),
+  );
+  assert.notEqual(
+    key,
+    drawingCollaborationRecentOutcomesKey([{ ...receipt, actorId: ids.other }]),
+  );
+  assert.notEqual(
+    key,
+    drawingCollaborationRecentOutcomesKey([
+      { ...receipt, resultVersions: { [ids.object]: 3, [ids.layer]: null } },
+    ]),
+  );
+});
+
 test("transactional bootstrap status and canWrite override a stale draft workspace row", () => {
   assert.deepEqual(
     drawingCollaborationAuthority({
@@ -239,14 +388,14 @@ test("transactional bootstrap status and canWrite override a stale draft workspa
   );
 });
 
-test("provider disconnect is visibly degraded and reconnect becomes connected", () => {
+test("provider transport status stays connecting until room synchronization", () => {
   assert.equal(
     drawingCollaborationPhaseForProviderStatus("disconnected"),
     "degraded",
   );
   assert.equal(
     drawingCollaborationPhaseForProviderStatus("connected"),
-    "connected",
+    "connecting",
   );
   assert.equal(
     drawingCollaborationPhaseForProviderStatus("connecting"),
@@ -446,6 +595,7 @@ test("deferred local persistence installs one coherent checkpoint before edit an
           evidence.replacements.push({
             name: state.name,
             operationSequence: options.baseOperationSequence,
+            recentOutcomes: options.recentOutcomes,
           });
         },
         dispose() {},
@@ -465,8 +615,9 @@ test("deferred local persistence installs one coherent checkpoint before edit an
     appliedKey: captured.key,
     getCurrentCheckpoint: () => latest,
     applyCheckpoint: async (checkpoint) => {
-      attempt.adapter.replaceAuthoritative(checkpoint.state, {
+      await attempt.adapter.replaceAuthoritative(checkpoint.state, {
         baseOperationSequence: checkpoint.operationSequence,
+        recentOutcomes: checkpoint.recentOutcomes,
       });
       evidence.reconciled.push(...checkpoint.recentOutcomes);
     },
@@ -480,7 +631,11 @@ test("deferred local persistence installs one coherent checkpoint before edit an
   ]);
   assert.deepEqual(evidence.adapterBases, ["old graph"]);
   assert.deepEqual(evidence.replacements, [
-    { name: "new graph", operationSequence: 4 },
+    {
+      name: "new graph",
+      operationSequence: 4,
+      recentOutcomes: ["new outcome"],
+    },
   ]);
   assert.deepEqual(evidence.reconciled, ["old outcome", "new outcome"]);
   assert.equal(evidence.editReady, true);
@@ -686,6 +841,7 @@ test("boot repair pairs outbox-only and Yjs-only operations without duplicates",
   delete outboxOnly.schemaVersion;
   await reconcileDrawingCollaborationDraft({
     actorId: ids.user,
+    revisionId: ids.revision,
     adapter: {
       operations: () => [yjsOnly],
       preparePersistedLocal(value) {
@@ -715,10 +871,108 @@ test("boot repair pairs outbox-only and Yjs-only operations without duplicates",
   ]);
 });
 
-test("authoritative outcomes repair committed-unshared operations and clear the outbox", async () => {
+test("boot repair keeps a recovery claim only after the Yjs append is durable", async () => {
   const events = [];
+  const operations = [];
+  let claimed = false;
+  const outboxOnly = {
+    ...operation,
+    actorId: undefined,
+    schemaVersion: undefined,
+  };
+  delete outboxOnly.actorId;
+  delete outboxOnly.schemaVersion;
+  const outbox = {
+    async entries() {
+      return [{ operation: outboxOnly, status: "pending" }];
+    },
+    async enqueue() {},
+    async markAcked() {},
+    async recoverOperation(_id, recover) {
+      if (claimed) return false;
+      claimed = true;
+      events.push("claim");
+      try {
+        await recover();
+        return true;
+      } catch (error) {
+        claimed = false;
+        events.push("release");
+        throw error;
+      }
+    },
+  };
+  const adapter = {
+    operations: () => operations,
+    preparePersistedLocal(value) {
+      events.push("prepare");
+      return { operation: value, state: { revisionId: ids.revision } };
+    },
+    appendDurableLocal(prepared) {
+      const existing = operations.find(
+        (candidate) =>
+          candidate.clientOperationId === prepared.operation.clientOperationId,
+      );
+      if (existing) {
+        assert.deepEqual(existing, prepared.operation);
+        events.push("append-existing");
+        return false;
+      }
+      operations.push(prepared.operation);
+      events.push("append");
+      return true;
+    },
+  };
+
+  await assert.rejects(
+    reconcileDrawingCollaborationDraft({
+      actorId: ids.user,
+      revisionId: ids.revision,
+      adapter,
+      outbox,
+      recentOutcomes: [],
+      async commitRecoveredOperation() {
+        events.push("flush-failed");
+        throw new Error("IndexedDB flush failed");
+      },
+    }),
+    /IndexedDB flush failed/,
+  );
+  assert.deepEqual(events, [
+    "claim",
+    "prepare",
+    "append",
+    "flush-failed",
+    "release",
+  ]);
+
+  events.length = 0;
   await reconcileDrawingCollaborationDraft({
     actorId: ids.user,
+    revisionId: ids.revision,
+    adapter,
+    outbox,
+    recentOutcomes: [],
+    async commitRecoveredOperation() {
+      events.push("flush-committed");
+    },
+  });
+  assert.deepEqual(events, [
+    "claim",
+    "prepare",
+    "append-existing",
+    "flush-committed",
+  ]);
+});
+
+test("authoritative outcomes repair committed-unshared operations and clear the outbox", async () => {
+  const events = [];
+  const acknowledgements = [];
+  const tombstones = [];
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
     adapter: {
       operations: () => [],
       preparePersistedLocal(value) {
@@ -729,6 +983,11 @@ test("authoritative outcomes repair committed-unshared operations and clear the 
         events.push(`append:${value.operation.clientOperationId}`);
         return true;
       },
+      recordLocalAcknowledgement(value, authority) {
+        assert.equal(authority, "canonical");
+        acknowledgements.push(value);
+        return true;
+      },
     },
     outbox: {
       async entries() {
@@ -737,8 +996,9 @@ test("authoritative outcomes repair committed-unshared operations and clear the 
       async enqueue() {
         throw new Error("must not duplicate");
       },
-      async markAcked(id) {
+      async markAcked(id, evidence) {
         events.push(`acked:${id}`);
+        tombstones.push(evidence);
       },
     },
     recentOutcomes: [
@@ -746,20 +1006,829 @@ test("authoritative outcomes repair committed-unshared operations and clear the 
         revisionId: ids.revision,
         clientOperationId: ids.operation,
         actorId: ids.user,
-        operationType: operation.type,
-        baseVersions: operation.baseVersions,
-        forward: operation.forward,
-        inverse: operation.inverse,
         sequence: 7,
         resultVersions: {},
+        operationSha256: localOperationSha256(operation),
       },
     ],
+    async commitRecoveredOperation() {
+      events.push("flush-recovered");
+    },
   });
   assert.deepEqual(events, [
     `prepare:${ids.operation}`,
     `append:${ids.operation}`,
+    "flush-recovered",
     `acked:${ids.operation}`,
   ]);
+  assert.deepEqual(acknowledgements, [
+    {
+      clientOperationId: ids.operation,
+      authoritativeSequence: 7,
+      resultVersions: {},
+    },
+  ]);
+  assert.deepEqual(tombstones, [
+    {
+      clientOperationId: ids.operation,
+      authoritativeSequence: 7,
+      resultVersions: {},
+      operation,
+    },
+  ]);
+});
+
+test("a recovered canonical receipt persists its ACK tombstone across reload", async () => {
+  const records = new Map();
+  let enqueueSequence = 0;
+  const storage = {
+    async claimLegacy() {
+      return 0;
+    },
+    async delete(id) {
+      records.delete(id);
+    },
+    async enqueue(entry) {
+      const stored = { ...entry, enqueueSequence: ++enqueueSequence };
+      records.set(entry.operation.clientOperationId, structuredClone(stored));
+      return structuredClone(stored);
+    },
+    async list() {
+      return structuredClone([...records.values()]);
+    },
+    async put(entry) {
+      records.set(entry.operation.clientOperationId, structuredClone(entry));
+    },
+  };
+  const outboxOptions = {
+    ownerId: ids.user,
+    revisionId: ids.revision,
+    broadcastChannelFactory: () => null,
+  };
+  const first = createDrawingOutbox(storage, outboxOptions);
+  const {
+    actorId: _actorId,
+    schemaVersion: _schemaVersion,
+    ...queued
+  } = operation;
+  await first.enqueue(queued);
+  const localOperations = [];
+  const localAcknowledgements = [];
+  const adapter = {
+    operations: () => localOperations,
+    preparePersistedLocal(value) {
+      return {
+        operation: DrawingCollaborationOperationSchema.parse({
+          ...value,
+          actorId: ids.user,
+          schemaVersion: 1,
+        }),
+        state: { revisionId: ids.revision },
+      };
+    },
+    appendDurableLocal(prepared) {
+      localOperations.push(prepared.operation);
+      return true;
+    },
+    recordLocalAcknowledgement(acknowledgement, authority) {
+      assert.equal(authority, "canonical");
+      localAcknowledgements.push(acknowledgement);
+      return true;
+    },
+  };
+  const receipt = {
+    revisionId: ids.revision,
+    clientOperationId: ids.operation,
+    actorId: ids.user,
+    sequence: 7,
+    resultVersions: {},
+    operationSha256: localOperationSha256(operation),
+  };
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter,
+    outbox: first,
+    recentOutcomes: [receipt],
+  });
+  assert.deepEqual(await first.acknowledgements(), [
+    {
+      clientOperationId: ids.operation,
+      authoritativeSequence: 7,
+      resultVersions: {},
+      operation: queued,
+    },
+  ]);
+  first.dispose();
+
+  const reloaded = createDrawingOutbox(storage, outboxOptions);
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter,
+    outbox: reloaded,
+    recentOutcomes: [receipt],
+  });
+  assert.deepEqual(await reloaded.entries(), []);
+  assert.equal((await reloaded.acknowledgements()).length, 1);
+  assert.deepEqual(localAcknowledgements, [
+    {
+      clientOperationId: ids.operation,
+      authoritativeSequence: 7,
+      resultVersions: {},
+    },
+    {
+      clientOperationId: ids.operation,
+      authoritativeSequence: 7,
+      resultVersions: {},
+      operation: queued,
+    },
+  ]);
+  for (const invalid of [
+    { ...receipt, resultVersions: { [ids.object]: 3 } },
+    { ...receipt, operationSha256: "f".repeat(64) },
+  ])
+    await assert.rejects(
+      reconcileDrawingCollaborationDraft({
+        actorId: ids.user,
+        revisionId: ids.revision,
+        baseOperationSequence: 7,
+        adapter,
+        outbox: reloaded,
+        recentOutcomes: [invalid],
+      }),
+      /durable acknowledgement|operation digest/i,
+    );
+  assert.equal((await reloaded.acknowledgements()).length, 1);
+  reloaded.dispose();
+});
+
+test("snapshot-only oversized outcomes do not enter the bounded local Yjs ledger", async () => {
+  const outcome = oversizedSnapshotOutcome();
+  const envelope = {
+    clientOperationId: outcome.clientOperationId,
+    revisionId: outcome.revisionId,
+    actorId: outcome.actorId,
+    schemaVersion: 1,
+    type: outcome.operationType,
+    baseVersions: outcome.baseVersions,
+    forward: outcome.forward,
+    inverse: outcome.inverse,
+    createdAt: "1970-01-01T00:00:00.000Z",
+  };
+  assert.ok(
+    new TextEncoder().encode(JSON.stringify(envelope)).byteLength >
+      DRAWING_COLLABORATION_LIMITS.maxOperationBytes,
+  );
+  assert.equal(
+    DrawingCollaborationOperationSchema.safeParse(envelope).success,
+    false,
+  );
+  const events = [];
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter: {
+      operations: () => [],
+      preparePersistedLocal() {
+        events.push("prepared");
+        throw new Error("snapshot-only outcome entered the local ledger");
+      },
+      appendDurableLocal() {
+        events.push("appended");
+        return true;
+      },
+    },
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async enqueue() {},
+      async markAcked(id) {
+        events.push(`acked:${id}`);
+      },
+    },
+    recentOutcomes: [outcome],
+  });
+
+  assert.deepEqual(events, [`acked:${ids.operation}`]);
+});
+
+test("snapshot-absorbed accepted history is acknowledged without replaying valid operations", async () => {
+  const outcomes = Array.from({ length: 100 }, (_, index) => ({
+    revisionId: ids.revision,
+    clientOperationId: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    actorId: ids.user,
+    sequence: index + 1,
+    resultVersions: {},
+    operationSha256: "a".repeat(64),
+  }));
+  const acknowledged = [];
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: outcomes.length,
+    adapter: {
+      operations: () => [],
+      preparePersistedLocal() {
+        throw new Error("snapshot history must not be replayed into local Yjs");
+      },
+      appendDurableLocal() {
+        throw new Error("snapshot history must not mutate local Yjs");
+      },
+    },
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async enqueue() {},
+      async markAcked(id) {
+        acknowledged.push(id);
+      },
+    },
+    recentOutcomes: outcomes,
+  });
+
+  assert.deepEqual(
+    acknowledged,
+    outcomes.map(({ clientOperationId }) => clientOperationId),
+  );
+});
+
+test("draft reconciliation rejects malformed checkpoint receipts before local repair", async () => {
+  const first = {
+    revisionId: ids.revision,
+    clientOperationId: ids.operation,
+    actorId: ids.user,
+    sequence: 6,
+    resultVersions: {},
+    operationSha256: "a".repeat(64),
+  };
+  const second = {
+    ...first,
+    clientOperationId: ids.other,
+    sequence: 7,
+  };
+  const cases = [
+    [{ ...first, operationSha256: "A".repeat(64) }],
+    [{ ...first, operationSha256: undefined }],
+    [{ ...first, actorId: "not-an-actor" }],
+    [{ ...first, revisionId: ids.other }],
+    [first, { ...second, clientOperationId: first.clientOperationId }],
+    [first, { ...second, sequence: first.sequence }],
+    [second, first],
+    [{ ...first, sequence: 8 }],
+  ];
+
+  for (const recentOutcomes of cases) {
+    let reads = 0;
+    await assert.rejects(
+      reconcileDrawingCollaborationDraft({
+        actorId: ids.user,
+        revisionId: ids.revision,
+        baseOperationSequence: 7,
+        adapter: {
+          operations: () => [],
+          preparePersistedLocal() {
+            throw new Error("invalid receipts must not repair local Yjs");
+          },
+          appendDurableLocal() {
+            throw new Error("invalid receipts must not mutate local Yjs");
+          },
+        },
+        outbox: {
+          async entries() {
+            reads += 1;
+            return [];
+          },
+          async enqueue() {},
+          async markAcked() {
+            throw new Error(
+              "invalid receipts must not acknowledge outbox work",
+            );
+          },
+        },
+        recentOutcomes,
+      }),
+      /collaboration bootstrap outcomes are invalid/i,
+    );
+    assert.equal(reads, 0);
+  }
+});
+
+test("a digest-matching accepted legacy oversized outbox operation is acknowledged without entering Yjs", async () => {
+  const outcome = oversizedSnapshotOutcome();
+  const queued = {
+    clientOperationId: outcome.clientOperationId,
+    revisionId: outcome.revisionId,
+    type: outcome.operationType,
+    baseVersions: outcome.baseVersions,
+    forward: outcome.forward,
+    inverse: outcome.inverse,
+    createdAt: "2026-08-26T00:00:00.000Z",
+  };
+
+  const events = [];
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter: {
+      operations: () => [],
+      preparePersistedLocal(value) {
+        events.push("prepared");
+        return { operation: value, state: { revisionId: ids.revision } };
+      },
+      appendDurableLocal() {
+        events.push("appended");
+        return true;
+      },
+    },
+    outbox: {
+      async entries() {
+        return [{ operation: queued, status: "pending" }];
+      },
+      async enqueue() {},
+      async markAcked(id) {
+        events.push(`acked:${id}`);
+      },
+    },
+    recentOutcomes: [outcome],
+  });
+  assert.deepEqual(events, [`acked:${ids.operation}`]);
+});
+
+test("a digest match does not bypass non-size collaboration protocol limits", async () => {
+  const baseVersions = Object.fromEntries(
+    Array.from({ length: 257 }, (_, index) => [
+      `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      1,
+    ]),
+  );
+  const queued = { ...operation, baseVersions };
+  const acknowledgements = [];
+
+  await assert.rejects(
+    reconcileDrawingCollaborationDraft({
+      actorId: ids.user,
+      revisionId: ids.revision,
+      baseOperationSequence: 7,
+      adapter: {
+        operations: () => [],
+        preparePersistedLocal(value) {
+          return { operation: value, state: { revisionId: ids.revision } };
+        },
+        appendDurableLocal() {
+          return true;
+        },
+      },
+      outbox: {
+        async entries() {
+          return [{ operation: queued, status: "pending" }];
+        },
+        async enqueue() {},
+        async markAcked(id) {
+          acknowledgements.push(id);
+        },
+      },
+      recentOutcomes: [
+        {
+          revisionId: ids.revision,
+          clientOperationId: queued.clientOperationId,
+          actorId: ids.user,
+          sequence: 7,
+          resultVersions: {},
+          operationSha256: localOperationSha256(queued),
+        },
+      ],
+    }),
+    /too many drawing operation base versions/i,
+  );
+  assert.deepEqual(acknowledgements, []);
+});
+
+test("accepted receipts verify every local operation digest before acknowledging any candidate", async () => {
+  const second = { ...operation, clientOperationId: ids.semanticOperationA };
+  const acknowledgements = [];
+
+  await assert.rejects(
+    reconcileDrawingCollaborationDraft({
+      actorId: ids.user,
+      revisionId: ids.revision,
+      baseOperationSequence: 8,
+      adapter: {
+        operations: () => [],
+        preparePersistedLocal(value) {
+          return { operation: value, state: { revisionId: ids.revision } };
+        },
+        appendDurableLocal() {
+          return true;
+        },
+      },
+      outbox: {
+        async entries() {
+          return [
+            { operation, status: "pending" },
+            { operation: second, status: "pending" },
+          ];
+        },
+        async enqueue() {},
+        async markAcked(id) {
+          acknowledgements.push(id);
+        },
+      },
+      recentOutcomes: [
+        {
+          revisionId: ids.revision,
+          clientOperationId: operation.clientOperationId,
+          actorId: ids.user,
+          sequence: 7,
+          resultVersions: {},
+          operationSha256: localOperationSha256(operation),
+        },
+        {
+          revisionId: ids.revision,
+          clientOperationId: second.clientOperationId,
+          actorId: ids.user,
+          sequence: 8,
+          resultVersions: {},
+          operationSha256: "f".repeat(64),
+        },
+      ],
+    }),
+    /operation digest does not match/i,
+  );
+  assert.deepEqual(acknowledgements, []);
+});
+
+test("an accepted receipt verifies both outbox and Yjs candidates sharing its ID", async () => {
+  const localMismatch = {
+    ...operation,
+    forward: {
+      type: "update_objects",
+      updates: [{ objectId: ids.object, patch: { name: "Mismatch" } }],
+    },
+  };
+  const acknowledgements = [];
+
+  await assert.rejects(
+    reconcileDrawingCollaborationDraft({
+      actorId: ids.user,
+      revisionId: ids.revision,
+      baseOperationSequence: 7,
+      adapter: {
+        operations: () => [localMismatch],
+        preparePersistedLocal(value) {
+          return { operation: value, state: { revisionId: ids.revision } };
+        },
+        appendDurableLocal() {
+          return true;
+        },
+      },
+      outbox: {
+        async entries() {
+          return [{ operation, status: "pending" }];
+        },
+        async enqueue() {},
+        async markAcked(id) {
+          acknowledgements.push(id);
+        },
+      },
+      recentOutcomes: [
+        {
+          revisionId: ids.revision,
+          clientOperationId: operation.clientOperationId,
+          actorId: ids.user,
+          sequence: 7,
+          resultVersions: {},
+          operationSha256: localOperationSha256(operation),
+        },
+      ],
+    }),
+    /operation digest does not match/i,
+  );
+  assert.deepEqual(acknowledgements, []);
+});
+
+test("accepted Yjs-only work is not re-enqueued before its receipt acknowledgement", async () => {
+  const events = [];
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter: {
+      operations: () => [operation],
+      preparePersistedLocal(value) {
+        return { operation: value, state: { revisionId: ids.revision } };
+      },
+      appendDurableLocal() {
+        return true;
+      },
+    },
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async enqueue() {
+        events.push("enqueued");
+      },
+      async markAcked(id) {
+        events.push(`acked:${id}`);
+      },
+    },
+    recentOutcomes: [
+      {
+        revisionId: ids.revision,
+        clientOperationId: operation.clientOperationId,
+        actorId: ids.user,
+        sequence: 7,
+        resultVersions: {},
+        operationSha256: localOperationSha256(operation),
+      },
+    ],
+  });
+
+  assert.deepEqual(events, [`acked:${ids.operation}`]);
+});
+
+test("a remote receipt may verify the matching shared Yjs operation without becoming local outbox work", async () => {
+  const remoteOperation = {
+    ...operation,
+    actorId: ids.other,
+    clientOperationId: ids.semanticOperationA,
+  };
+  const events = [];
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter: {
+      operations: () => [remoteOperation],
+      preparePersistedLocal() {
+        throw new Error(
+          "remote canonical history must not be recreated locally",
+        );
+      },
+      appendDurableLocal() {
+        throw new Error(
+          "remote canonical history must not be appended locally",
+        );
+      },
+    },
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async enqueue() {
+        events.push("enqueued");
+      },
+      async markAcked() {
+        events.push("acked");
+      },
+    },
+    recentOutcomes: [
+      {
+        revisionId: ids.revision,
+        clientOperationId: remoteOperation.clientOperationId,
+        actorId: ids.other,
+        sequence: 7,
+        resultVersions: {},
+        operationSha256: localOperationSha256(remoteOperation, ids.other),
+      },
+    ],
+  });
+
+  assert.deepEqual(events, []);
+});
+
+test("a checkpoint recognizes all 257 locally ACKed operations beyond the recent receipt window", async () => {
+  const document = semanticDocument();
+  const operations = Array.from({ length: 257 }, (_, index) => ({
+    ...operation,
+    clientOperationId: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    createdAt: `2026-08-26T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`,
+  }));
+  document.transact(() => {
+    for (const [index, candidate] of operations.entries()) {
+      appendDrawingCollaborationOperation(document, candidate);
+      document.getMap("operationStatus").set(candidate.clientOperationId, {
+        operationId: candidate.clientOperationId,
+        status: "acked",
+        authoritativeSequence: index + 1,
+        resultVersions: { [ids.object]: 2 },
+      });
+    }
+  });
+  const adapter = createDrawingDraftAdapter({
+    document,
+    authoritativeState: semanticState(),
+    actorId: ids.user,
+    authorization: "editor",
+    frozen: false,
+    baseOperationSequence: operations.length,
+  });
+  const enqueued = [];
+  const recentOutcomes = operations.slice(1).map((candidate, index) => ({
+    revisionId: ids.revision,
+    clientOperationId: candidate.clientOperationId,
+    actorId: ids.user,
+    sequence: index + 2,
+    resultVersions: { [ids.object]: 2 },
+    operationSha256: localOperationSha256(candidate),
+  }));
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: operations.length,
+    adapter,
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async enqueue(candidate) {
+        enqueued.push(candidate.clientOperationId);
+      },
+      async markAcked() {},
+    },
+    recentOutcomes,
+  });
+
+  assert.deepEqual(enqueued, []);
+  adapter.dispose();
+  document.destroy();
+});
+
+test("pending or ahead-of-checkpoint local statuses remain eligible for repair enqueue", async () => {
+  const document = semanticDocument();
+  const pending = operation;
+  const ahead = { ...operation, clientOperationId: ids.other };
+  document.transact(() => {
+    appendDrawingCollaborationOperation(document, pending);
+    appendDrawingCollaborationOperation(document, ahead);
+    document.getMap("operationStatus").set(pending.clientOperationId, {
+      operationId: pending.clientOperationId,
+      status: "pending",
+      authoritativeSequence: null,
+      resultVersions: {},
+    });
+    document.getMap("operationStatus").set(ahead.clientOperationId, {
+      operationId: ahead.clientOperationId,
+      status: "acked",
+      authoritativeSequence: 8,
+      resultVersions: { [ids.object]: 2 },
+    });
+  });
+  const adapter = createDrawingDraftAdapter({
+    document,
+    authoritativeState: semanticState(),
+    actorId: ids.user,
+    authorization: "editor",
+    frozen: false,
+    baseOperationSequence: 7,
+  });
+  const enqueued = [];
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter,
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async enqueue(candidate) {
+        enqueued.push(candidate.clientOperationId);
+      },
+      async markAcked() {},
+    },
+    recentOutcomes: [],
+  });
+
+  assert.deepEqual(enqueued.sort(), [ids.operation, ids.other].sort());
+  adapter.dispose();
+  document.destroy();
+});
+
+test("terminal rejected collaboration operations never resurrect into the outbox", async () => {
+  const document = semanticDocument();
+  document.transact(() => {
+    appendDrawingCollaborationOperation(document, operation);
+    document.getMap("operationStatus").set(operation.clientOperationId, {
+      operationId: operation.clientOperationId,
+      status: "rejected",
+      authoritativeSequence: null,
+      resultVersions: {},
+    });
+  });
+  const adapter = createDrawingDraftAdapter({
+    document,
+    authoritativeState: semanticState(),
+    actorId: ids.user,
+    authorization: "editor",
+    frozen: false,
+    baseOperationSequence: 7,
+  });
+  const enqueued = [];
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter,
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async enqueue(candidate) {
+        enqueued.push(candidate.clientOperationId);
+      },
+      async markAcked() {},
+    },
+    recentOutcomes: [],
+  });
+
+  assert.deepEqual(adapter.getSnapshot().rejectedOperationIds, [ids.operation]);
+  assert.deepEqual(enqueued, []);
+  adapter.dispose();
+  document.destroy();
+});
+
+test("a durable HTTP ACK tombstone restores the local projection after reload without re-enqueue", async () => {
+  const document = semanticDocument();
+  appendDrawingCollaborationOperation(document, operation);
+  document.getMap("operationStatus").set(ids.operation, {
+    operationId: ids.operation,
+    status: "pending",
+    authoritativeSequence: null,
+    resultVersions: {},
+  });
+  const adapter = createDrawingDraftAdapter({
+    document,
+    authoritativeState: semanticState(),
+    actorId: ids.user,
+    authorization: "editor",
+    frozen: false,
+    baseOperationSequence: 7,
+  });
+  const enqueued = [];
+
+  await reconcileDrawingCollaborationDraft({
+    actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
+    adapter,
+    outbox: {
+      async entries() {
+        return [];
+      },
+      async acknowledgements() {
+        return [
+          {
+            clientOperationId: ids.operation,
+            authoritativeSequence: 7,
+            resultVersions: { [ids.object]: 2 },
+            operation: {
+              clientOperationId: operation.clientOperationId,
+              revisionId: operation.revisionId,
+              type: operation.type,
+              baseVersions: operation.baseVersions,
+              forward: operation.forward,
+              inverse: operation.inverse,
+              createdAt: operation.createdAt,
+            },
+          },
+        ];
+      },
+      async enqueue(candidate) {
+        enqueued.push(candidate.clientOperationId);
+      },
+      async markAcked() {},
+    },
+    recentOutcomes: [],
+  });
+
+  assert.deepEqual(enqueued, []);
+  assert.deepEqual(adapter.getSnapshot().pendingOperationIds, []);
+  assert.deepEqual(document.getMap("operationStatus").toJSON(), {
+    [ids.operation]: {
+      operationId: ids.operation,
+      status: "pending",
+      authoritativeSequence: null,
+      resultVersions: {},
+    },
+  });
+  adapter.dispose();
+  document.destroy();
 });
 
 test("workspace collaboration bootstrap preserves deleted result tombstones", async () => {
@@ -824,7 +1893,83 @@ test("workspace collaboration bootstrap preserves deleted result tombstones", as
   ]);
   assert.equal(bootstrap.operationSequence, 7);
   assert.equal(bootstrap.canonicalJson.revision.id, ids.revision);
-  assert.deepEqual(bootstrap.recentOutcomes, [deletedOutcome]);
+  assert.deepEqual(bootstrap.recentOutcomes, [
+    {
+      ...deletedOutcome,
+      operationSha256: outcomeOperationSha256(deletedOutcome),
+    },
+  ]);
+});
+
+test("workspace collaboration bootstrap rejects malformed outcome lineage", async () => {
+  const first = {
+    revisionId: ids.revision,
+    clientOperationId: ids.operation,
+    actorId: ids.user,
+    operationType: operation.type,
+    baseVersions: operation.baseVersions,
+    forward: operation.forward,
+    inverse: operation.inverse,
+    sequence: 6,
+    resultVersions: {},
+  };
+  const second = {
+    ...first,
+    clientOperationId: ids.other,
+    sequence: 7,
+  };
+  const cases = [
+    [{ ...first, revisionId: ids.other }],
+    [first, { ...second, clientOperationId: first.clientOperationId }],
+    [first, { ...second, sequence: first.sequence }],
+    [second, first],
+    [{ ...first, sequence: 8 }],
+  ];
+  const payload = (recentOutcomes) => ({
+    canonicalJson: {
+      schemaVersion: 2,
+      revision: {
+        id: ids.revision,
+        documentId: ids.other,
+        projectId: ids.project,
+        sequence: 1,
+        version: 1,
+      },
+      sources: [],
+      pages: [],
+      canvases: [],
+      layers: [],
+      objects: [],
+      styles: [],
+      blocks: [],
+      blockInstances: [],
+      propertySchemas: [],
+      propertyValues: [],
+      tables: [],
+      issues: [],
+      operationSequence: 7,
+    },
+    operationSequence: 7,
+    schemaVersion: 2,
+    sha256: "a".repeat(64),
+    revisionStatus: "draft",
+    capability: "editor",
+    canWrite: true,
+    recentOutcomes,
+  });
+
+  for (const recentOutcomes of cases)
+    await assert.rejects(
+      loadDrawingWorkspaceCollaborationBootstrap(
+        {
+          async rpc() {
+            return { data: payload(recentOutcomes), error: null };
+          },
+        },
+        ids.revision,
+      ),
+      /collaboration bootstrap outcomes are invalid/i,
+    );
 });
 
 test("snapshot bootstrap sources are strict canonical evidence before client hydration", async () => {
@@ -1013,18 +2158,19 @@ test("trusted bootstrap and checkpoint boundaries canonicalize only the exact P4
   );
 });
 
-test("lost-receipt bootstrap reconstructs exact persisted undo lineage", async () => {
-  let repaired;
+test("snapshot-only accepted undo receipts stay at the authoritative boundary", async () => {
+  const events = [];
   await reconcileDrawingCollaborationDraft({
     actorId: ids.user,
+    revisionId: ids.revision,
+    baseOperationSequence: 7,
     adapter: {
       operations: () => [],
-      preparePersistedLocal(value) {
-        repaired = value;
-        return { operation: value, state: { revisionId: ids.revision } };
+      preparePersistedLocal() {
+        throw new Error("snapshot receipt must not manufacture an operation");
       },
       appendDurableLocal() {
-        return true;
+        throw new Error("snapshot receipt must not mutate local Yjs");
       },
     },
     outbox: {
@@ -1032,29 +2178,22 @@ test("lost-receipt bootstrap reconstructs exact persisted undo lineage", async (
         return [];
       },
       async enqueue() {},
-      async markAcked() {},
+      async markAcked(id) {
+        events.push(`acked:${id}`);
+      },
     },
     recentOutcomes: [
       {
         revisionId: ids.revision,
         clientOperationId: ids.operation,
         actorId: ids.user,
-        operationType: operation.type,
-        baseVersions: operation.baseVersions,
-        forward: operation.forward,
-        inverse: operation.inverse,
-        historyAction: "undo",
-        originalOperationId: "00000000-0000-4000-8000-000000000099",
         sequence: 7,
         resultVersions: {},
+        operationSha256: "a".repeat(64),
       },
     ],
   });
-  assert.equal(repaired.historyAction, "undo");
-  assert.equal(
-    repaired.originalOperationId,
-    "00000000-0000-4000-8000-000000000099",
-  );
+  assert.deepEqual(events, [`acked:${ids.operation}`]);
 });
 
 test("React server signs one idempotent collaboration outcome receipt", async () => {
@@ -1092,6 +2231,52 @@ test("React server signs one idempotent collaboration outcome receipt", async ()
   assert.equal(body.operation.actorId, ids.user);
   assert.equal(body.outcome, "acked");
   assert.equal(body.authoritativeSequence, 7);
+});
+
+test("accepted deletion receipt keeps the authoritative null result", async () => {
+  const envelope = semanticEnvelope(
+    { type: "delete_objects", objectIds: [ids.area] },
+    ids.operation,
+    ids.user,
+  );
+  const {
+    actorId: _actorId,
+    schemaVersion: _schemaVersion,
+    ...input
+  } = envelope;
+  const form = new FormData();
+  form.set("intent", "apply_operation");
+  form.set("operation_json", JSON.stringify(input));
+  let delivered;
+
+  const result = await handleWorkspaceMutation({
+    client: {
+      async rpc() {
+        return {
+          data: {
+            operationId: ids.operation,
+            sequence: 7,
+            resultVersions: { [ids.area]: null },
+          },
+          error: null,
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    actorId: ids.user,
+    workspace: {
+      document: { revision: { id: ids.revision, status: "draft" } },
+    },
+    form,
+    async deliverOutcome(receipt) {
+      delivered = receipt;
+      return true;
+    },
+  });
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(delivered.resultVersions, { [ids.area]: null });
 });
 
 test("an accepted RPC with a lost receipt remains retryable under the same operation ID", async () => {
@@ -1136,4 +2321,294 @@ test("an accepted RPC with a lost receipt remains retryable under the same opera
   });
   assert.equal(result.status, 503);
   assert.equal(result.body.kind, "retryable");
+});
+
+test("a version conflict stays a client conflict but is rejected in the shared ledger", async () => {
+  const request = new FormData();
+  request.set("intent", "apply_operation");
+  request.set(
+    "operation_json",
+    JSON.stringify({
+      ...operation,
+      actorId: undefined,
+      schemaVersion: undefined,
+    }),
+  );
+  let delivered;
+  const result = await handleWorkspaceMutation({
+    client: {
+      async rpc() {
+        return {
+          data: null,
+          error: { code: "P1C01", message: "Drawing object version conflict" },
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    actorId: ids.user,
+    workspace: {
+      document: { revision: { id: ids.revision, status: "draft" } },
+    },
+    form: request,
+    async deliverOutcome(receipt) {
+      delivered = receipt;
+      return true;
+    },
+  });
+
+  assert.equal(result.status, 409);
+  assert.equal(result.body.kind, "conflict");
+  assert.equal(delivered.outcome, "rejected");
+});
+
+test("a pending DXF attestation stays retryable without a terminal shared-ledger outcome", async () => {
+  const request = new FormData();
+  request.set("intent", "apply_operation");
+  request.set(
+    "operation_json",
+    JSON.stringify({
+      ...operation,
+      actorId: undefined,
+      schemaVersion: undefined,
+    }),
+  );
+  let deliveries = 0;
+  const result = await handleWorkspaceMutation({
+    client: {
+      async rpc() {
+        return {
+          data: null,
+          error: {
+            code: "P1T01",
+            message: "DXF operation plan attestation is pending",
+          },
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    actorId: ids.user,
+    workspace: {
+      document: { revision: { id: ids.revision, status: "draft" } },
+    },
+    form: request,
+    async deliverOutcome() {
+      deliveries += 1;
+      return true;
+    },
+  });
+
+  assert.equal(result.status, 503);
+  assert.equal(result.body.kind, "retryable");
+  assert.equal(deliveries, 0);
+});
+
+test("conflict discard settles the exact suffix in DB before shared ledger receipts", async () => {
+  const {
+    actorId: _actorId,
+    schemaVersion: _schemaVersion,
+    ...first
+  } = operation;
+  const second = {
+    ...first,
+    clientOperationId: ids.other,
+    createdAt: "2026-08-26T00:01:00.000Z",
+  };
+  const request = new FormData();
+  request.set("intent", "discard_conflicted_operations");
+  request.set("revision_id", ids.revision);
+  request.set("operations_json", JSON.stringify([first, second]));
+  const calls = [];
+  const delivered = [];
+  const result = await handleWorkspaceMutation({
+    client: {
+      async rpc(name, args) {
+        calls.push([name, args]);
+        return {
+          data: {
+            dispositions: [
+              {
+                clientOperationId: ids.operation,
+                status: "rejected",
+                authoritativeSequence: null,
+                resultVersions: {},
+              },
+              {
+                clientOperationId: ids.other,
+                status: "acked",
+                authoritativeSequence: 8,
+                resultVersions: { [ids.object]: 2 },
+              },
+            ],
+          },
+          error: null,
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    actorId: ids.user,
+    workspace: {
+      document: { revision: { id: ids.revision, status: "draft" } },
+    },
+    form: request,
+    async deliverOutcome(receipt) {
+      delivered.push(receipt);
+      return true;
+    },
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(calls[0][0], "lukas_drawing_discard_operation_suffix");
+  assert.deepEqual(calls[0][1], {
+    p_revision_id: ids.revision,
+    p_operations: [first, second],
+  });
+  assert.deepEqual(
+    delivered.map(({ operation, outcome, authoritativeSequence }) => ({
+      id: operation.clientOperationId,
+      outcome,
+      authoritativeSequence,
+    })),
+    [
+      {
+        id: ids.operation,
+        outcome: "rejected",
+        authoritativeSequence: null,
+      },
+      { id: ids.other, outcome: "acked", authoritativeSequence: 8 },
+    ],
+  );
+});
+
+test("HTTP-only operation acknowledgement bypasses the disabled collaboration receipt service", async () => {
+  const request = new FormData();
+  request.set("intent", "apply_operation");
+  request.set(
+    "operation_json",
+    JSON.stringify({
+      ...operation,
+      actorId: undefined,
+      schemaVersion: undefined,
+    }),
+  );
+  let deliveries = 0;
+  const result = await handleWorkspaceMutation({
+    client: {
+      async rpc(name) {
+        assert.equal(name, "lukas_drawing_apply_operation");
+        return {
+          data: {
+            operationId: ids.operation,
+            sequence: 19,
+            resultVersions: { [ids.object]: 2 },
+          },
+          error: null,
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    actorId: ids.user,
+    collaborationEnabled: false,
+    workspace: {
+      document: { revision: { id: ids.revision, status: "draft" } },
+    },
+    form: request,
+    async deliverOutcome() {
+      deliveries += 1;
+      throw new Error("disabled collaboration service must not be called");
+    },
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.clientOperationId, ids.operation);
+  assert.deepEqual(result.body.result, {
+    operationId: ids.operation,
+    sequence: 19,
+    resultVersions: { [ids.object]: 2 },
+  });
+  assert.equal(deliveries, 0);
+});
+
+test("HTTP-only operation conflict remains terminal without the disabled receipt service", async () => {
+  const request = new FormData();
+  request.set("intent", "apply_operation");
+  request.set(
+    "operation_json",
+    JSON.stringify({
+      ...operation,
+      actorId: undefined,
+      schemaVersion: undefined,
+    }),
+  );
+  let deliveries = 0;
+  const result = await handleWorkspaceMutation({
+    client: {
+      async rpc() {
+        return {
+          data: null,
+          error: { code: "P1C01", message: "Drawing object version conflict" },
+        };
+      },
+    },
+    projectId: ids.project,
+    capability: "editor",
+    actorId: ids.user,
+    collaborationEnabled: false,
+    workspace: {
+      document: { revision: { id: ids.revision, status: "draft" } },
+    },
+    form: request,
+    async deliverOutcome() {
+      deliveries += 1;
+      return false;
+    },
+  });
+
+  assert.equal(result.status, 409);
+  assert.equal(result.body.kind, "conflict");
+  assert.equal(deliveries, 0);
+});
+
+test("HTTP-only review uses the legacy snapshot authority without opening a collaboration freeze", async () => {
+  const requestId = "00000000-0000-4000-8000-000000000619";
+  const request = new FormData();
+  request.set("intent", "request_review");
+  request.set("revision_id", ids.revision);
+  request.set("freeze_request_id", requestId);
+  let collaborativeCalls = 0;
+  let directCalls = 0;
+  const result = await handleWorkspaceMutation({
+    client: {},
+    projectId: ids.project,
+    capability: "editor",
+    actorId: ids.user,
+    collaborationEnabled: false,
+    workspace: {
+      document: { revision: { id: ids.revision, status: "draft" } },
+    },
+    form: request,
+    async requestReview() {
+      collaborativeCalls += 1;
+      throw new Error("disabled collaboration freeze must not be called");
+    },
+    async requestReviewWithoutCollaboration(client, revisionId) {
+      directCalls += 1;
+      assert.deepEqual(client, {});
+      assert.equal(revisionId, ids.revision);
+      return {
+        snapshotId: "00000000-0000-4000-8000-000000000620",
+        subjectVersion: 1,
+        snapshotSha256: "a".repeat(64),
+        operationSequence: 0,
+      };
+    },
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(collaborativeCalls, 0);
+  assert.equal(directCalls, 1);
+  assert.equal(result.body.result.subjectVersion, 1);
 });

@@ -1,0 +1,35 @@
+✔ runner profile parsing is strict before resource startup (0.798459ms)
+✔ runner profiles select only their exact Playwright target (0.4285ms)
+✔ M1 disposable release runner requires M1 M2 and M5 real PostgreSQL proofs (0.288583ms)
+✔ M1 Revit release fixture serves a deterministic verified ZIP download (19.44525ms)
+✔ M1 runtime environment binds the verified loopback Revit release (0.41225ms)
+✔ P3 runtime environment adds only explicit disposable P3 authority (0.129834ms)
+✔ DWG source profile reuses the ordinary disposable runtime authority (0.071375ms)
+✔ DWG resave profile reuses the ordinary disposable runtime authority (0.079083ms)
+✔ M1 authority accepts only its concrete loopback Supabase and PostgreSQL endpoints (0.179458ms)
+✔ disposable Supabase config uses the exact project and free port block (0.137042ms)
+✔ disposable project enables Edge runtime and owns exactly the upload verifier files (26.198459ms)
+✔ disposable runner root lives in the Docker-shareable workspace cache (0.9065ms)
+✔ disposable Supabase start command keeps Edge runtime enabled (0.139084ms)
+✔ Playwright authority verifies status for the exact workdir and rejects endpoint or key drift (2.128291ms)
+✔ cleanup validation requires the owned marker and refuses repository Supabase (1.447333ms)
+✔ cleanup validation rejects a symlink anywhere below the owned root (0.898083ms)
+✔ cleanup preserves recovery metadata when stopping a partially started stack fails (1.147792ms)
+✔ cleanup removes an exact partial owned root only before start (0.267917ms)
+✔ signal state terminates the tracked child and blocks ordinary new work (3.422083ms)
+✔ process lifecycle refuses its own POSIX process group (4.790333ms)
+✔ signal termination kills the isolated parent and grandchild process group before cleanup (186.990167ms)
+✔ normal leader exit retains and reaps its live process group before lifecycle cleanup (201.623292ms)
+✔ normal command without descendants completes and leaves no lifecycle work (47.824167ms)
+✔ a child failure after SIGINT retains the interrupt exit identity (0.284709ms)
+✔ sensitive child failures never expose captured keys or database URLs (40.560334ms)
+✔ direct Playwright invocation fails before fixture writes (373.552167ms)
+✔ direct Playwright rejects a self-authored root backed by another loopback stack (689.247625ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1675.116792

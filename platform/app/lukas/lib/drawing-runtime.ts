@@ -63,13 +63,20 @@ export function drawingLocalEditReady(input: {
   outboxReady: boolean;
   bridgeReady: boolean;
   persistenceFailed: boolean;
+  conflicted: boolean;
 }) {
-  return input.outboxReady && input.bridgeReady && !input.persistenceFailed;
+  return (
+    input.outboxReady &&
+    input.bridgeReady &&
+    !input.persistenceFailed &&
+    !input.conflicted
+  );
 }
 
 export function drawingAuthoritativeSnapshotKey(input: {
   revisionId: string;
   revisionVersion: number;
+  revisionUpdatedAt?: string;
   sourceSha256?: string;
   bootstrap?: {
     sha256: string;
@@ -79,7 +86,7 @@ export function drawingAuthoritativeSnapshotKey(input: {
 }) {
   return input.bootstrap
     ? `${input.revisionId}\0${input.bootstrap.sha256}\0${input.bootstrap.operationSequence}\0${input.bootstrap.recentOutcomesKey ?? ""}`
-    : `${input.revisionId}\0revision\0${input.revisionVersion}\0${input.sourceSha256 ?? ""}`;
+    : `${input.revisionId}\0revision\0${input.revisionVersion}\0${input.revisionUpdatedAt ?? ""}\0${input.sourceSha256 ?? ""}`;
 }
 
 type DrawingLocalInitializationScheduler = {

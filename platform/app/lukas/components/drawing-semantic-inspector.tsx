@@ -6,7 +6,7 @@ import type {
 } from "~/lukas/lib/drawing-commands";
 import {
   formatDrawingMeasurement,
-  measureDrawingObject,
+  measureDrawingObjectForCanvas,
 } from "~/lukas/lib/drawing-measurements";
 import {
   drawingMeasurementEvidenceCurrent,
@@ -17,6 +17,7 @@ import {
 } from "~/lukas/lib/drawing-semantic-schedules";
 import {
   DrawingGeometrySchema,
+  type DrawingCanvas,
   type DrawingObject,
   type DrawingSemanticGeometry,
 } from "~/lukas/lib/drawing-workspace.types";
@@ -24,6 +25,7 @@ import {
 type Props = {
   actorId: string;
   canEdit: boolean;
+  canvas?: DrawingCanvas | null;
   object: DrawingObject & { geometry: DrawingSemanticGeometry };
   onCommand: (command: DrawingCommand) => void;
   state: Pick<DrawingDocumentState, "revisionId" | "objects">;
@@ -34,7 +36,7 @@ type Props = {
 };
 
 const inputClass =
-  "min-h-10 rounded-md border border-white/15 bg-slate-950 px-2 text-sm disabled:opacity-60";
+  "min-h-10 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 disabled:opacity-60";
 
 function number(data: FormData, name: string) {
   return Number(data.get(name));
@@ -98,6 +100,7 @@ const semanticDraftConflictMessage =
 export function DrawingSemanticInspector({
   actorId,
   canEdit,
+  canvas,
   evidence,
   evidenceError,
   hasUnconfirmedChanges = false,
@@ -114,11 +117,11 @@ export function DrawingSemanticInspector({
   const [error, setError] = useState<string | null>(null);
   const measurement = useMemo(() => {
     try {
-      return measureDrawingObject(object, state.objects);
+      return measureDrawingObjectForCanvas(object, canvas, state.objects);
     } catch {
       return null;
     }
-  }, [object, state.objects]);
+  }, [canvas, object, state.objects]);
   const serverStatus = resolveDrawingServerEvidenceStatus(
     evidence,
     drawingMeasurementEvidenceCurrent(lineage, state, hasUnconfirmedChanges),
@@ -203,7 +206,9 @@ export function DrawingSemanticInspector({
     } else if (geometry.type === "opening") {
       if (changed.has("openingKind"))
         geometry.openingKind = String(data.get("openingKind")) as
-          "door" | "window" | "void";
+          | "door"
+          | "window"
+          | "void";
       for (const field of [
         "offsetMillimeters",
         "widthMillimeters",
@@ -254,15 +259,15 @@ export function DrawingSemanticInspector({
   return (
     <section
       aria-labelledby="drawing-semantic-inspector-title"
-      className="mt-5 border-t border-white/10 pt-4"
+      className="mt-5 border-t border-slate-200 pt-4"
     >
       <h3 className="text-sm font-bold" id="drawing-semantic-inspector-title">
         건축 객체
       </h3>
-      <dl className="mt-3 grid gap-2 rounded-md bg-white/5 p-3 text-xs">
+      <dl className="mt-3 grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
         <div>
-          <dt className="font-semibold text-slate-300">미리보기</dt>
-          <dd className="mt-1 text-slate-100">
+          <dt className="font-semibold text-slate-600">미리보기</dt>
+          <dd className="mt-1 text-slate-900">
             {measurement
               ? [
                   formatDrawingMeasurement(measurement, "millimeters"),
@@ -275,13 +280,13 @@ export function DrawingSemanticInspector({
           </dd>
         </div>
         <div>
-          <dt className="font-semibold text-slate-300">서버 계산 · V1</dt>
+          <dt className="font-semibold text-slate-600">서버 계산 · V1</dt>
           {evidenceError ? (
-            <dd className="mt-1 text-rose-200" role="alert">
+            <dd className="mt-1 text-red-700" role="alert">
               계산 오류 · 미확정 · {evidenceError.message}
             </dd>
           ) : serverMeasurement && evidence ? (
-            <dd className="mt-1 text-emerald-200">
+            <dd className="mt-1 text-emerald-800">
               확정 ·{" "}
               {[
                 formatDrawingMeasurement(serverMeasurement, "millimeters"),
@@ -290,7 +295,7 @@ export function DrawingSemanticInspector({
               ]
                 .filter(Boolean)
                 .join(" · ")}
-              <span className="mt-1 block text-[11px] text-slate-400">
+              <span className="mt-1 block text-[11px] text-slate-600">
                 {evidence.ruleVersion} · 체크포인트{" "}
                 {evidence.operationCheckpoint}
                 {" · "}Postgres 권한 확인 로드 · revision {evidence.revisionId}
@@ -298,17 +303,17 @@ export function DrawingSemanticInspector({
               </span>
             </dd>
           ) : evidence ? (
-            <dd className="mt-1 text-amber-200">
+            <dd className="mt-1 text-amber-800">
               서버 증거 오래됨 · 현재 revision/checkpoint/object lineage와
               일치하지 않아 미확정입니다.
-              <span className="mt-1 block text-[11px] text-slate-400">
+              <span className="mt-1 block text-[11px] text-slate-600">
                 {evidence.ruleVersion} · 체크포인트{" "}
                 {evidence.operationCheckpoint}
                 {" · "}Postgres 권한 확인 로드
               </span>
             </dd>
           ) : (
-            <dd className="mt-1 text-amber-200">
+            <dd className="mt-1 text-amber-800">
               서버 증거를 불러오기 전이며 미리보기 값은 확정값이 아닙니다.
             </dd>
           )}
@@ -360,7 +365,7 @@ export function DrawingSemanticInspector({
                 <option value="void">빈 개구부</option>
               </select>
             </label>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-600">
               호스트 벽 · {geometry.hostWallId}
             </p>
             {[
@@ -452,13 +457,13 @@ export function DrawingSemanticInspector({
         ["wall", "opening", "space", "arc"].includes(geometry.type) ? (
           <div className="grid grid-cols-2 gap-2">
             <button
-              className="min-h-10 rounded-md border border-white/15 px-3 text-sm font-semibold text-slate-200"
+              className="min-h-10 rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700"
               type="reset"
             >
               건축 속성 취소
             </button>
             <button
-              className="min-h-10 rounded-md bg-indigo-500 px-3 text-sm font-semibold text-white"
+              className="min-h-10 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white"
               type="submit"
             >
               건축 속성 적용
@@ -467,7 +472,7 @@ export function DrawingSemanticInspector({
         ) : null}
       </form>
       {error ? (
-        <p className="mt-3 text-xs text-red-300" role="alert">
+        <p className="mt-3 text-xs text-red-700" role="alert">
           {error}
         </p>
       ) : null}

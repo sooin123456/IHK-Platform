@@ -1,0 +1,1462 @@
+{"cluster":"/tmp/canonical-task3-pg-L3Liw4","port":58093,"label":"green","platform":"/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1//platform"}
+/opt/homebrew/bin/initdb -D /tmp/canonical-task3-pg-L3Liw4 -U postgres -A trust --no-locale --encoding=UTF8
+The files belonging to this database system will be owned by user "h".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+fixing permissions on existing directory /tmp/canonical-task3-pg-L3Liw4 ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Asia/Seoul
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+Success. You can now start the database server using:
+
+    /opt/homebrew/bin/pg_ctl -D /tmp/canonical-task3-pg-L3Liw4 -l logfile start
+
+/opt/homebrew/bin/pg_ctl -D /tmp/canonical-task3-pg-L3Liw4 -l /tmp/canonical-task3-pg-L3Liw4/postgres.log -o -h 127.0.0.1 -p 58093 -k /tmp/canonical-task3-pg-L3Liw4 -c wal_level=logical -w start
+waiting for server to start.... done
+server started
+/opt/homebrew/bin/psql postgresql://postgres@127.0.0.1:58093/postgres -v ON_ERROR_STOP=1 -c create role lukas_drawing_collaboration nologin noinherit; grant lukas_drawing_collaboration to postgres with inherit false, set true;
+CREATE ROLE
+GRANT ROLE
+/opt/homebrew/Cellar/node/26.5.0/bin/node --experimental-strip-types --test tests/drawing-workspace-m1-real-database.test.mjs
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "hangil staff read projects" for relation "public.lukas_qto_projects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "hangil staff update projects" for relation "public.lukas_qto_projects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "hangil staff manage files" for relation "public.lukas_qto_files" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "hangil staff manage reviews" for relation "public.lukas_qto_reviews" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "hangil staff read source files" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "hangil staff upload source files" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "hangil staff delete source files" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P06',
+  message: 'schema "private" already exists, skipping',
+  file: 'schemacmds.c',
+  line: '135',
+  routine: 'CreateSchemaCommand'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "project members read file revision graph" for relation "public.lukas_qto_file_revisions" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_notifications_from_event" for relation "public.lukas_drawing_issue_events" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P06',
+  message: 'schema "extensions" already exists, skipping',
+  file: 'schemacmds.c',
+  line: '135',
+  routine: 'CreateSchemaCommand'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42710',
+  message: 'extension "pgcrypto" already exists, skipping',
+  file: 'extension.c',
+  line: '1924',
+  routine: 'CreateExtension'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "name" of relation "lukas_drawing_objects" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7483',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_objects_name_contract" of relation "lukas_drawing_objects" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_layers_name_contract" of relation "lukas_drawing_layers" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_layers_source_contract" of relation "lukas_drawing_layers" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "workspace editors delete draft drawing layers" for relation "public.lukas_drawing_layers" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_object_issue_links_append_only" for relation "public.lukas_drawing_object_issue_links" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_layers_canvas_fill" for relation "public.lukas_drawing_layers" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_structure_block_compound_valid_pre_p2_contract_hardening" will be truncated to "lukas_drawing_structure_block_compound_valid_pre_p2_contract_ha"',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_structure_block_compound_valid_pre_p2_contract_hardening" will be truncated to "lukas_drawing_structure_block_compound_valid_pre_p2_contract_ha"',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "workspace editors delete draft drawing layers" for relation "public.lukas_drawing_layers" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_structure_block_compound_valid_pre_p2_contract_hardening" will be truncated to "lukas_drawing_structure_block_compound_valid_pre_p2_contract_ha"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_structure_block_compound_valid" near line 6',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_structure_block_compound_valid_pre_p2_contract_hardening" will be truncated to "lukas_drawing_structure_block_compound_valid_pre_p2_contract_ha"',
+  position: '4877',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_tables_domain_guard" for relation "public.lukas_drawing_tables" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_documents_clone_source_clear" for relation "public.lukas_drawing_documents" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_block_instance_lineage_guard" for relation "public.lukas_drawing_block_instances" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "aaa_lukas_drawing_snapshot_lineage_writer" for relation "public.lukas_drawing_snapshots" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_clone_binding_guard" for relation "public.lukas_drawing_documents" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_template_clone_ledger_append_guard" for relation "private.lukas_drawing_template_clone_requests" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation" near line 6',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  position: '3714',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation" near line 8',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  position: '4118',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation" near line 136',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  position: '9893',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_pages_name_contract" of relation "lukas_drawing_pages" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_canvases_name_contract" of relation "lukas_drawing_canvases" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_styles_name_contract" of relation "lukas_drawing_styles" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_blocks_name_contract" of relation "lukas_drawing_blocks" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_blocks_primitive_names_contract" of relation "lukas_drawing_blocks" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_block_instances_name_contract" of relation "lukas_drawing_block_instances" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_property_schemas_name_contract" of relation "lukas_drawing_property_schemas" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_property_schemas_enum_option_names_contract" of relation "lukas_drawing_property_schemas" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_tables_name_contract" of relation "lukas_drawing_tables" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_tables_column_names_contract" of relation "lukas_drawing_tables" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation_pre_p4_semantic_objects" near line 202',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  position: '57847',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "lukas qto owners manage projects" for relation "public.lukas_qto_projects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "verified qto source uploads reject authenticated delete" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "verified qto source uploads reject authenticated update" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "verified source metadata requires service finalizer" for relation "public.lukas_qto_files" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'role "postgres" has already been granted membership in role "lukas_drawing_collaboration" by role "postgres"',
+  where: 'SQL statement "grant lukas_drawing_collaboration to postgres with inherit false, set true"\n' +
+    'PL/pgSQL function inline_code_block line 4 at EXECUTE',
+  file: 'user.c',
+  line: '1891',
+  routine: 'AddRoleMems'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_qto_export_events_drawing_lineage_check" of relation "lukas_qto_export_events" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'constraint "lukas_drawing_revisions_parent_not_self_check" of relation "lukas_drawing_revisions" does not exist, skipping',
+  file: 'tablecmds.c',
+  line: '12672',
+  routine: 'ATExecDropConstraint'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "drawing attached sources reject authenticated delete" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "drawing attached sources reject authenticated update" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_drawing_operations_touch_revision" for relation "public.lukas_drawing_operations" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation_pre_p4_semantic_objects" near line 226',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  position: '128245',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "material manifest upload authority" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "material manifest metadata insert authority" for relation "public.lukas_qto_files" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "material evidence uploaders delete unreferenced files" for relation "public.lukas_qto_files" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "material evidence metadata delete authority" for relation "public.lukas_qto_files" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "material authority rejects authenticated delete" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "material authority rejects authenticated update" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "lukas_qto_material_transactions_write_quota" for relation "public.lukas_qto_material_transactions" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'policy "source uploads require project editor authority" for relation "storage.objects" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation_pre_p4_semantic_objects" near line 226\n' +
+    'SQL statement "CREATE OR REPLACE FUNCTION private.lukas_drawing_apply_operation_pre_p4_semantic_objects(p_revision_id uuid, p_client_operation_id uuid, p_operation_type text, p_base_versions jsonb, p_forward jsonb, p_inverse jsonb, p_history_action text, p_original_operation_id uuid)\n' +
+    ' RETURNS jsonb\n' +
+    ' LANGUAGE plpgsql\n' +
+    ' SECURITY DEFINER\n' +
+    " SET search_path TO ''\n" +
+    'AS $function$\n' +
+    'declare\n' +
+    '  v_actor uuid:=(select auth.uid());\n' +
+    '  v_revision public.lukas_drawing_revisions%rowtype;\n' +
+    '  v_snapshot public.lukas_drawing_snapshots%rowtype;\n' +
+    '  v_existing public.lukas_drawing_operations%rowtype;\n' +
+    '  v_issue jsonb; v_action jsonb; v_identity jsonb; v_result jsonb;\n' +
+    '  v_sources jsonb; v_inverse_sources jsonb; v_core jsonb; v_inverse_core jsonb;\n' +
+    '  v_plan jsonb; v_core_bases jsonb; v_results jsonb; v_live_sources jsonb;\n' +
+    '  v_snapshot_sources jsonb; v_target_sources jsonb; v_live_issues jsonb;\n' +
+    '  v_source_ids text[];\n' +
+    '  v_operation_id uuid; v_sequence bigint;\n' +
+    'begin\n' +
+    "  if p_operation_type<>'restore_checkpoint' then\n" +
+    '    return private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(\n' +
+    '      p_revision_id,p_client_operation_id,p_operation_type,p_base_versions,\n' +
+    '      p_forward,p_inverse,p_history_action,p_original_operation_id\n' +
+    '    );\n' +
+    '  end if;\n' +
+    '  select s.* into v_snapshot from public.lukas_drawing_snapshots s\n' +
+    "  where s.id=(p_forward->>'checkpointId')::uuid\n" +
+    '    and s.revision_id=p_revision_id for share;\n' +
+    '  if not found or not (\n' +
+    '    exists(\n' +
+    '      select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "        v_snapshot.canonical_json->'sources'\n" +
+    "      ) s where s ? 'revisionId'\n" +
+    '    )\n' +
+    '    or exists(\n' +
+    "      select 1 from pg_catalog.jsonb_array_elements(p_forward->'actions') a\n" +
+    "      where a->>'kind' in('put_source','delete_source')\n" +
+    '    )\n' +
+    '  ) then\n' +
+    '    return private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(\n' +
+    '      p_revision_id,p_client_operation_id,p_operation_type,p_base_versions,\n' +
+    '      p_forward,p_inverse,p_history_action,p_original_operation_id\n' +
+    '    );\n' +
+    '  end if;\n' +
+    '  select o.* into v_existing from public.lukas_drawing_operations o\n' +
+    '  where o.revision_id=p_revision_id\n' +
+    '    and o.client_operation_id=p_client_operation_id;\n' +
+    '  if found then\n' +
+    '    if v_existing.actor_id is distinct from v_actor\n' +
+    '      or v_existing.operation_type is distinct from p_operation_type\n' +
+    '      or v_existing.base_versions is distinct from p_base_versions\n' +
+    '      or v_existing.forward is distinct from p_forward\n' +
+    '      or v_existing.inverse is distinct from p_inverse\n' +
+    '      or v_existing.history_action is distinct from p_history_action\n' +
+    '      or v_existing.original_operation_id is distinct from p_original_operation_id\n' +
+    "    then raise exception using errcode='P1C01',\n" +
+    "      message='Drawing operation idempotency key does not match the stored request';\n" +
+    '    end if;\n' +
+    '    return pg_catalog.jsonb_build_object(\n' +
+    "      'operationId',v_existing.id,'sequence',v_existing.sequence,\n" +
+    "      'resultVersions',v_existing.result_versions\n" +
+    '    );\n' +
+    '  end if;\n' +
+    '  select r.* into v_revision from public.lukas_drawing_revisions r\n' +
+    "  where r.id=p_revision_id and r.status='draft'\n" +
+    '    and private.lukas_drawing_workspace_capability(r.project_id)\n' +
+    "      in('admin','editor')\n" +
+    '  for update;\n' +
+    '  if not found or v_snapshot.schema_version<>2\n' +
+    '    or v_snapshot.sha256 is distinct from pg_catalog.encode(\n' +
+    '      extensions.digest(pg_catalog.convert_to(\n' +
+    "        v_snapshot.canonical_json::text,'UTF8'),'sha256'),'hex'\n" +
+    '    )\n' +
+    "  then raise exception using errcode='P1C01',\n" +
+    "    message='Drawing checkpoint reference target is invalid'; end if;\n" +
+    '  v_snapshot_sources:=private.lukas_drawing_p5_checkpoint_sources(\n' +
+    "    v_snapshot.canonical_json->'sources',p_revision_id\n" +
+    '  );\n' +
+    '  if exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(v_snapshot_sources) s\n' +
+    '    where private.lukas_drawing_structure_action_valid(\n' +
+    '      pg_catalog.jsonb_build_object(\n' +
+    "        'kind','put_source','entity',s,'baseVersion',null\n" +
+    '      ),p_revision_id\n' +
+    '    ) is not true\n' +
+    '      or not exists(\n' +
+    '        select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "          v_snapshot.canonical_json->'objects'\n" +
+    "        ) o where o->>'id'=s->>'objectId'\n" +
+    '      )\n' +
+    '      or not exists(\n' +
+    '        select 1 from public.lukas_qto_files f\n' +
+    "        where f.id=(s->>'sourceFileId')::uuid\n" +
+    '          and f.project_id=v_revision.project_id\n' +
+    "          and f.sha256=s->>'sourceSha256' and f.immutable\n" +
+    '          and (\n' +
+    "            s->>'sourceKind'='pdf_region' and f.kind='pdf'\n" +
+    "            or s->>'sourceKind'='ifc_element' and f.kind='ifc'\n" +
+    "            or s->>'sourceKind'='dxf_entity' and f.kind='dxf' or s->>'sourceKind'='dwg_entity' and f.kind='dwg'\n" +
+    '          )\n' +
+    '      )\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(v_snapshot_sources) s\n' +
+    "    group by s->>'objectId',s->>'sourceFileId',s->>'sourceKind'\n" +
+    '    having pg_catalog.count(*)>1\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "      v_snapshot.canonical_json->'issues'\n" +
+    '    ) i\n' +
+    "    where not (i ?& array['id','objectId'])\n" +
+    "      or i-array['id','objectId']<>'{}'::jsonb\n" +
+    '      or not exists(\n' +
+    '        select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "          v_snapshot.canonical_json->'objects'\n" +
+    "        ) o where o->>'id'=i->>'objectId'\n" +
+    '      )\n' +
+    '      or not exists(\n' +
+    '        select 1 from public.lukas_drawing_issues x\n' +
+    "        where x.id=(i->>'id')::uuid and x.project_id=v_revision.project_id\n" +
+    '      )\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "      v_snapshot.canonical_json->'issues'\n" +
+    "    ) i group by i->>'id',i->>'objectId' having pg_catalog.count(*)>1\n" +
+    "  ) then raise exception using errcode='P1C01',\n" +
+    "    message='Drawing checkpoint source graph is invalid'; end if;\n" +
+    '\n' +
+    '  select coalesce(\n' +
+    "    pg_catalog.jsonb_agg(a.value order by a.ordinality),'[]'::jsonb\n" +
+    '  ) into v_sources\n' +
+    "  from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '    with ordinality a(value,ordinality)\n' +
+    "  where a.value->>'kind' in('put_source','delete_source');\n" +
+    '  select coalesce(\n' +
+    "    pg_catalog.jsonb_agg(a.value order by a.ordinality),'[]'::jsonb\n" +
+    '  ) into v_inverse_sources\n' +
+    "  from pg_catalog.jsonb_array_elements(p_inverse->'actions')\n" +
+    '    with ordinality a(value,ordinality)\n' +
+    "  where a.value->>'kind' in('put_source','delete_source');\n" +
+    '  v_plan:=private.lukas_drawing_validate_source_actions(\n' +
+    '    p_revision_id,v_revision.project_id,v_sources,v_inverse_sources\n' +
+    '  );\n' +
+    '  select pg_catalog.array_agg(key) into v_source_ids\n' +
+    "  from pg_catalog.jsonb_object_keys(v_plan->'results') key;\n" +
+    '  v_core_bases:=p_base_versions-coalesce(v_source_ids,array[]::text[]);\n' +
+    "  if p_base_versions is distinct from v_core_bases||(v_plan->'bases') then\n" +
+    "    raise exception using errcode='P1C01',\n" +
+    "      message='Drawing checkpoint source base versions are incomplete';\n" +
+    '  end if;\n' +
+    "  select pg_catalog.jsonb_set(p_forward,'{actions}',coalesce(\n" +
+    '    pg_catalog.jsonb_agg(a.value order by a.ordinality)\n' +
+    "      filter(where a.value->>'kind' not in('put_source','delete_source')),\n" +
+    "    '[]'::jsonb),false) into v_core\n" +
+    "  from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '    with ordinality a(value,ordinality);\n' +
+    "  select pg_catalog.jsonb_set(p_inverse,'{actions}',coalesce(\n" +
+    '    pg_catalog.jsonb_agg(a.value order by a.ordinality)\n' +
+    "      filter(where a.value->>'kind' not in('put_source','delete_source')),\n" +
+    "    '[]'::jsonb),false) into v_inverse_core\n" +
+    "  from pg_catalog.jsonb_array_elements(p_inverse->'actions')\n" +
+    '    with ordinality a(value,ordinality);\n' +
+    '\n' +
+    '  insert into private.lukas_drawing_checkpoint_reference_targets(\n' +
+    '    transaction_id,actor_id,revision_id,snapshot_id,sources,issues\n' +
+    '  ) values(\n' +
+    '    pg_catalog.txid_current(),v_actor,p_revision_id,v_snapshot.id,\n' +
+    "    v_snapshot_sources,v_snapshot.canonical_json->'issues'\n" +
+    '  );\n' +
+    '  insert into private.lukas_drawing_checkpoint_issue_delete_leases(\n' +
+    '    transaction_id,actor_id,revision_id,link_id\n' +
+    '  ) select pg_catalog.txid_current(),v_actor,p_revision_id,l.id\n' +
+    '    from public.lukas_drawing_object_issue_links l\n' +
+    '    where l.revision_id=p_revision_id and not exists(\n' +
+    '      select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "        v_snapshot.canonical_json->'issues'\n" +
+    "      ) i where i->>'id'=l.issue_id::text and i->>'objectId'=l.object_id::text\n" +
+    '    );\n' +
+    '  insert into private.lukas_drawing_checkpoint_reference_history(\n' +
+    '    revision_id,project_id,snapshot_id,client_operation_id,actor_id,\n' +
+    '    link_kind,action,link_identity\n' +
+    '  ) select p_revision_id,v_revision.project_id,v_snapshot.id,\n' +
+    "      p_client_operation_id,v_actor,'issue','delete',pg_catalog.to_jsonb(l)\n" +
+    '    from public.lukas_drawing_object_issue_links l\n' +
+    '    join private.lukas_drawing_checkpoint_issue_delete_leases x\n' +
+    '      on x.transaction_id=pg_catalog.txid_current() and x.actor_id=v_actor\n' +
+    '      and x.revision_id=p_revision_id and x.link_id=l.id;\n' +
+    '  delete from public.lukas_drawing_object_issue_links l\n' +
+    '  using private.lukas_drawing_checkpoint_issue_delete_leases x\n' +
+    '  where x.transaction_id=pg_catalog.txid_current() and x.actor_id=v_actor\n' +
+    '    and x.revision_id=p_revision_id and x.link_id=l.id;\n' +
+    '\n' +
+    '  for v_action in\n' +
+    "    select value from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '  loop\n' +
+    "    if v_action->>'kind' in('put_source','delete_source') then\n" +
+    "      v_identity:=case when v_action->>'kind'='put_source'\n" +
+    "        then v_action->'entity'\n" +
+    '        else private.lukas_drawing_source_json(\n' +
+    "          (v_action->>'id')::uuid,p_revision_id,v_revision.project_id,true\n" +
+    '        ) end;\n' +
+    '      insert into private.lukas_drawing_checkpoint_reference_history(\n' +
+    '        revision_id,project_id,snapshot_id,client_operation_id,actor_id,\n' +
+    '        link_kind,action,link_identity\n' +
+    '      ) values(\n' +
+    '        p_revision_id,v_revision.project_id,v_snapshot.id,\n' +
+    "        p_client_operation_id,v_actor,'source',\n" +
+    "        case when v_action->>'kind'='put_source' then 'restore'\n" +
+    "          else 'delete' end,\n" +
+    '        v_identity\n' +
+    '      );\n' +
+    '    end if;\n' +
+    '  end loop;\n' +
+    '\n' +
+    "  if pg_catalog.jsonb_array_length(v_core->'actions')=0 then\n" +
+    '    select coalesce(pg_catalog.max(o.sequence),0)+1 into v_sequence\n' +
+    '    from public.lukas_drawing_operations o where o.revision_id=p_revision_id;\n' +
+    '    v_operation_id:=ext'... 3963 more characters,
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'SQL statement "CREATE OR REPLACE FUNCTION private.lukas_drawing_apply_operation_pre_p4_semantic_objects(p_revision_id uuid, p_client_operation_id uuid, p_operation_type text, p_base_versions jsonb, p_forward jsonb, p_inverse jsonb, p_history_action text, p_original_operation_id uuid)\n' +
+    ' RETURNS jsonb\n' +
+    ' LANGUAGE plpgsql\n' +
+    ' SECURITY DEFINER\n' +
+    " SET search_path TO ''\n" +
+    'AS $function$\n' +
+    'declare\n' +
+    '  v_actor uuid:=(select auth.uid());\n' +
+    '  v_revision public.lukas_drawing_revisions%rowtype;\n' +
+    '  v_snapshot public.lukas_drawing_snapshots%rowtype;\n' +
+    '  v_existing public.lukas_drawing_operations%rowtype;\n' +
+    '  v_issue jsonb; v_action jsonb; v_identity jsonb; v_result jsonb;\n' +
+    '  v_sources jsonb; v_inverse_sources jsonb; v_core jsonb; v_inverse_core jsonb;\n' +
+    '  v_plan jsonb; v_core_bases jsonb; v_results jsonb; v_live_sources jsonb;\n' +
+    '  v_snapshot_sources jsonb; v_target_sources jsonb; v_live_issues jsonb;\n' +
+    '  v_source_ids text[];\n' +
+    '  v_operation_id uuid; v_sequence bigint;\n' +
+    'begin\n' +
+    "  if p_operation_type<>'restore_checkpoint' then\n" +
+    '    return private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(\n' +
+    '      p_revision_id,p_client_operation_id,p_operation_type,p_base_versions,\n' +
+    '      p_forward,p_inverse,p_history_action,p_original_operation_id\n' +
+    '    );\n' +
+    '  end if;\n' +
+    '  select s.* into v_snapshot from public.lukas_drawing_snapshots s\n' +
+    "  where s.id=(p_forward->>'checkpointId')::uuid\n" +
+    '    and s.revision_id=p_revision_id for share;\n' +
+    '  if not found or not (\n' +
+    '    exists(\n' +
+    '      select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "        v_snapshot.canonical_json->'sources'\n" +
+    "      ) s where s ? 'revisionId'\n" +
+    '    )\n' +
+    '    or exists(\n' +
+    "      select 1 from pg_catalog.jsonb_array_elements(p_forward->'actions') a\n" +
+    "      where a->>'kind' in('put_source','delete_source')\n" +
+    '    )\n' +
+    '  ) then\n' +
+    '    return private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(\n' +
+    '      p_revision_id,p_client_operation_id,p_operation_type,p_base_versions,\n' +
+    '      p_forward,p_inverse,p_history_action,p_original_operation_id\n' +
+    '    );\n' +
+    '  end if;\n' +
+    '  select o.* into v_existing from public.lukas_drawing_operations o\n' +
+    '  where o.revision_id=p_revision_id\n' +
+    '    and o.client_operation_id=p_client_operation_id;\n' +
+    '  if found then\n' +
+    '    if v_existing.actor_id is distinct from v_actor\n' +
+    '      or v_existing.operation_type is distinct from p_operation_type\n' +
+    '      or v_existing.base_versions is distinct from p_base_versions\n' +
+    '      or v_existing.forward is distinct from p_forward\n' +
+    '      or v_existing.inverse is distinct from p_inverse\n' +
+    '      or v_existing.history_action is distinct from p_history_action\n' +
+    '      or v_existing.original_operation_id is distinct from p_original_operation_id\n' +
+    "    then raise exception using errcode='P1C01',\n" +
+    "      message='Drawing operation idempotency key does not match the stored request';\n" +
+    '    end if;\n' +
+    '    return pg_catalog.jsonb_build_object(\n' +
+    "      'operationId',v_existing.id,'sequence',v_existing.sequence,\n" +
+    "      'resultVersions',v_existing.result_versions\n" +
+    '    );\n' +
+    '  end if;\n' +
+    '  select r.* into v_revision from public.lukas_drawing_revisions r\n' +
+    "  where r.id=p_revision_id and r.status='draft'\n" +
+    '    and private.lukas_drawing_workspace_capability(r.project_id)\n' +
+    "      in('admin','editor')\n" +
+    '  for update;\n' +
+    '  if not found or v_snapshot.schema_version<>2\n' +
+    '    or v_snapshot.sha256 is distinct from pg_catalog.encode(\n' +
+    '      extensions.digest(pg_catalog.convert_to(\n' +
+    "        v_snapshot.canonical_json::text,'UTF8'),'sha256'),'hex'\n" +
+    '    )\n' +
+    "  then raise exception using errcode='P1C01',\n" +
+    "    message='Drawing checkpoint reference target is invalid'; end if;\n" +
+    '  v_snapshot_sources:=private.lukas_drawing_p5_checkpoint_sources(\n' +
+    "    v_snapshot.canonical_json->'sources',p_revision_id\n" +
+    '  );\n' +
+    '  if exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(v_snapshot_sources) s\n' +
+    '    where private.lukas_drawing_structure_action_valid(\n' +
+    '      pg_catalog.jsonb_build_object(\n' +
+    "        'kind','put_source','entity',s,'baseVersion',null\n" +
+    '      ),p_revision_id\n' +
+    '    ) is not true\n' +
+    '      or not exists(\n' +
+    '        select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "          v_snapshot.canonical_json->'objects'\n" +
+    "        ) o where o->>'id'=s->>'objectId'\n" +
+    '      )\n' +
+    '      or not exists(\n' +
+    '        select 1 from public.lukas_qto_files f\n' +
+    "        where f.id=(s->>'sourceFileId')::uuid\n" +
+    '          and f.project_id=v_revision.project_id\n' +
+    "          and f.sha256=s->>'sourceSha256' and f.immutable\n" +
+    '          and (\n' +
+    "            s->>'sourceKind'='pdf_region' and f.kind='pdf'\n" +
+    "            or s->>'sourceKind'='ifc_element' and f.kind='ifc'\n" +
+    "            or s->>'sourceKind'='dxf_entity' and f.kind='dxf' or s->>'sourceKind'='dwg_entity' and f.kind='dwg'\n" +
+    '          )\n' +
+    '      )\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(v_snapshot_sources) s\n' +
+    "    group by s->>'objectId',s->>'sourceFileId',s->>'sourceKind'\n" +
+    '    having pg_catalog.count(*)>1\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "      v_snapshot.canonical_json->'issues'\n" +
+    '    ) i\n' +
+    "    where not (i ?& array['id','objectId'])\n" +
+    "      or i-array['id','objectId']<>'{}'::jsonb\n" +
+    '      or not exists(\n' +
+    '        select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "          v_snapshot.canonical_json->'objects'\n" +
+    "        ) o where o->>'id'=i->>'objectId'\n" +
+    '      )\n' +
+    '      or not exists(\n' +
+    '        select 1 from public.lukas_drawing_issues x\n' +
+    "        where x.id=(i->>'id')::uuid and x.project_id=v_revision.project_id\n" +
+    '      )\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "      v_snapshot.canonical_json->'issues'\n" +
+    "    ) i group by i->>'id',i->>'objectId' having pg_catalog.count(*)>1\n" +
+    "  ) then raise exception using errcode='P1C01',\n" +
+    "    message='Drawing checkpoint source graph is invalid'; end if;\n" +
+    '\n' +
+    '  select coalesce(\n' +
+    "    pg_catalog.jsonb_agg(a.value order by a.ordinality),'[]'::jsonb\n" +
+    '  ) into v_sources\n' +
+    "  from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '    with ordinality a(value,ordinality)\n' +
+    "  where a.value->>'kind' in('put_source','delete_source');\n" +
+    '  select coalesce(\n' +
+    "    pg_catalog.jsonb_agg(a.value order by a.ordinality),'[]'::jsonb\n" +
+    '  ) into v_inverse_sources\n' +
+    "  from pg_catalog.jsonb_array_elements(p_inverse->'actions')\n" +
+    '    with ordinality a(value,ordinality)\n' +
+    "  where a.value->>'kind' in('put_source','delete_source');\n" +
+    '  v_plan:=private.lukas_drawing_validate_source_actions(\n' +
+    '    p_revision_id,v_revision.project_id,v_sources,v_inverse_sources\n' +
+    '  );\n' +
+    '  select pg_catalog.array_agg(key) into v_source_ids\n' +
+    "  from pg_catalog.jsonb_object_keys(v_plan->'results') key;\n" +
+    '  v_core_bases:=p_base_versions-coalesce(v_source_ids,array[]::text[]);\n' +
+    "  if p_base_versions is distinct from v_core_bases||(v_plan->'bases') then\n" +
+    "    raise exception using errcode='P1C01',\n" +
+    "      message='Drawing checkpoint source base versions are incomplete';\n" +
+    '  end if;\n' +
+    "  select pg_catalog.jsonb_set(p_forward,'{actions}',coalesce(\n" +
+    '    pg_catalog.jsonb_agg(a.value order by a.ordinality)\n' +
+    "      filter(where a.value->>'kind' not in('put_source','delete_source')),\n" +
+    "    '[]'::jsonb),false) into v_core\n" +
+    "  from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '    with ordinality a(value,ordinality);\n' +
+    "  select pg_catalog.jsonb_set(p_inverse,'{actions}',coalesce(\n" +
+    '    pg_catalog.jsonb_agg(a.value order by a.ordinality)\n' +
+    "      filter(where a.value->>'kind' not in('put_source','delete_source')),\n" +
+    "    '[]'::jsonb),false) into v_inverse_core\n" +
+    "  from pg_catalog.jsonb_array_elements(p_inverse->'actions')\n" +
+    '    with ordinality a(value,ordinality);\n' +
+    '\n' +
+    '  insert into private.lukas_drawing_checkpoint_reference_targets(\n' +
+    '    transaction_id,actor_id,revision_id,snapshot_id,sources,issues\n' +
+    '  ) values(\n' +
+    '    pg_catalog.txid_current(),v_actor,p_revision_id,v_snapshot.id,\n' +
+    "    v_snapshot_sources,v_snapshot.canonical_json->'issues'\n" +
+    '  );\n' +
+    '  insert into private.lukas_drawing_checkpoint_issue_delete_leases(\n' +
+    '    transaction_id,actor_id,revision_id,link_id\n' +
+    '  ) select pg_catalog.txid_current(),v_actor,p_revision_id,l.id\n' +
+    '    from public.lukas_drawing_object_issue_links l\n' +
+    '    where l.revision_id=p_revision_id and not exists(\n' +
+    '      select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "        v_snapshot.canonical_json->'issues'\n" +
+    "      ) i where i->>'id'=l.issue_id::text and i->>'objectId'=l.object_id::text\n" +
+    '    );\n' +
+    '  insert into private.lukas_drawing_checkpoint_reference_history(\n' +
+    '    revision_id,project_id,snapshot_id,client_operation_id,actor_id,\n' +
+    '    link_kind,action,link_identity\n' +
+    '  ) select p_revision_id,v_revision.project_id,v_snapshot.id,\n' +
+    "      p_client_operation_id,v_actor,'issue','delete',pg_catalog.to_jsonb(l)\n" +
+    '    from public.lukas_drawing_object_issue_links l\n' +
+    '    join private.lukas_drawing_checkpoint_issue_delete_leases x\n' +
+    '      on x.transaction_id=pg_catalog.txid_current() and x.actor_id=v_actor\n' +
+    '      and x.revision_id=p_revision_id and x.link_id=l.id;\n' +
+    '  delete from public.lukas_drawing_object_issue_links l\n' +
+    '  using private.lukas_drawing_checkpoint_issue_delete_leases x\n' +
+    '  where x.transaction_id=pg_catalog.txid_current() and x.actor_id=v_actor\n' +
+    '    and x.revision_id=p_revision_id and x.link_id=l.id;\n' +
+    '\n' +
+    '  for v_action in\n' +
+    "    select value from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '  loop\n' +
+    "    if v_action->>'kind' in('put_source','delete_source') then\n" +
+    "      v_identity:=case when v_action->>'kind'='put_source'\n" +
+    "        then v_action->'entity'\n" +
+    '        else private.lukas_drawing_source_json(\n' +
+    "          (v_action->>'id')::uuid,p_revision_id,v_revision.project_id,true\n" +
+    '        ) end;\n' +
+    '      insert into private.lukas_drawing_checkpoint_reference_history(\n' +
+    '        revision_id,project_id,snapshot_id,client_operation_id,actor_id,\n' +
+    '        link_kind,action,link_identity\n' +
+    '      ) values(\n' +
+    '        p_revision_id,v_revision.project_id,v_snapshot.id,\n' +
+    "        p_client_operation_id,v_actor,'source',\n" +
+    "        case when v_action->>'kind'='put_source' then 'restore'\n" +
+    "          else 'delete' end,\n" +
+    '        v_identity\n' +
+    '      );\n' +
+    '    end if;\n' +
+    '  end loop;\n' +
+    '\n' +
+    "  if pg_catalog.jsonb_array_length(v_core->'actions')=0 then\n" +
+    '    select coalesce(pg_catalog.max(o.sequence),0)+1 into v_sequence\n' +
+    '    from public.lukas_drawing_operations o where o.revision_id=p_revision_id;\n' +
+    '    v_operation_id:=extensions.gen_random_uuid();\n' +
+    "    v_results:=v_plan->'results';\n" +
+    '    insert into public.lukas_drawing_opera'... 3860 more characters,
+  internal_position: '10175',
+  internal_query: '\n' +
+    'declare\n' +
+    '  v_actor uuid:=(select auth.uid());\n' +
+    '  v_revision public.lukas_drawing_revisions%rowtype;\n' +
+    '  v_snapshot public.lukas_drawing_snapshots%rowtype;\n' +
+    '  v_existing public.lukas_drawing_operations%rowtype;\n' +
+    '  v_issue jsonb; v_action jsonb; v_identity jsonb; v_result jsonb;\n' +
+    '  v_sources jsonb; v_inverse_sources jsonb; v_core jsonb; v_inverse_core jsonb;\n' +
+    '  v_plan jsonb; v_core_bases jsonb; v_results jsonb; v_live_sources jsonb;\n' +
+    '  v_snapshot_sources jsonb; v_target_sources jsonb; v_live_issues jsonb;\n' +
+    '  v_source_ids text[];\n' +
+    '  v_operation_id uuid; v_sequence bigint;\n' +
+    'begin\n' +
+    "  if p_operation_type<>'restore_checkpoint' then\n" +
+    '    return private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(\n' +
+    '      p_revision_id,p_client_operation_id,p_operation_type,p_base_versions,\n' +
+    '      p_forward,p_inverse,p_history_action,p_original_operation_id\n' +
+    '    );\n' +
+    '  end if;\n' +
+    '  select s.* into v_snapshot from public.lukas_drawing_snapshots s\n' +
+    "  where s.id=(p_forward->>'checkpointId')::uuid\n" +
+    '    and s.revision_id=p_revision_id for share;\n' +
+    '  if not found or not (\n' +
+    '    exists(\n' +
+    '      select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "        v_snapshot.canonical_json->'sources'\n" +
+    "      ) s where s ? 'revisionId'\n" +
+    '    )\n' +
+    '    or exists(\n' +
+    "      select 1 from pg_catalog.jsonb_array_elements(p_forward->'actions') a\n" +
+    "      where a->>'kind' in('put_source','delete_source')\n" +
+    '    )\n' +
+    '  ) then\n' +
+    '    return private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(\n' +
+    '      p_revision_id,p_client_operation_id,p_operation_type,p_base_versions,\n' +
+    '      p_forward,p_inverse,p_history_action,p_original_operation_id\n' +
+    '    );\n' +
+    '  end if;\n' +
+    '  select o.* into v_existing from public.lukas_drawing_operations o\n' +
+    '  where o.revision_id=p_revision_id\n' +
+    '    and o.client_operation_id=p_client_operation_id;\n' +
+    '  if found then\n' +
+    '    if v_existing.actor_id is distinct from v_actor\n' +
+    '      or v_existing.operation_type is distinct from p_operation_type\n' +
+    '      or v_existing.base_versions is distinct from p_base_versions\n' +
+    '      or v_existing.forward is distinct from p_forward\n' +
+    '      or v_existing.inverse is distinct from p_inverse\n' +
+    '      or v_existing.history_action is distinct from p_history_action\n' +
+    '      or v_existing.original_operation_id is distinct from p_original_operation_id\n' +
+    "    then raise exception using errcode='P1C01',\n" +
+    "      message='Drawing operation idempotency key does not match the stored request';\n" +
+    '    end if;\n' +
+    '    return pg_catalog.jsonb_build_object(\n' +
+    "      'operationId',v_existing.id,'sequence',v_existing.sequence,\n" +
+    "      'resultVersions',v_existing.result_versions\n" +
+    '    );\n' +
+    '  end if;\n' +
+    '  select r.* into v_revision from public.lukas_drawing_revisions r\n' +
+    "  where r.id=p_revision_id and r.status='draft'\n" +
+    '    and private.lukas_drawing_workspace_capability(r.project_id)\n' +
+    "      in('admin','editor')\n" +
+    '  for update;\n' +
+    '  if not found or v_snapshot.schema_version<>2\n' +
+    '    or v_snapshot.sha256 is distinct from pg_catalog.encode(\n' +
+    '      extensions.digest(pg_catalog.convert_to(\n' +
+    "        v_snapshot.canonical_json::text,'UTF8'),'sha256'),'hex'\n" +
+    '    )\n' +
+    "  then raise exception using errcode='P1C01',\n" +
+    "    message='Drawing checkpoint reference target is invalid'; end if;\n" +
+    '  v_snapshot_sources:=private.lukas_drawing_p5_checkpoint_sources(\n' +
+    "    v_snapshot.canonical_json->'sources',p_revision_id\n" +
+    '  );\n' +
+    '  if exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(v_snapshot_sources) s\n' +
+    '    where private.lukas_drawing_structure_action_valid(\n' +
+    '      pg_catalog.jsonb_build_object(\n' +
+    "        'kind','put_source','entity',s,'baseVersion',null\n" +
+    '      ),p_revision_id\n' +
+    '    ) is not true\n' +
+    '      or not exists(\n' +
+    '        select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "          v_snapshot.canonical_json->'objects'\n" +
+    "        ) o where o->>'id'=s->>'objectId'\n" +
+    '      )\n' +
+    '      or not exists(\n' +
+    '        select 1 from public.lukas_qto_files f\n' +
+    "        where f.id=(s->>'sourceFileId')::uuid\n" +
+    '          and f.project_id=v_revision.project_id\n' +
+    "          and f.sha256=s->>'sourceSha256' and f.immutable\n" +
+    '          and (\n' +
+    "            s->>'sourceKind'='pdf_region' and f.kind='pdf'\n" +
+    "            or s->>'sourceKind'='ifc_element' and f.kind='ifc'\n" +
+    "            or s->>'sourceKind'='dxf_entity' and f.kind='dxf' or s->>'sourceKind'='dwg_entity' and f.kind='dwg'\n" +
+    '          )\n' +
+    '      )\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(v_snapshot_sources) s\n' +
+    "    group by s->>'objectId',s->>'sourceFileId',s->>'sourceKind'\n" +
+    '    having pg_catalog.count(*)>1\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "      v_snapshot.canonical_json->'issues'\n" +
+    '    ) i\n' +
+    "    where not (i ?& array['id','objectId'])\n" +
+    "      or i-array['id','objectId']<>'{}'::jsonb\n" +
+    '      or not exists(\n' +
+    '        select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "          v_snapshot.canonical_json->'objects'\n" +
+    "        ) o where o->>'id'=i->>'objectId'\n" +
+    '      )\n' +
+    '      or not exists(\n' +
+    '        select 1 from public.lukas_drawing_issues x\n' +
+    "        where x.id=(i->>'id')::uuid and x.project_id=v_revision.project_id\n" +
+    '      )\n' +
+    '  ) or exists(\n' +
+    '    select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "      v_snapshot.canonical_json->'issues'\n" +
+    "    ) i group by i->>'id',i->>'objectId' having pg_catalog.count(*)>1\n" +
+    "  ) then raise exception using errcode='P1C01',\n" +
+    "    message='Drawing checkpoint source graph is invalid'; end if;\n" +
+    '\n' +
+    '  select coalesce(\n' +
+    "    pg_catalog.jsonb_agg(a.value order by a.ordinality),'[]'::jsonb\n" +
+    '  ) into v_sources\n' +
+    "  from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '    with ordinality a(value,ordinality)\n' +
+    "  where a.value->>'kind' in('put_source','delete_source');\n" +
+    '  select coalesce(\n' +
+    "    pg_catalog.jsonb_agg(a.value order by a.ordinality),'[]'::jsonb\n" +
+    '  ) into v_inverse_sources\n' +
+    "  from pg_catalog.jsonb_array_elements(p_inverse->'actions')\n" +
+    '    with ordinality a(value,ordinality)\n' +
+    "  where a.value->>'kind' in('put_source','delete_source');\n" +
+    '  v_plan:=private.lukas_drawing_validate_source_actions(\n' +
+    '    p_revision_id,v_revision.project_id,v_sources,v_inverse_sources\n' +
+    '  );\n' +
+    '  select pg_catalog.array_agg(key) into v_source_ids\n' +
+    "  from pg_catalog.jsonb_object_keys(v_plan->'results') key;\n" +
+    '  v_core_bases:=p_base_versions-coalesce(v_source_ids,array[]::text[]);\n' +
+    "  if p_base_versions is distinct from v_core_bases||(v_plan->'bases') then\n" +
+    "    raise exception using errcode='P1C01',\n" +
+    "      message='Drawing checkpoint source base versions are incomplete';\n" +
+    '  end if;\n' +
+    "  select pg_catalog.jsonb_set(p_forward,'{actions}',coalesce(\n" +
+    '    pg_catalog.jsonb_agg(a.value order by a.ordinality)\n' +
+    "      filter(where a.value->>'kind' not in('put_source','delete_source')),\n" +
+    "    '[]'::jsonb),false) into v_core\n" +
+    "  from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '    with ordinality a(value,ordinality);\n' +
+    "  select pg_catalog.jsonb_set(p_inverse,'{actions}',coalesce(\n" +
+    '    pg_catalog.jsonb_agg(a.value order by a.ordinality)\n' +
+    "      filter(where a.value->>'kind' not in('put_source','delete_source')),\n" +
+    "    '[]'::jsonb),false) into v_inverse_core\n" +
+    "  from pg_catalog.jsonb_array_elements(p_inverse->'actions')\n" +
+    '    with ordinality a(value,ordinality);\n' +
+    '\n' +
+    '  insert into private.lukas_drawing_checkpoint_reference_targets(\n' +
+    '    transaction_id,actor_id,revision_id,snapshot_id,sources,issues\n' +
+    '  ) values(\n' +
+    '    pg_catalog.txid_current(),v_actor,p_revision_id,v_snapshot.id,\n' +
+    "    v_snapshot_sources,v_snapshot.canonical_json->'issues'\n" +
+    '  );\n' +
+    '  insert into private.lukas_drawing_checkpoint_issue_delete_leases(\n' +
+    '    transaction_id,actor_id,revision_id,link_id\n' +
+    '  ) select pg_catalog.txid_current(),v_actor,p_revision_id,l.id\n' +
+    '    from public.lukas_drawing_object_issue_links l\n' +
+    '    where l.revision_id=p_revision_id and not exists(\n' +
+    '      select 1 from pg_catalog.jsonb_array_elements(\n' +
+    "        v_snapshot.canonical_json->'issues'\n" +
+    "      ) i where i->>'id'=l.issue_id::text and i->>'objectId'=l.object_id::text\n" +
+    '    );\n' +
+    '  insert into private.lukas_drawing_checkpoint_reference_history(\n' +
+    '    revision_id,project_id,snapshot_id,client_operation_id,actor_id,\n' +
+    '    link_kind,action,link_identity\n' +
+    '  ) select p_revision_id,v_revision.project_id,v_snapshot.id,\n' +
+    "      p_client_operation_id,v_actor,'issue','delete',pg_catalog.to_jsonb(l)\n" +
+    '    from public.lukas_drawing_object_issue_links l\n' +
+    '    join private.lukas_drawing_checkpoint_issue_delete_leases x\n' +
+    '      on x.transaction_id=pg_catalog.txid_current() and x.actor_id=v_actor\n' +
+    '      and x.revision_id=p_revision_id and x.link_id=l.id;\n' +
+    '  delete from public.lukas_drawing_object_issue_links l\n' +
+    '  using private.lukas_drawing_checkpoint_issue_delete_leases x\n' +
+    '  where x.transaction_id=pg_catalog.txid_current() and x.actor_id=v_actor\n' +
+    '    and x.revision_id=p_revision_id and x.link_id=l.id;\n' +
+    '\n' +
+    '  for v_action in\n' +
+    "    select value from pg_catalog.jsonb_array_elements(p_forward->'actions')\n" +
+    '  loop\n' +
+    "    if v_action->>'kind' in('put_source','delete_source') then\n" +
+    "      v_identity:=case when v_action->>'kind'='put_source'\n" +
+    "        then v_action->'entity'\n" +
+    '        else private.lukas_drawing_source_json(\n' +
+    "          (v_action->>'id')::uuid,p_revision_id,v_revision.project_id,true\n" +
+    '        ) end;\n' +
+    '      insert into private.lukas_drawing_checkpoint_reference_history(\n' +
+    '        revision_id,project_id,snapshot_id,client_operation_id,actor_id,\n' +
+    '        link_kind,action,link_identity\n' +
+    '      ) values(\n' +
+    '        p_revision_id,v_revision.project_id,v_snapshot.id,\n' +
+    "        p_client_operation_id,v_actor,'source',\n" +
+    "        case when v_action->>'kind'='put_source' then 'restore'\n" +
+    "          else 'delete' end,\n" +
+    '        v_identity\n' +
+    '      );\n' +
+    '    end if;\n' +
+    '  end loop;\n' +
+    '\n' +
+    "  if pg_catalog.jsonb_array_length(v_core->'actions')=0 then\n" +
+    '    select coalesce(pg_catalog.max(o.sequence),0)+1 into v_sequence\n' +
+    '    from public.lukas_drawing_operations o where o.revision_id=p_revision_id;\n' +
+    '    v_operation_id:=extensions.gen_random_uuid();\n' +
+    "    v_results:=v_plan->'results';\n" +
+    '    insert into public.lukas_drawing_operations(\n' +
+    '      id,revision_id,project_id,sequence,client_operation_id,operation_type,\n' +
+    '      base_versions,forward,inverse,result_versions,actor_id,\n' +
+    '      history_action,original_operation_id\n' +
+    '    ) values(\n' +
+    '      v_operation_id,p_revision_id,v_revision.project_id,v_sequence,\n' +
+    '      p_client_operation_id,p_operation_type,p_base_versions,p_forward,\n' +
+    '      p_inverse,v_results,v_'... 3389 more characters,
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{"event":"m1_canonical_collaboration_socket_proof_passed","evidence":{"generation":1,"sha256":"b040fc8ba0c8bbdde9a68b52c036e0a76a1a7d8ef25a2927c3d554feaba6791c","byteSize":366,"baseOperationSequence":0,"operationCount":0,"reloadExact":true,"viewerOrdinaryStoreDenied":true,"protectedMetadataRejected":true}}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation_pre_p4_semantic_objects" near line 226\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_contract_fixes(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 237 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p5_sources(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 48 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 59 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_attach_source(uuid,uuid,uuid,uuid,uuid) line 222 at assignment\n' +
+    'SQL function "lukas_drawing_attach_source" statement 1',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation_pre_p5_checkpoint_sources" near line 6\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_semantic_objects(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 15 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_contract_fixes(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 237 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p5_sources(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 48 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 59 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_attach_source(uuid,uuid,uuid,uuid,uuid) line 222 at assignment\n' +
+    'SQL function "lukas_drawing_attach_source" statement 1',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation_pre_p5_checkpoint_sources" near line 8\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_semantic_objects(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 15 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_contract_fixes(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 237 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p5_sources(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 48 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 59 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_attach_source(uuid,uuid,uuid,uuid,uuid) line 222 at assignment\n' +
+    'SQL function "lukas_drawing_attach_source" statement 1',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'compilation of PL/pgSQL function "lukas_drawing_apply_operation_pre_p5_checkpoint_sources" near line 136\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_semantic_objects(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 15 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_contract_fixes(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 237 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p5_sources(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 48 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 59 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_attach_source(uuid,uuid,uuid,uuid,uuid) line 222 at assignment\n' +
+    'SQL function "lukas_drawing_attach_source" statement 1',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "lukas_drawing_apply_operation_pre_checkpoint_reference_authority" will be truncated to "lukas_drawing_apply_operation_pre_checkpoint_reference_authorit"',
+  where: 'SQL expression "private.lukas_drawing_apply_operation_pre_checkpoint_reference_authority(\n' +
+    '      p_revision_id,p_client_operation_id,p_operation_type,p_base_versions,\n' +
+    '      p_forward,p_inverse,p_history_action,p_original_operation_id\n' +
+    '    )"\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p5_checkpoint_sources(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 9 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_semantic_objects(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 15 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p4_contract_fixes(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 237 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation_pre_p5_sources(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 48 at RETURN\n' +
+    'PL/pgSQL function private.lukas_drawing_apply_operation(uuid,uuid,text,jsonb,jsonb,jsonb,text,uuid) line 59 at assignment\n' +
+    'PL/pgSQL function private.lukas_drawing_attach_source(uuid,uuid,uuid,uuid,uuid) line 222 at assignment\n' +
+    'SQL function "lukas_drawing_attach_source" statement 1',
+  file: 'scansup.c',
+  line: '102',
+  routine: 'truncate_identifier'
+}
+Approved DWG resave RPC accepted {
+  revisionId: 'ed5878bd-6d10-4c0a-81c3-6133e7de334c',
+  objects: 5,
+  executionMilliseconds: 3.416
+}
+Approved DWG resave RPC accepted {
+  revisionId: 'c0749e4f-280e-4b26-8842-8da7fe39166e',
+  objects: 5,
+  executionMilliseconds: 3.719
+}
+Approved DWG resave RPC accepted {
+  revisionId: 'f78e0c36-9182-4a2e-9941-f538453376df',
+  objects: 5,
+  executionMilliseconds: 3.896
+}
+✔ M1 real PostgreSQL proves Editor operations, idempotency, starter provenance, and binding authority (3352.406666ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3613.325542
+/opt/homebrew/bin/pg_ctl -D /tmp/canonical-task3-pg-L3Liw4 -m fast -w stop
+waiting for server to shut down.... done
+server stopped
+Owned Task 3 cluster stopped; retained at /tmp/canonical-task3-pg-L3Liw4

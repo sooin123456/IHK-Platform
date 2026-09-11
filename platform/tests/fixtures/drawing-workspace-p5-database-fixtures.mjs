@@ -8,10 +8,13 @@ export const p5Ids = Object.freeze({
   ifcSource: "50000000-0000-4000-8000-000000000007",
   previousAnchor: "50000000-0000-4000-8000-000000000008",
   replacementAnchor: "50000000-0000-4000-8000-000000000009",
+  dxfFile: "50000000-0000-4000-8000-000000000010",
+  dxfSource: "50000000-0000-4000-8000-000000000011",
 });
 
 export const p5PdfSha256 = "a".repeat(64);
 export const p5IfcSha256 = "b".repeat(64);
+export const p5DxfSha256 = "d".repeat(64);
 
 export const p5PdfSource = Object.freeze({
   id: p5Ids.pdfSource,
@@ -41,6 +44,23 @@ export const p5IfcSource = Object.freeze({
   version: 1,
 });
 
+export const p5DxfSource = Object.freeze({
+  id: p5Ids.dxfSource,
+  objectId: p5Ids.object,
+  revisionId: p5Ids.revision,
+  sourceFileId: p5Ids.dxfFile,
+  sourceSha256: p5DxfSha256,
+  sourceKind: "dxf_entity",
+  entityKey: "entities:0",
+  entityType: "LINE",
+  sourceLayer: "A-WALL",
+  handle: "1A2B",
+  unitCode: 4,
+  unitSource: "declared",
+  importerVersion: 1,
+  version: 1,
+});
+
 export function p5SourceRow(source) {
   return {
     id: source.id,
@@ -60,6 +80,19 @@ export function p5SourceRow(source) {
     ifc_global_id:
       source.sourceKind === "ifc_element" ? source.ifcGlobalId : null,
     camera: source.sourceKind === "ifc_element" ? source.camera : null,
+    dxf_entity_key:
+      source.sourceKind === "dxf_entity" ? source.entityKey : null,
+    dxf_entity_type:
+      source.sourceKind === "dxf_entity" ? source.entityType : null,
+    dxf_source_layer:
+      source.sourceKind === "dxf_entity" ? source.sourceLayer : null,
+    dxf_handle: source.sourceKind === "dxf_entity" ? source.handle : null,
+    dxf_unit_code:
+      source.sourceKind === "dxf_entity" ? source.unitCode : null,
+    dxf_unit_source:
+      source.sourceKind === "dxf_entity" ? source.unitSource : null,
+    dxf_importer_version:
+      source.sourceKind === "dxf_entity" ? source.importerVersion : null,
     version: source.version,
     status: "active",
   };

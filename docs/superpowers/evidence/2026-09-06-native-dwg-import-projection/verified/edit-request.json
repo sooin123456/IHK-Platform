@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1hk-dwg-edits/1",
+  "sourceSha256": "aa8a1f8e7be73bef897ceed13b9d41471aaeebc42a2aece721a4f1cab7a74886",
+  "coordinateSystem": "WCS_NATIVE_UNITS",
+  "edits": [
+    {
+      "handle": "4A",
+      "type": "LINE",
+      "start": [
+        10,
+        -5,
+        0
+      ],
+      "end": [
+        137.5,
+        25,
+        0
+      ]
+    },
+    {
+      "handle": "4E",
+      "type": "TEXT",
+      "text": "현장수정 A-101"
+    }
+  ]
+}

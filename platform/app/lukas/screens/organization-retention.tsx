@@ -6,7 +6,9 @@ import { Form, Link, data, redirect } from "react-router";
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 import {
   loadOrganizationRetentionProjects,
   parseOrganizationRetentionForm,
@@ -26,7 +28,8 @@ async function context(request: Request, organizationId: string) {
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   const [{ data: organization }, { data: membership }] = await Promise.all([
     client
       .from("lukas_qto_organizations")
@@ -46,7 +49,10 @@ async function context(request: Request, organizationId: string) {
       organization.owner_id !== user.id &&
       user.app_metadata.role !== "hangil_staff")
   )
-    throw new Response("회사를 찾을 수 없습니다.", { status: 404 });
+    throw mergeResponseHeaders(
+      new Response("회사를 찾을 수 없습니다.", { status: 404 }),
+      headers,
+    );
   return {
     client: client as any,
     headers,
@@ -64,96 +70,105 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     request,
     params.organizationId!,
   );
-  const [
-    projectsResult,
-    policiesResult,
-    eventsResult,
-    activeHoldsResult,
-    restoresResult,
-  ] = await Promise.all([
-    mayManage
-      ? loadOrganizationRetentionProjects(client, organization.id).then(
-          (projects) => ({ data: projects, error: null }),
-          (error) => ({ data: null, error }),
+  try {
+    const [
+      projectsResult,
+      policiesResult,
+      eventsResult,
+      activeHoldsResult,
+      restoresResult,
+    ] = await Promise.all([
+      mayManage
+        ? loadOrganizationRetentionProjects(client, organization.id).then(
+            (projects) => ({ data: projects, error: null }),
+            (error) => ({ data: null, error }),
+          )
+        : Promise.resolve({ data: [], error: null }),
+      client
+        .from("lukas_qto_retention_policy_versions")
+        .select(
+          "id,version_no,archive_retention_days,approved_retention_days,reason,created_at",
         )
-      : Promise.resolve({ data: [], error: null }),
-    client
-      .from("lukas_qto_retention_policy_versions")
-      .select(
-        "id,version_no,archive_retention_days,approved_retention_days,reason,created_at",
-      )
-      .eq("organization_id", organization.id)
-      .order("version_no", { ascending: false })
-      .limit(20),
-    client
-      .from("lukas_qto_retention_events")
-      .select(
-        "id,project_id,event_type,hold_id,releases_event_id,purge_after,reason,evidence,created_at",
-      )
-      .eq("organization_id", organization.id)
-      .order("created_at", { ascending: false })
-      .limit(100),
-    client.rpc("lukas_qto_list_active_legal_holds", {
-      p_organization_id: organization.id,
-    }),
-    client
-      .from("lukas_qto_restore_runs")
-      .select(
-        "id,provider_backup_id,provider_restore_project_ref,source_commit,rpo_seconds,rto_seconds,status,recorded_at",
-      )
-      .eq("organization_id", organization.id)
-      .order("recorded_at", { ascending: false })
-      .limit(20),
-  ]);
-  const failed = [
-    projectsResult,
-    policiesResult,
-    eventsResult,
-    activeHoldsResult,
-    restoresResult,
-  ].find((result) => result.error);
-  if (failed?.error)
-    throw new Response(
-      `보존 기록을 불러오지 못했습니다: ${failed.error.message}`,
+        .eq("organization_id", organization.id)
+        .order("version_no", { ascending: false })
+        .limit(20),
+      client
+        .from("lukas_qto_retention_events")
+        .select(
+          "id,project_id,event_type,hold_id,releases_event_id,purge_after,reason,evidence,created_at",
+        )
+        .eq("organization_id", organization.id)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      client.rpc("lukas_qto_list_active_legal_holds", {
+        p_organization_id: organization.id,
+      }),
+      client
+        .from("lukas_qto_restore_runs")
+        .select(
+          "id,provider_backup_id,provider_restore_project_ref,source_commit,rpo_seconds,rto_seconds,status,recorded_at",
+        )
+        .eq("organization_id", organization.id)
+        .order("recorded_at", { ascending: false })
+        .limit(20),
+    ]);
+    const failed = [
+      projectsResult,
+      policiesResult,
+      eventsResult,
+      activeHoldsResult,
+      restoresResult,
+    ].find((result) => result.error);
+    if (failed?.error)
+      throw new Response(
+        `보존 기록을 불러오지 못했습니다: ${failed.error.message}`,
+        {
+          status: 500,
+        },
+      );
+    const projects = projectsResult.data ?? [];
+    const events = eventsResult.data ?? [];
+    const activeHolds = activeHoldsResult.data ?? [];
+    return data(
       {
-        status: 500,
+        organization,
+        mayManage,
+        projects,
+        policies: policiesResult.data ?? [],
+        events,
+        activeHolds,
+        restores: restoresResult.data ?? [],
+        requestIds: {
+          policy: crypto.randomUUID(),
+          projects: Object.fromEntries(
+            projects.map((project: any) => [
+              project.id,
+              {
+                archive: crypto.randomUUID(),
+                delete: crypto.randomUUID(),
+                hold: crypto.randomUUID(),
+                holdId: crypto.randomUUID(),
+              },
+            ]),
+          ),
+          releases: Object.fromEntries(
+            activeHolds.map((hold: any) => [hold.id, crypto.randomUUID()]),
+          ),
+        },
       },
+      { headers },
     );
-  const projects = projectsResult.data ?? [];
-  const events = eventsResult.data ?? [];
-  const activeHolds = activeHoldsResult.data ?? [];
-  return data(
-    {
-      organization,
-      mayManage,
-      projects,
-      policies: policiesResult.data ?? [],
-      events,
-      activeHolds,
-      restores: restoresResult.data ?? [],
-      requestIds: {
-        policy: crypto.randomUUID(),
-        projects: Object.fromEntries(
-          projects.map((project: any) => [
-            project.id,
-            {
-              archive: crypto.randomUUID(),
-              delete: crypto.randomUUID(),
-              hold: crypto.randomUUID(),
-              holdId: crypto.randomUUID(),
-            },
-          ]),
-        ),
-        releases: Object.fromEntries(
-          activeHolds.map((hold: any) => [hold.id, crypto.randomUUID()]),
-        ),
-      },
-    },
-    { headers },
-  );
+  } catch (error) {
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
+  }
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
+  const { client, headers, organization, mayManage } = await context(
+    request,
+    params.organizationId!,
+  );
   let mutation: ReturnType<typeof parseOrganizationRetentionForm>;
   try {
     mutation = parseOrganizationRetentionForm(await request.formData());
@@ -162,13 +177,9 @@ export async function action({ request, params }: Route.ActionArgs) {
       {
         error: error instanceof Error ? error.message : "입력값을 확인하세요.",
       },
-      { status: 400 },
+      { status: 400, headers },
     );
   }
-  const { client, headers, organization, mayManage } = await context(
-    request,
-    params.organizationId!,
-  );
   if (!mayManage)
     return data(
       { error: "보존 정책을 관리할 권한이 없습니다." },

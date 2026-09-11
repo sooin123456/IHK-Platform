@@ -1,0 +1,17 @@
+# Whole-unit review: imported DWG resave control
+
+Read-only final integration gate for all three tasks of docs/superpowers/plans/2026-09-06-native-dwg-resave-control.md. Binding spec: docs/superpowers/specs/2026-09-06-native-dwg-resave-control-design.md. The public progress.md records constraints/rulings and accepted task gates.
+
+BASE and HEAD both remain9f5f56d93db325ff935772252f9d4fb64d69f98c because this task prohibits staging/committing. Do not use HEAD diff: it would include hundreds of pre-existing user changes and omit new untracked files. The following exact controller-baseline packages together are the whole unit:
+
+- Task1: task-1-exact-delta.patch followed by /tmp/1hk-resave-control-m6Q9WS/task1-normalization-fix.diff. Five files: new attestation builder/parser, strict source-schema export only, new attestation tests, shared extracted source fixture and adapted source tests. Report/review: task-1-report.md and task-1-review.md. Normalization minor is resolved; final test hash in the report appendix.
+- Task2: task-2-review-package.md indexes task-2-delta-1.patch through5. Five files: new20260906110304 migration, jobs adapters, jobs tests, real database fixture, narrow shared wrapper integration. Report/review: task-2-report.md and task-2-review.md. All accepted with no open findings.
+- Task3: task-3-review-package.md indexes task-3-delta-1.patch through5. Five files: execution bridge, resaver-only cleanup error metadata, worker tests, actual sandbox bridge test, cleanup regression tests. Report/review: task-3-report.md and task-3-review.md. Independently accepted; current owned-copy build passed.
+
+Evaluate integration from scope-only authenticated request through exact server attestation/service admission, fresh leased source/claim, native execution/control and private fenced settlement. Inspect each package once. Consult unchanged dependencies only for named concrete boundary risks; do not perform a broad unrelated repository audit. Task gates do not replace this cross-task review.
+
+Evidence is deliberately separated: final focused275pass/0fail/1opt-in-skip; actual cached native bridge1/1 (real native process, finite service RPC); real PostgreSQL1/1 (clean migration chain, adversarial grants, replay/races/leases/cancel/retention); both direct tsc0; owned-copy npm run build0. Controller final regression refresh is running separately; do not rerun those suites or mutate any checkout. Public synthetic source remains unchanged. No licensed recipient CAD qualification was performed.
+
+Constraints: no git/deploy/dependency/remote DB or Storage mutations; do not touch live preview4173 or platform/build in source worktree; no private .superpowers/sdd access; no subagents. Existing source-free and selected-edit contracts are unchanged. Native output remains experimental-unqualified/persistenceAuthority:not-issued. No public complete state, artifact receipt, route/UI/CLI/scheduler in this unit. Publication and authenticated download story are the next dependency, not a claim of this gate.
+
+Return strengths, concrete Critical/Important/Minor findings with exact lines/scenario and a clear acceptance verdict for this bounded backend unit, not merge/release authorization. No parked findings; Task1 normalization minor was fixed. The generic whole-branch/cleanup/merge skill steps are scoped to this unit because the dirty larger branch and goal remain incomplete; evidence must be preserved.

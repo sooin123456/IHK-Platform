@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="420mm" height="297mm" viewBox="0 0 21000 14850">
+<rect x="0" y="0" width="21000" height="14850" fill="#ffffff"/>
+<g data-export-id="20000000-0000-4000-8200-000000000009" data-semantic-type="space" role="img" aria-label="O-01 · 사무실 예제 공간 · space · 바닥 예제 · 벽 예제 · 천장 예제" transform="matrix(1 0 0 1 0 0)">
+<polygon points="2000,2500 12000,2500 12000,8500 2000,8500" fill="#f7f7f2" stroke="#27313a" stroke-width="25"/>
+<clipPath id="drawing-export-clip-0-semantic-label"><rect x="0" y="0" width="1800" height="168"/></clipPath>
+<g transform="translate(6100 5430) rotate(0)"><text aria-hidden="true" clip-path="url(#drawing-export-clip-0-semantic-label)" fill="#27313a" font-family="sans-serif" font-size="140" text-anchor="middle" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="900" y="0">O-01 · 사무실 예제 공간</tspan></text></g>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000032" transform="matrix(1 0 0 1 0 0)">
+<clipPath id="drawing-export-clip-1"><rect x="1500" y="900" width="12000" height="336"/></clipPath>
+<text x="1500" y="900" clip-path="url(#drawing-export-clip-1)" fill="#285c88" font-family="sans-serif" font-size="140" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="1500" y="900">사무실 배치 예제</tspan><tspan x="1500" y="1068">예제·가정값 — 현장 확인 필요</tspan></text>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000012/top" transform="matrix(1 0 0 1 3000 3500)">
+<rect x="0" y="0" width="1200" height="600" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000012/modesty" transform="matrix(1 0 0 1 3000 3500)">
+<line x1="100" y1="500" x2="1100" y2="500" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000014/top" transform="matrix(1 0 0 1 5000 3500)">
+<rect x="0" y="0" width="1200" height="600" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000014/modesty" transform="matrix(1 0 0 1 5000 3500)">
+<line x1="100" y1="500" x2="1100" y2="500" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000016/top" transform="matrix(1 0 0 1 3000 5000)">
+<rect x="0" y="0" width="1200" height="600" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000016/modesty" transform="matrix(1 0 0 1 3000 5000)">
+<line x1="100" y1="500" x2="1100" y2="500" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000018/top" transform="matrix(1 0 0 1 5000 5000)">
+<rect x="0" y="0" width="1200" height="600" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000018/modesty" transform="matrix(1 0 0 1 5000 5000)">
+<line x1="100" y1="500" x2="1100" y2="500" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000021/top" transform="matrix(1 0 0 1 8000 4500)">
+<rect x="0" y="125" width="1800" height="650" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000021/chair-top-1" transform="matrix(1 0 0 1 8000 4500)">
+<circle cx="540" cy="125" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000021/chair-bottom-1" transform="matrix(1 0 0 1 8000 4500)">
+<circle cx="540" cy="775" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000021/chair-top-2" transform="matrix(1 0 0 1 8000 4500)">
+<circle cx="1260" cy="125" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000021/chair-bottom-2" transform="matrix(1 0 0 1 8000 4500)">
+<circle cx="1260" cy="775" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="20000000-0000-4000-8200-000000000010" transform="matrix(1 0 0 1 0 0)">
+<line x1="2000" y1="1850" x2="12000" y2="1850" fill="none" stroke="#285c88" stroke-width="18"/>
+<line x1="2000" y1="2500" x2="2000" y2="1850" fill="none" stroke="#285c88" stroke-width="18"/>
+<line x1="12000" y1="2500" x2="12000" y2="1850" fill="none" stroke="#285c88" stroke-width="18"/>
+<clipPath id="drawing-export-clip-15"><rect x="7000" y="1850" width="840" height="168"/></clipPath>
+<text x="7000" y="1850" clip-path="url(#drawing-export-clip-15)" fill="#285c88" font-family="sans-serif" font-size="140" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="7000" y="1850">10000.0 mm</tspan></text>
+</g>
+</svg>

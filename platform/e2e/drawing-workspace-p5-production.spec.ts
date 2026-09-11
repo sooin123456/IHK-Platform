@@ -227,6 +227,7 @@ test.describe.serial("P5 hosted workspace source authority", () => {
         ).toBeVisible();
         await page.getByRole("button", { name: "선택 도구" }).click();
         await selectWorldObject(page, { x: 220, y: 220 });
+        await page.getByRole("tab", { name: "객체", exact: true }).click();
       }
       const editorInspector = editorPage.getByRole("region", {
         name: "선택 객체 원본 근거",

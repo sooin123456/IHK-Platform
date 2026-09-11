@@ -1,6 +1,7 @@
 import type {
   DrawingGeometry,
   DrawingCanvas,
+  DrawingHistoryGroup,
   DrawingLayer,
   DrawingLayerInput,
   DrawingObject,
@@ -23,6 +24,7 @@ import {
 import {
   DrawingFillColorSchema,
   DrawingGeometrySchema,
+  DrawingHistoryGroupSchema,
   DrawingLayerInputSchema,
   DrawingLayerNameSchema,
   DrawingLayerSchema,
@@ -617,6 +619,56 @@ function canvasContentReason(
     : null;
 }
 
+export function drawingStructureDeletionReasons(
+  state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
+): {
+  canvases: Record<string, string | null>;
+  pages: Record<string, string | null>;
+} {
+  const canonical = requireStructureState(state);
+  const structure = canonical.structure;
+  const pages = Object.values(structure.pages);
+  const canvases = Object.values(structure.canvases);
+  const canvasIdsByPage = new Map<string, string[]>();
+  for (const canvas of canvases) {
+    const pageCanvasIds = canvasIdsByPage.get(canvas.pageId) ?? [];
+    pageCanvasIds.push(canvas.id);
+    canvasIdsByPage.set(canvas.pageId, pageCanvasIds);
+  }
+  const canvasIdByLayerId = new Map(
+    Object.values(structure.layers).map((layer) => [layer.id, layer.canvasId]),
+  );
+  const occupiedCanvasIds = new Set<string>();
+  for (const item of [
+    ...Object.values(structure.objects),
+    ...Object.values(structure.blockInstances),
+  ]) {
+    const canvasId = canvasIdByLayerId.get(item.layerId);
+    if (canvasId) occupiedCanvasIds.add(canvasId);
+  }
+  const canvasReasons: Record<string, string | null> = {};
+  for (const canvas of canvases)
+    canvasReasons[canvas.id] =
+      canvas.spaceKind === "paper" && canvas.sortOrder === 0
+        ? "The default paper canvas can only be deleted with its page."
+        : (canvasIdsByPage.get(canvas.pageId)?.length ?? 0) <= 1
+          ? "A page requires at least one canvas."
+          : occupiedCanvasIds.has(canvas.id)
+            ? "Canvas with objects or blocks cannot be deleted."
+            : null;
+  const pageReasons: Record<string, string | null> = {};
+  for (const page of pages)
+    pageReasons[page.id] =
+      pages.length <= 1
+        ? "A drawing document requires at least one page."
+        : (canvasIdsByPage.get(page.id) ?? []).some((canvasId) =>
+              occupiedCanvasIds.has(canvasId),
+            )
+          ? "Canvas with objects or blocks cannot be deleted."
+          : null;
+  return { canvases: canvasReasons, pages: pageReasons };
+}
+
 export function drawingCanvasDeletionReason(
   state: Pick<DrawingDocumentState, "revisionId" | "layers" | "structure">,
   canvasId: string,
@@ -719,6 +771,7 @@ export type DrawingCommand =
       type: "mutate_structure";
       actorId: string;
       actions: DrawingStructureAction[];
+      historyGroup?: DrawingHistoryGroup;
     }
   | {
       type: "mutate_objects_with_references";
@@ -740,7 +793,11 @@ type DrawingCommandPayload =
   | { type: "delete_objects"; objectIds: string[] }
   | { type: "add_layer"; layer: DrawingLayerInput }
   | { type: "update_layer"; layerId: string; patch: LayerPatch }
-  | { type: "mutate_structure"; actions: DrawingStructureAction[] }
+  | {
+      type: "mutate_structure";
+      actions: DrawingStructureAction[];
+      historyGroup?: DrawingHistoryGroup;
+    }
   | {
       type: "mutate_objects_with_references";
       objectAction: "delete" | "restore";
@@ -790,6 +847,11 @@ export type DrawingCommandEnvironment = {
 export type DrawingCommandConflict = {
   kind: "conflict";
   objectIds: string[];
+};
+
+type DrawingHistoryGroupTransition = {
+  direction: "undo" | "redo";
+  members: DrawingRecordedOperation[];
 };
 
 export type AppliedDrawingCommand = {
@@ -897,7 +959,13 @@ function payloadFor(command: DrawingCommand): DrawingCommandPayload {
         patch: clone(command.patch),
       };
     case "mutate_structure":
-      return { type: command.type, actions: clone(command.actions) };
+      return {
+        type: command.type,
+        actions: clone(command.actions),
+        ...(command.historyGroup
+          ? { historyGroup: clone(command.historyGroup) }
+          : {}),
+      };
     case "mutate_objects_with_references":
       return {
         type: command.type,
@@ -1280,7 +1348,13 @@ function reduceCommand(
         layers: applied.state.layers,
         baseVersions: applied.baseVersions,
         forward,
-        inverse: { type: "mutate_structure", actions: applied.inverse },
+        inverse: {
+          type: "mutate_structure",
+          actions: applied.inverse,
+          ...(command.historyGroup
+            ? { historyGroup: clone(command.historyGroup) }
+            : {}),
+        },
         resultVersions: applied.resultVersions,
         realizedVersions: applied.realizedVersions,
         undoable: true,
@@ -1764,11 +1838,19 @@ function realizeStructurePayload(
         >
       )[id];
       if ("entity" in action) {
+        const collection = structureCollectionFor(action.kind);
+        const tombstone = structure.tombstones?.[id];
+        const restoredEntity =
+          !current &&
+          action.baseVersion === null &&
+          tombstone?.collection === collection
+            ? tombstone.entity
+            : action.entity;
         return {
           ...clone(action),
           entity: {
-            ...clone(action.entity),
-            version: current?.version ?? action.entity.version,
+            ...clone(restoredEntity),
+            version: current?.version ?? restoredEntity.version,
           },
           baseVersion: current?.version ?? null,
         } as DrawingStructureAction;
@@ -1782,6 +1864,9 @@ function realizeStructurePayload(
         baseVersion: current.version,
       } as DrawingStructureAction;
     }),
+    ...(payload.historyGroup
+      ? { historyGroup: clone(payload.historyGroup) }
+      : {}),
   };
 }
 
@@ -2019,6 +2104,7 @@ export function undoDrawingCommand(
   state: DrawingDocumentState,
   actorId: string,
   environment: DrawingCommandEnvironment = {},
+  groupTransition?: DrawingHistoryGroupTransition,
 ): AppliedDrawingCommand | DrawingCommandConflict | null {
   const undoStack = state.undoStackByActor[actorId] ?? [];
   const originalOperationId = undoStack.at(-1);
@@ -2034,7 +2120,18 @@ export function undoDrawingCommand(
       `Applied operation for ${originalOperationId} does not exist.`,
     );
   const conflict = conflictFor(state, latestApplied);
-  if (conflict) return conflict;
+  if (
+    conflict &&
+    (!groupTransition ||
+      !drawingHistoryGroupSupersedesConflict(
+        state,
+        latestApplied,
+        original,
+        conflict,
+        groupTransition,
+      ))
+  )
+    return conflict;
   const originalPayload = original.inverse as DrawingCommandPayload;
   const payload =
     originalPayload.type === "add_objects"
@@ -2253,6 +2350,7 @@ export function redoDrawingCommand(
   state: DrawingDocumentState,
   actorId: string,
   environment: DrawingCommandEnvironment = {},
+  groupTransition?: DrawingHistoryGroupTransition,
 ): AppliedDrawingCommand | DrawingCommandConflict | null {
   const redoStack = state.redoStackByActor[actorId] ?? [];
   const originalOperationId = redoStack.at(-1);
@@ -2268,7 +2366,18 @@ export function redoDrawingCommand(
       `Undo operation for ${originalOperationId} does not exist.`,
     );
   const conflict = conflictFor(state, inverse);
-  if (conflict) return conflict;
+  if (
+    conflict &&
+    (!groupTransition ||
+      !drawingHistoryGroupSupersedesConflict(
+        state,
+        inverse,
+        original,
+        conflict,
+        groupTransition,
+      ))
+  )
+    return conflict;
   const originalPayload = original.forward as DrawingCommandPayload;
   const payload: DrawingCommandPayload =
     originalPayload.type === "add_objects"
@@ -2300,6 +2409,291 @@ export function redoDrawingCommand(
       redoStack.slice(0, -1),
     ),
   };
+}
+
+export type AppliedDrawingCommandUnit = {
+  state: DrawingDocumentState;
+  applied: AppliedDrawingCommand[];
+};
+
+function drawingOperationHistoryGroup(
+  operation: DrawingRecordedOperation,
+): DrawingHistoryGroup | null {
+  if (operation.type !== "mutate_structure") return null;
+  const forward = operation.forward as Extract<
+    DrawingCommandPayload,
+    { type: "mutate_structure" }
+  >;
+  const inverse = operation.inverse as Extract<
+    DrawingCommandPayload,
+    { type: "mutate_structure" }
+  >;
+  if (forward.historyGroup === undefined && inverse.historyGroup === undefined)
+    return null;
+  const parsedForward = DrawingHistoryGroupSchema.safeParse(
+    forward.historyGroup,
+  );
+  const parsedInverse = DrawingHistoryGroupSchema.safeParse(
+    inverse.historyGroup,
+  );
+  if (
+    !parsedForward.success ||
+    !parsedInverse.success ||
+    !sameDrawingCanonicalValue(parsedForward.data, parsedInverse.data)
+  )
+    throw new DrawingCommandError(
+      "Drawing history group metadata is invalid or asymmetric.",
+    );
+  return parsedForward.data;
+}
+
+function drawingHistoryGroupMembers(
+  state: DrawingDocumentState,
+  actorId: string,
+  anchor: DrawingHistoryGroup,
+) {
+  const candidates = state.operations.filter((operation) => {
+    if (operation.originalOperationId || operation.type !== "mutate_structure")
+      return false;
+    const forward = operation.forward as {
+      historyGroup?: { id?: unknown };
+    };
+    const inverse = operation.inverse as {
+      historyGroup?: { id?: unknown };
+    };
+    return (
+      forward.historyGroup?.id === anchor.id ||
+      inverse.historyGroup?.id === anchor.id
+    );
+  });
+  if (candidates.length !== anchor.count)
+    throw new DrawingCommandError(
+      "Drawing history group member set is incomplete.",
+    );
+  const byIndex = new Map<number, DrawingRecordedOperation>();
+  for (const operation of candidates) {
+    const group = drawingOperationHistoryGroup(operation);
+    if (
+      !group ||
+      group.id !== anchor.id ||
+      group.kind !== anchor.kind ||
+      group.count !== anchor.count ||
+      operation.actorId !== actorId ||
+      operation.revisionId !== state.revisionId ||
+      !operation.undoable ||
+      byIndex.has(group.index)
+    )
+      throw new DrawingCommandError(
+        "Drawing history group members are inconsistent.",
+      );
+    byIndex.set(group.index, operation);
+  }
+  const members = Array.from({ length: anchor.count }, (_, index) =>
+    byIndex.get(index),
+  );
+  if (members.some((operation) => !operation))
+    throw new DrawingCommandError(
+      "Drawing history group indices are not contiguous.",
+    );
+  return members as DrawingRecordedOperation[];
+}
+
+function entityWithoutVersion(
+  entity: { version: number } & Record<string, unknown>,
+) {
+  const { version: _version, ...value } = entity;
+  return value;
+}
+
+function drawingHistoryGroupSupersedesConflict(
+  state: DrawingDocumentState,
+  latestApplied: DrawingRecordedOperation,
+  original: DrawingRecordedOperation,
+  conflict: DrawingCommandConflict,
+  transition: DrawingHistoryGroupTransition,
+) {
+  if (
+    latestApplied.type !== "mutate_structure" ||
+    original.type !== "mutate_structure" ||
+    !state.structure
+  )
+    return false;
+  const currentGroup = drawingOperationHistoryGroup(original);
+  if (!currentGroup) return false;
+  const latestIndex = state.operations.findIndex(
+    (operation) =>
+      operation.clientOperationId === latestApplied.clientOperationId,
+  );
+  if (latestIndex < 0) return false;
+  const memberById = new Map(
+    transition.members.map((member) => [member.clientOperationId, member]),
+  );
+  const activities = state.operations.slice(latestIndex + 1);
+  const forward = latestApplied.forward as Extract<
+    DrawingCommandPayload,
+    { type: "mutate_structure" }
+  >;
+
+  return conflict.objectIds.every((targetId) => {
+    const relevant = activities.filter(
+      (activity) => targetId in activity.resultVersions,
+    );
+    if (relevant.length === 0) return false;
+    for (const activity of relevant) {
+      const member = memberById.get(
+        activity.originalOperationId ?? activity.clientOperationId,
+      );
+      const group = drawingOperationHistoryGroup(activity);
+      const memberGroup = member ? drawingOperationHistoryGroup(member) : null;
+      const ordered =
+        memberGroup &&
+        (transition.direction === "undo"
+          ? memberGroup.index > currentGroup.index
+          : memberGroup.index < currentGroup.index);
+      if (!member || !group || group.id !== currentGroup.id || !ordered)
+        return false;
+    }
+    const lastResult = relevant.at(-1)?.resultVersions[targetId];
+    const action = forward.actions.find(
+      (candidate) =>
+        ("entity" in candidate ? candidate.entity.id : candidate.id) ===
+        targetId,
+    );
+    if (!action) return false;
+    const collection = structureCollectionFor(action.kind);
+    const current = (
+      state.structure![collection] as Record<
+        string,
+        { version: number } & Record<string, unknown>
+      >
+    )[targetId];
+    if (lastResult === null)
+      return current === undefined && !("entity" in action);
+    if (!current || current.version !== lastResult || !("entity" in action))
+      return false;
+    return sameDrawingCanonicalValue(
+      entityWithoutVersion(current),
+      entityWithoutVersion(
+        action.entity as { version: number } & Record<string, unknown>,
+      ),
+    );
+  });
+}
+
+function hasStackSuffix(stack: readonly string[], suffix: readonly string[]) {
+  return (
+    suffix.length <= stack.length &&
+    suffix.every(
+      (operationId, index) =>
+        stack[stack.length - suffix.length + index] === operationId,
+    )
+  );
+}
+
+function assertDrawingHistoryTransition(
+  state: DrawingDocumentState,
+  actorId: string,
+  direction: "undo" | "redo",
+  anchor: DrawingHistoryGroup,
+  members: DrawingRecordedOperation[],
+) {
+  const ids = members.map((operation) => operation.clientOperationId);
+  const undoStack = state.undoStackByActor[actorId] ?? [];
+  const redoStack = state.redoStackByActor[actorId] ?? [];
+  const memberIds = new Set(ids);
+  const stackedMembers = [...undoStack, ...redoStack].filter((operationId) =>
+    memberIds.has(operationId),
+  );
+  const expectedUndo =
+    direction === "undo"
+      ? ids.slice(0, anchor.index + 1)
+      : ids.slice(0, anchor.index);
+  const expectedRedo =
+    direction === "undo"
+      ? ids.slice(anchor.index + 1).reverse()
+      : ids.slice(anchor.index).reverse();
+  if (
+    stackedMembers.length !== ids.length ||
+    new Set(stackedMembers).size !== ids.length ||
+    !hasStackSuffix(undoStack, expectedUndo) ||
+    !hasStackSuffix(redoStack, expectedRedo)
+  )
+    throw new DrawingCommandError(
+      "Drawing history group transition state is malformed.",
+    );
+}
+
+function applyDrawingCommandUnit(
+  state: DrawingDocumentState,
+  actorId: string,
+  direction: "undo" | "redo",
+  environment: DrawingCommandEnvironment,
+): AppliedDrawingCommandUnit | DrawingCommandConflict | null {
+  const stack =
+    direction === "undo"
+      ? state.undoStackByActor[actorId]
+      : state.redoStackByActor[actorId];
+  const operationId = stack?.at(-1);
+  if (!operationId) return null;
+  const original = operationFor(state, operationId);
+  if (!original)
+    throw new DrawingCommandError(
+      `Drawing operation ${operationId} does not exist.`,
+    );
+  const anchor = drawingOperationHistoryGroup(original);
+  if (!anchor) {
+    const result =
+      direction === "undo"
+        ? undoDrawingCommand(state, actorId, environment)
+        : redoDrawingCommand(state, actorId, environment);
+    if (!result || "kind" in result) return result;
+    return { state: result.state, applied: [result] };
+  }
+
+  const members = drawingHistoryGroupMembers(state, actorId, anchor);
+  assertDrawingHistoryTransition(state, actorId, direction, anchor, members);
+  const expectedCount =
+    direction === "undo" ? anchor.index + 1 : anchor.count - anchor.index;
+  const applied: AppliedDrawingCommand[] = [];
+  let next = state;
+  for (let index = 0; index < expectedCount; index += 1) {
+    const result =
+      direction === "undo"
+        ? undoDrawingCommand(next, actorId, environment, {
+            direction,
+            members,
+          })
+        : redoDrawingCommand(next, actorId, environment, {
+            direction,
+            members,
+          });
+    if (!result)
+      throw new DrawingCommandError(
+        "Drawing history group transition ended before all members.",
+      );
+    if ("kind" in result) return result;
+    applied.push(result);
+    next = result.state;
+  }
+  return { state: next, applied };
+}
+
+/** Undoes one user-visible unit, including every phase of one DXF import. */
+export function undoDrawingCommandUnit(
+  state: DrawingDocumentState,
+  actorId: string,
+  environment: DrawingCommandEnvironment = {},
+) {
+  return applyDrawingCommandUnit(state, actorId, "undo", environment);
+}
+
+/** Redoes one user-visible unit, including every phase of one DXF import. */
+export function redoDrawingCommandUnit(
+  state: DrawingDocumentState,
+  actorId: string,
+  environment: DrawingCommandEnvironment = {},
+) {
+  return applyDrawingCommandUnit(state, actorId, "redo", environment);
 }
 
 export type DrawingClipboard = {

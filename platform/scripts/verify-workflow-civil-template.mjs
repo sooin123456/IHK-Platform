@@ -1,0 +1,8 @@
+import {chromium,expect} from '@playwright/test';
+const browser=await chromium.launch();try{
+ const page=await browser.newPage();page.setDefaultTimeout(7000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=library',{waitUntil:'networkidle'});
+ await page.getByRole('button',{name:/철도·토목 구간 검토/}).click();await expect(page.getByRole('img',{name:'철도·토목 구간 검토 템플릿 미리보기'})).toBeVisible();await expect(page.getByRole('region',{name:'템플릿 구성 안내'})).toContainText('측점·좌표·토공량은 포함하지 않습니다');
+ await page.getByLabel('템플릿 작업 이름',{exact:true}).fill('노선 검토 시작');await page.getByRole('button',{name:'이 템플릿으로 작업 만들기',exact:true}).click();await expect(page).toHaveURL(/blank=/);await expect(page.getByRole('button',{name:'노선 구상 구상 객체',exact:true})).toBeVisible();
+ await page.reload();await expect(page.getByRole('button',{name:'검측 구간 구상 객체',exact:true})).toBeVisible();const doc=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('1hk:workflow-preview:session:v1')).blankDocuments[0]);expect(doc.shapes[0].kind).toBe('polyline');expect(doc.source).toBeUndefined();expect(doc.shapes.every(shape=>!shape.quantity)).toBe(true);
+ await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=library');await page.getByRole('button',{name:/철도·토목 구간 검토/}).click();await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'/tmp/1hk-civil-template.png',fullPage:true});expect(errors).toEqual([]);console.log('PASS civil template preview, source-free creation, polyline persistence, mobile');
+}finally{await browser.close();}

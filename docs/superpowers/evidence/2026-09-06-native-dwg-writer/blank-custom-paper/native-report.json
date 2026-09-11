@@ -1,0 +1,155 @@
+{
+  "qualification": "experimental-unqualified",
+  "status": "passed-internal-semantic-comparison",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "canonicalSourceValidation": "producer-required",
+  "engine": {
+    "package": "ACadSharp",
+    "pinnedVersion": "3.7.1",
+    "assemblyVersion": "3.7.1.0",
+    "framework": ".NET 8.0"
+  },
+  "tolerances": {
+    "geometryAbsoluteMillimeters": 1E-07,
+    "angularRadians": 1E-10
+  },
+  "input": {
+    "fileName": "blank-custom-paper.cad.json",
+    "sha256": "8cde32e0a500aa695b1f2963407372f6ebc9abe653d074006b23b5ec176e971c",
+    "bytes": 3384,
+    "scope": {
+      "projectId": "90000000-0000-4000-8000-000000000001",
+      "documentId": "90000000-0000-4000-8000-000000000002",
+      "revisionId": "10000000-0000-4000-8100-000000000001",
+      "operationSequence": 0,
+      "structureSha256": "5ef4ea41a3bdab8708a67fb1379fbb5d7cb1a5912ddf82c7f1daba38aa88525d"
+    },
+    "originalBytesPreserved": true
+  },
+  "outputs": {
+    "dwg": {
+      "fileName": "native.dwg",
+      "sha256": "92af413e0e241cdc2af7a4786f9161a79a01fb6dac29e4d49dab3806962303e7"
+    },
+    "sourceManifest": {
+      "fileName": "source-manifest.json",
+      "sha256": "8cde32e0a500aa695b1f2963407372f6ebc9abe653d074006b23b5ec176e971c"
+    },
+    "report": "native-report.json"
+  },
+  "outputProfile": {
+    "paper": "custom-400x600",
+    "orientation": "portrait",
+    "width": 400,
+    "height": 600,
+    "scaleDenominator": 20
+  },
+  "verification": {
+    "failures": [],
+    "entities": [],
+    "layers": [
+      {
+        "id": "10000000-0000-4000-8100-000000000004",
+        "cadName": "L_10000000000040008100000000000004",
+        "sourceName": "\uC791\uC5C5",
+        "handle": "48",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "10000000-0000-4000-8100-000000000007",
+        "cadName": "L_10000000000040008100000000000007",
+        "sourceName": "\uCE58\uC218",
+        "handle": "49",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "blocks": [],
+    "layouts": [
+      {
+        "name": "NATIVE_custom-400x600",
+        "paperWidth": 400,
+        "paperHeight": 600,
+        "paperUnits": "Millimeters",
+        "viewports": [
+          {
+            "handle": "47",
+            "id": 1,
+            "representsPaper": true,
+            "center": {
+              "x": 200,
+              "y": 300
+            },
+            "width": 400,
+            "height": 600,
+            "viewCenter": {
+              "x": 0,
+              "y": 0
+            },
+            "viewHeight": 0,
+            "scaleFactor": null
+          },
+          {
+            "handle": "4B",
+            "id": 2,
+            "representsPaper": false,
+            "center": {
+              "x": 200,
+              "y": 300
+            },
+            "width": 400,
+            "height": 600,
+            "viewCenter": {
+              "x": 4000,
+              "y": -6000
+            },
+            "viewHeight": 12000,
+            "scaleFactor": 0.05
+          }
+        ]
+      }
+    ],
+    "quantizations": [],
+    "dimensionChildHandles": {},
+    "actualInventory": {
+      "version": "AC1024",
+      "units": "Millimeters",
+      "modelEntityCount": 0,
+      "allBlockEntityCount": 2,
+      "layerCount": 3,
+      "blockRecordCount": 2,
+      "layoutCount": 2,
+      "textStyles": [
+        {
+          "handle": "2D",
+          "name": "Standard",
+          "fontFile": ""
+        },
+        {
+          "handle": "4A",
+          "name": "NATIVE_NOTO_SANS_KR",
+          "fontFile": "NotoSansKR-Regular.ttf"
+        }
+      ]
+    }
+  },
+  "diagnostics": {
+    "writer": [],
+    "reader": [
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle"
+    ]
+  },
+  "failures": [],
+  "warnings": [
+    "Canonical source validation and authority remain producer-required.",
+    "NotoSansKR-Regular.ttf is named but is not read, embedded, redistributed, or visually qualified.",
+    "MTEXT automatic font-dependent wrapping and recipient rendering are not qualified.",
+    "Independent CAD open/save/print verification was not performed.",
+    "This output does not qualify production DWG delivery or existing-DWG preservation."
+  ]
+}

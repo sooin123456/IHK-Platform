@@ -1,0 +1,582 @@
+[
+  {
+    "path": "accepted-code/platform/app/lukas/lib/drawing-native-dwg-selected-edits.server.ts",
+    "byteSize": 18517,
+    "sha256": "7c9d08e9bade1ba5133edb1ab6d3a1feed9db71ad0a96c9a555150b8f7ddc449"
+  },
+  {
+    "path": "accepted-code/platform/tests/drawing-native-dwg-geometry-resave-integration.test.mjs",
+    "byteSize": 24539,
+    "sha256": "f35697481acceba1db50ea46d37772c39e02e0a4ebc4ec18e3af298771dce7d2"
+  },
+  {
+    "path": "accepted-code/platform/tests/drawing-native-dwg-selected-edits.test.mjs",
+    "byteSize": 19542,
+    "sha256": "4674241325503f69f607969aa8e776733c0c8d7855c3020b1a558ac0d11fc3bd"
+  },
+  {
+    "path": "accepted-code/tools/dwg-engine-qualification/NativeDwgReader.cs",
+    "byteSize": 22865,
+    "sha256": "21a472b313e0e3dd7e2585a72e79a6910bbfb8469257e1fcddf471e8079eb2f8"
+  },
+  {
+    "path": "accepted-code/tools/dwg-engine-qualification/QualificationRunner.cs",
+    "byteSize": 23942,
+    "sha256": "83e792e08ea71390d80eca9f354412979feeee24317af65c3916ce91080a2fd4"
+  },
+  {
+    "path": "accepted-code/tools/dwg-engine-qualification/README.md",
+    "byteSize": 20096,
+    "sha256": "1e65b02d3fdbfc24c23085d9993d595a79804909134a0f659bf8d1f7059f8eeb"
+  },
+  {
+    "path": "accepted-code/tools/dwg-engine-qualification/SelectedDwgEdits.cs",
+    "byteSize": 17523,
+    "sha256": "c9c7549d0b22884abb294118dbb53cd44e062e88be2618f4d2955b2b66f66166"
+  },
+  {
+    "path": "accepted-code/tools/dwg-engine-qualification/SelectedDwgEditSelfTests.cs",
+    "byteSize": 13627,
+    "sha256": "1c6c4c6acf9b199285575bc2f87d8f013e80d25197e501e9633768aadaadd4ba"
+  },
+  {
+    "path": "accepted-code/tools/dwg-engine-qualification/SelectedDwgGeometrySelfTests.cs",
+    "byteSize": 27996,
+    "sha256": "2b98ea852a9e230be773ed86a4d2b92acb2ada79c545828707fd1fade5eb2fab"
+  },
+  {
+    "path": "accepted-code/tools/dwg-engine-qualification/SelfTests.cs",
+    "byteSize": 12781,
+    "sha256": "2b7293591de4e59605389377ce51dd7a13f98163e337f1d0042d7cc4b483c3ee"
+  },
+  {
+    "path": "accepted-files.json",
+    "byteSize": 1611,
+    "sha256": "4a2b83abde6bee7578e6d0233ffb7482e86d244672535d57ddee3d72edfb1c28"
+  },
+  {
+    "path": "checks/app-build-accepted/result.json",
+    "byteSize": 96052,
+    "sha256": "89e09965ee382834c7cdd0aec912dc5ff711b1bad260ba175cf815758b8675a0"
+  },
+  {
+    "path": "checks/app-build-accepted/stderr.log",
+    "byteSize": 2067,
+    "sha256": "fd8ebd73b5b82028fe7f9a008c6b954822add21cc02783712f5cca880d26dcf5"
+  },
+  {
+    "path": "checks/app-build-accepted/stdout.log",
+    "byteSize": 19029,
+    "sha256": "c8b93997b64f9779999485878a9f9b45002fdc0c2707db26ec014a488c68bb35"
+  },
+  {
+    "path": "checks/app-build-final-wave/result.json",
+    "byteSize": 96052,
+    "sha256": "cb5d9e7634cdf98117a62a95477d865f2f67ce0e5ed8d416658f89ddefd993d4"
+  },
+  {
+    "path": "checks/app-build-final-wave/stderr.log",
+    "byteSize": 2067,
+    "sha256": "fd8ebd73b5b82028fe7f9a008c6b954822add21cc02783712f5cca880d26dcf5"
+  },
+  {
+    "path": "checks/app-build-final-wave/stdout.log",
+    "byteSize": 19029,
+    "sha256": "179a89bbd0cef77822a3d6903fef3446f225c16201b0e1f4a8a3de90dc6ed6cf"
+  },
+  {
+    "path": "checks/app-build-final/result.json",
+    "byteSize": 96052,
+    "sha256": "8034bbc72d707261b63ec1e012ea5d3d28a879255bdf0213475fca34b3830a21"
+  },
+  {
+    "path": "checks/app-build-final/stderr.log",
+    "byteSize": 2067,
+    "sha256": "fd8ebd73b5b82028fe7f9a008c6b954822add21cc02783712f5cca880d26dcf5"
+  },
+  {
+    "path": "checks/app-build-final/stdout.log",
+    "byteSize": 19029,
+    "sha256": "0dd32b1dc963d64b81c2a861a6232be239e1cd751c099dd6c777c9fdd2ef47bc"
+  },
+  {
+    "path": "checks/engine-build-accepted/result.json",
+    "byteSize": 96141,
+    "sha256": "b5fe8c55844bd3591639e3ef72c54b40f9209ef4d02b20e311fb3f2218ebdda7"
+  },
+  {
+    "path": "checks/engine-build-accepted/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/engine-build-accepted/stdout.log",
+    "byteSize": 287,
+    "sha256": "daf0e78c48c2b1432249ae817ae11053c039dd45b2289013ddb6a598a4c7b5f5"
+  },
+  {
+    "path": "checks/engine-build-final-wave/result.json",
+    "byteSize": 96141,
+    "sha256": "1bbc7f2de0421f825548d29b77cb97dea9b7112319097ebd16c9518a64bc4aea"
+  },
+  {
+    "path": "checks/engine-build-final-wave/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/engine-build-final-wave/stdout.log",
+    "byteSize": 287,
+    "sha256": "b19bc4d46f42cb7a3c717beafe7789cd3c0bd2de3d462b7190db130e42e290fe"
+  },
+  {
+    "path": "checks/engine-build-final/result.json",
+    "byteSize": 96141,
+    "sha256": "3a5d8a257bc23ae65c0aee48edd50bc6ca276037e55f1f66d0e95710647eb397"
+  },
+  {
+    "path": "checks/engine-build-final/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/engine-build-final/stdout.log",
+    "byteSize": 287,
+    "sha256": "c5f0a684065d56af8ce040441c4cbf0ad750ee17a6676dfd1c4bdd71f79678b9"
+  },
+  {
+    "path": "checks/engine-selftest-accepted/result.json",
+    "byteSize": 96201,
+    "sha256": "682094f176999a542d349dd09841a52106e52069679df2476c4ff375d4dadc4d"
+  },
+  {
+    "path": "checks/engine-selftest-accepted/stderr.log",
+    "byteSize": 6900,
+    "sha256": "87421af087caff6d3de331e213cce1bc3ef48ca828ff8e928b9310debba1f904"
+  },
+  {
+    "path": "checks/engine-selftest-accepted/stdout.log",
+    "byteSize": 3014,
+    "sha256": "4fc60f5c449c3fabab148055dd7921f176f9ac4e5737afb6bc9afc8d8cd91033"
+  },
+  {
+    "path": "checks/engine-selftest-final-wave/result.json",
+    "byteSize": 96201,
+    "sha256": "ba0af54f04fb81356e093ea04bf04c47b963fb064f824830d96e98314b21585a"
+  },
+  {
+    "path": "checks/engine-selftest-final-wave/stderr.log",
+    "byteSize": 6900,
+    "sha256": "acd1cb98adef8163dcda0d1fa8d15c809a19f13932bc4ccf56445e99dd4a2c95"
+  },
+  {
+    "path": "checks/engine-selftest-final-wave/stdout.log",
+    "byteSize": 3014,
+    "sha256": "995bfcea90483135b9c361a831f4a52c985be44cbca1aba156db801146315b3a"
+  },
+  {
+    "path": "checks/geometry-integration-accepted/result.json",
+    "byteSize": 96112,
+    "sha256": "eff1bd764fc5dd9a8d0535bfbda5dce4cf330aa698e7bb11d62beab9ce114ace"
+  },
+  {
+    "path": "checks/geometry-integration-accepted/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/geometry-integration-accepted/stdout.log",
+    "byteSize": 266,
+    "sha256": "8915d9f375f9ead7ff2ff7600d1ab85d536aa29d7b218e61ab9941b3351debcd"
+  },
+  {
+    "path": "checks/geometry-integration-final-wave/result.json",
+    "byteSize": 96112,
+    "sha256": "ecf7a93ebaa43d696b04d351e6e9f6a4b169e77527e022a4a699f03291311cf5"
+  },
+  {
+    "path": "checks/geometry-integration-final-wave/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/geometry-integration-final-wave/stdout.log",
+    "byteSize": 266,
+    "sha256": "ec7f71553892b35aac773a6a17b7a2b7987a88eab50d003cdaa2341374c66cda"
+  },
+  {
+    "path": "checks/native-writer-accepted/result.json",
+    "byteSize": 96293,
+    "sha256": "85dfd9243cd03e4a718a8cbc00090dbc271d55fba5b64664a6280dd9345756ca"
+  },
+  {
+    "path": "checks/native-writer-accepted/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/native-writer-accepted/stdout.log",
+    "byteSize": 937,
+    "sha256": "1f2e824b109060cf05ed73a09846f8d7ecafdaa1cf4bb6e8723e394e2b58555d"
+  },
+  {
+    "path": "checks/native-writer-final-wave/result.json",
+    "byteSize": 96293,
+    "sha256": "24f36baf047da91b62fcb4f37b743ae95e12d27ffa784b7ede8ab96fa6c77e9b"
+  },
+  {
+    "path": "checks/native-writer-final-wave/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/native-writer-final-wave/stdout.log",
+    "byteSize": 937,
+    "sha256": "d9cdf9092ff54a94eff5ef6007b9f96d363116ec2f99e1d252ea19845ce5d8b3"
+  },
+  {
+    "path": "checks/node-regressions-accepted/result.json",
+    "byteSize": 97980,
+    "sha256": "d9dbc6eeee66943ca8211162c77eb356ea6ed65a33e2ca12fff54b071e0724d9"
+  },
+  {
+    "path": "checks/node-regressions-accepted/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/node-regressions-accepted/stdout.log",
+    "byteSize": 86272,
+    "sha256": "085e8dcf28bb6dc56239335f538a5b08711a10d26fc0564f567cc93208b2b1ef"
+  },
+  {
+    "path": "checks/node-regressions-final-wave/result.json",
+    "byteSize": 97980,
+    "sha256": "100a4ff5ab787b073de489a27ef50c804915905d621a6188b2d787c7216aae37"
+  },
+  {
+    "path": "checks/node-regressions-final-wave/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/node-regressions-final-wave/stdout.log",
+    "byteSize": 86807,
+    "sha256": "a964059dc6312e99ec577aaa35fb7295131e442e023498d0d9f4908a587ae4f2"
+  },
+  {
+    "path": "checks/node-regressions-final/result.json",
+    "byteSize": 97980,
+    "sha256": "6d4a2933da4760f5ebaa7c699b869b5fda39cbc3740ee2b5e01ed7618c848163"
+  },
+  {
+    "path": "checks/node-regressions-final/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/node-regressions-final/stdout.log",
+    "byteSize": 87238,
+    "sha256": "4df5a29cea60398534dcf15ef2538ec9f85f45a254cd5706e15cfb4bbd1c158f"
+  },
+  {
+    "path": "checks/regression-isolated-diagnostic/result.json",
+    "byteSize": 96190,
+    "sha256": "1c0f41c06f1ed72269c8a6bcb6c24e9fc0ed9be0a843b124dafeae4e8be87047"
+  },
+  {
+    "path": "checks/regression-isolated-diagnostic/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/regression-isolated-diagnostic/stdout.log",
+    "byteSize": 341,
+    "sha256": "cae059088709f3c5d04afa28e0cbd3913d34915eb3cccb852c1fe8634ad25617"
+  },
+  {
+    "path": "checks/regression-wholefile-diagnostic/result.json",
+    "byteSize": 96121,
+    "sha256": "e821cd1a42cb15713c07a8664519d58968947810ca72afcdb769a3fe080c56a6"
+  },
+  {
+    "path": "checks/regression-wholefile-diagnostic/stderr.log",
+    "byteSize": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "checks/regression-wholefile-diagnostic/stdout.log",
+    "byteSize": 2357,
+    "sha256": "89c1cca5e90272f642c1572c897abb08b81fafa59b0940a5abb86769fe552425"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/full-turn-edit-request.json",
+    "byteSize": 283,
+    "sha256": "5d0b41e9c0c3e6da9f1b833019a1b1077674a00377f70d4d7d669ffcab3a34af"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/full-turn-qualification/edit-request.json",
+    "byteSize": 283,
+    "sha256": "5d0b41e9c0c3e6da9f1b833019a1b1077674a00377f70d4d7d669ffcab3a34af"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/full-turn-qualification/edited-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "b15bf5ea0e84c38f3f447d3383fb124d7181071cd7ae00243a2735515cae07ba"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/full-turn-qualification/input-working-copy.dwg",
+    "byteSize": 10987,
+    "sha256": "e6c1b7625f781d7cf1e36334a7e8389d3b0972ff4d2b012d86a0e4c40abfbfff"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/full-turn-qualification/no-edit-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "c88377e0d56d20902814d7cee203be28a94db9dd91ef14e74a7004c8b5ea0f53"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/full-turn-qualification/qualification-report.json",
+    "byteSize": 17404,
+    "sha256": "bcfc29349eecceea4e926a1d112a828f4d9202485e3191324ed7acb77add1d62"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/full-turn-readback/native-import.json",
+    "byteSize": 1457,
+    "sha256": "85443f7df185c4863281bb442bb70524096375e887bb082fff267abfc2be0a9a"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/generated-fixture/synthetic-input.dwg",
+    "byteSize": 10987,
+    "sha256": "e6c1b7625f781d7cf1e36334a7e8389d3b0972ff4d2b012d86a0e4c40abfbfff"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/integration-summary.json",
+    "byteSize": 1067,
+    "sha256": "9969815a6f2ecf7fe3a150bd14ca0de6e34b4945f720a12041fa1dbdc9f2ae30"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/source-read/native-import.json",
+    "byteSize": 1446,
+    "sha256": "3ece1b83ec9cbdbdab9952bd9cf4176a06a845a3bb35548be15f5386d24ac237"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/wrapped-edit-request.json",
+    "byteSize": 613,
+    "sha256": "ac80e58c00d20055a3a3f70f60094d19a0e257ce00895e9b3a9accc522b09330"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/wrapped-qualification/edit-request.json",
+    "byteSize": 613,
+    "sha256": "ac80e58c00d20055a3a3f70f60094d19a0e257ce00895e9b3a9accc522b09330"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/wrapped-qualification/edited-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "06a7aa7683cefb4fbcfab13dde5d03c3f8eba6426bee873180390233bd680468"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/wrapped-qualification/input-working-copy.dwg",
+    "byteSize": 10987,
+    "sha256": "e6c1b7625f781d7cf1e36334a7e8389d3b0972ff4d2b012d86a0e4c40abfbfff"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/wrapped-qualification/no-edit-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "1ebeca975ac30f834f7643458a53bee07376c03e35b922a39871ac9ed3751927"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/wrapped-qualification/qualification-report.json",
+    "byteSize": 17530,
+    "sha256": "3a089751bd61917ca1a185acd953d623086eba7362b4566a50b0ff0529ab5435"
+  },
+  {
+    "path": "native-artifacts-pre-final-fix/wrapped-readback/native-import.json",
+    "byteSize": 1490,
+    "sha256": "762640cc6589286167dd12170175f43a730a820691007bf1786aaa48afa41153"
+  },
+  {
+    "path": "native-artifacts/full-turn-edit-request.json",
+    "byteSize": 283,
+    "sha256": "dd2ded23f408f473f7b4eb4f60246864b0d0fc08b76a38df7b003cf12c3082ed"
+  },
+  {
+    "path": "native-artifacts/full-turn-qualification/edit-request.json",
+    "byteSize": 283,
+    "sha256": "dd2ded23f408f473f7b4eb4f60246864b0d0fc08b76a38df7b003cf12c3082ed"
+  },
+  {
+    "path": "native-artifacts/full-turn-qualification/edited-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "8d7a9eed4021f61080ababd5274a5d2224252c2a4fbab9c110a04560a21ed9e4"
+  },
+  {
+    "path": "native-artifacts/full-turn-qualification/input-working-copy.dwg",
+    "byteSize": 10987,
+    "sha256": "45cd7a2ff02b319612b5983a5a6a7d4955340ae128b164d637a29fbe0d91a3b5"
+  },
+  {
+    "path": "native-artifacts/full-turn-qualification/no-edit-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "ce7d30cf070ca5a035194435079aa718e504e4f25182f473720bc53d19e86992"
+  },
+  {
+    "path": "native-artifacts/full-turn-qualification/qualification-report.json",
+    "byteSize": 17413,
+    "sha256": "81ecc165d3f965f9a771383b1cae742a60bc08aadd388acf70dde9e5cde80902"
+  },
+  {
+    "path": "native-artifacts/full-turn-readback/native-import.json",
+    "byteSize": 1457,
+    "sha256": "dd43bbf8eadcf40fafc3fe25705887279fc242b4a6d68846f31fd7e09087c8c1"
+  },
+  {
+    "path": "native-artifacts/generated-fixture/synthetic-input.dwg",
+    "byteSize": 10987,
+    "sha256": "45cd7a2ff02b319612b5983a5a6a7d4955340ae128b164d637a29fbe0d91a3b5"
+  },
+  {
+    "path": "native-artifacts/integration-summary.json",
+    "byteSize": 1315,
+    "sha256": "b578bdffbbc940e9f988ae6290e53c22f8ff9ff5d9f3e5c2224add25ccb60f35"
+  },
+  {
+    "path": "native-artifacts/nonzero-full-turn-edit-request.json",
+    "byteSize": 300,
+    "sha256": "75482bfe276235808ede9a1c1a61317eacf334996b8360f550bedd1ae52edc12"
+  },
+  {
+    "path": "native-artifacts/nonzero-full-turn-qualification/edit-request.json",
+    "byteSize": 300,
+    "sha256": "75482bfe276235808ede9a1c1a61317eacf334996b8360f550bedd1ae52edc12"
+  },
+  {
+    "path": "native-artifacts/nonzero-full-turn-qualification/edited-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "d66733fd1361efc58f5a6d4b8a9a05a0ca3046f759f5195def16657ccd961bd6"
+  },
+  {
+    "path": "native-artifacts/nonzero-full-turn-qualification/input-working-copy.dwg",
+    "byteSize": 10987,
+    "sha256": "45cd7a2ff02b319612b5983a5a6a7d4955340ae128b164d637a29fbe0d91a3b5"
+  },
+  {
+    "path": "native-artifacts/nonzero-full-turn-qualification/no-edit-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "565ddb01cb069b7d020f43e0be78b03236f3791d92d0cb902ac930c4e885e032"
+  },
+  {
+    "path": "native-artifacts/nonzero-full-turn-qualification/qualification-report.json",
+    "byteSize": 17446,
+    "sha256": "68ffb1e7dddc8be8dd1464bfffde4f37bcbe4e3b02ce320d3163a3571909419c"
+  },
+  {
+    "path": "native-artifacts/nonzero-full-turn-readback/native-import.json",
+    "byteSize": 1474,
+    "sha256": "4412e96bdb870015190e73b16d888e3e1f32e1ac4ff80d84c95a5b6046d133ef"
+  },
+  {
+    "path": "native-artifacts/source-read/native-import.json",
+    "byteSize": 1446,
+    "sha256": "e08a2962cff5519f7ba1acafbcc245e0c3ef1f66f0771920d641f135df49d0ca"
+  },
+  {
+    "path": "native-artifacts/wrapped-edit-request.json",
+    "byteSize": 613,
+    "sha256": "932a43227642fec0f1b994e858cd8327fedb7f49f397bb315add9b167bedce74"
+  },
+  {
+    "path": "native-artifacts/wrapped-qualification/edit-request.json",
+    "byteSize": 613,
+    "sha256": "932a43227642fec0f1b994e858cd8327fedb7f49f397bb315add9b167bedce74"
+  },
+  {
+    "path": "native-artifacts/wrapped-qualification/edited-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "2651bb26ca23a3cb548deec526b363f67deb127262ea5c8f4dcd5d059fab3f9d"
+  },
+  {
+    "path": "native-artifacts/wrapped-qualification/input-working-copy.dwg",
+    "byteSize": 10987,
+    "sha256": "45cd7a2ff02b319612b5983a5a6a7d4955340ae128b164d637a29fbe0d91a3b5"
+  },
+  {
+    "path": "native-artifacts/wrapped-qualification/no-edit-roundtrip.dwg",
+    "byteSize": 11019,
+    "sha256": "95e75fd71aeaa5292ad2ee5596b5e71dfb16698fb3325373ca3a8478444d59ab"
+  },
+  {
+    "path": "native-artifacts/wrapped-qualification/qualification-report.json",
+    "byteSize": 17539,
+    "sha256": "050feb5d622247eeaa46592c4076d0085098c1a97e5289a015053db69420a9da"
+  },
+  {
+    "path": "native-artifacts/wrapped-readback/native-import.json",
+    "byteSize": 1490,
+    "sha256": "92d0d493c3d8ea98a4d4c6248a1fdbf9cc3c76b3fcdeea1bef5571ac97830bca"
+  },
+  {
+    "path": "reviews/final-fix-report.md",
+    "byteSize": 6759,
+    "sha256": "41db8426c50c85b11bd48be35aaf6bdc6845796b86c8a69a05ba51ac68d7b055"
+  },
+  {
+    "path": "reviews/final-fix-review.md",
+    "byteSize": 1254,
+    "sha256": "e6185e9c96d90adc5444fbfd10efaba1de6ab0e9e99bef4911f8396e524f8e21"
+  },
+  {
+    "path": "reviews/final-review.md",
+    "byteSize": 1704,
+    "sha256": "19a910609ca4238e733b5025cfe2150eb027d0cf2a88a5311092ae5327e62bd1"
+  },
+  {
+    "path": "reviews/task-1-fix-review.md",
+    "byteSize": 541,
+    "sha256": "fd2e1ad6bf995b1d3cf80e2cd2ba614ff63f6d41a403f88bb0f12c05462f73a3"
+  },
+  {
+    "path": "reviews/task-1-report.md",
+    "byteSize": 5724,
+    "sha256": "dcdff9525cbd6941684db2b15b4ba718f1cad2ebe0295664ea06f8e5f25df528"
+  },
+  {
+    "path": "reviews/task-1-review.md",
+    "byteSize": 1032,
+    "sha256": "fd2437ec93ad1d4858abb242e3384b02ae2e50d03a9e2ad0c9e85b8f87214d07"
+  },
+  {
+    "path": "reviews/task-2-fix-review.md",
+    "byteSize": 1237,
+    "sha256": "221b6826f3d30f37964a8b8ccd2c692b14ec4c254ad25b11743489294d2b2d70"
+  },
+  {
+    "path": "reviews/task-2-report.md",
+    "byteSize": 12990,
+    "sha256": "f1d7576f7f00354f2bdda983ab7a389225c7c67672ea8dd33ec1e6a64e7037c5"
+  },
+  {
+    "path": "reviews/task-2-review.md",
+    "byteSize": 1298,
+    "sha256": "fcefdcfe095257419555d7b7678a212d926cd8326e1edc76fc7fcad0068bd5b2"
+  },
+  {
+    "path": "reviews/task-3-report.md",
+    "byteSize": 3864,
+    "sha256": "e6c18ea5bf2272196dd279a418e2ed1f76cd091385770c418f699a662a1ce87c"
+  },
+  {
+    "path": "reviews/task-3-review.md",
+    "byteSize": 828,
+    "sha256": "baaf8bf9190338cf1e29d629ae44a96316bd054860db2fcf20eec16d04625e3f"
+  },
+  {
+    "path": "reviews/task-regression-diagnosis.md",
+    "byteSize": 5770,
+    "sha256": "9444d527185ec72256c8a97915db0697de7928f9736536f1462a822c572bd6e9"
+  },
+  {
+    "path": "verification.json",
+    "byteSize": 16906,
+    "sha256": "81e50fbf8a28293e9ba7b39b5b741c34537979bd7e8bd8baa269a405a54df569"
+  }
+]

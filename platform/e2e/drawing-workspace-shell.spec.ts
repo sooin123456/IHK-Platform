@@ -60,7 +60,7 @@ test("compact desktop keeps the top bar single-row without hiding primary action
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   await page.setViewportSize({ width: 898, height: 800 });
-  await openPreview(page, `${awarenessTestPreviewPath}&view=split`);
+  await openPreview(page, `${awarenessTestPreviewPath}&p5IfcTest=1&view=split`);
 
   const header = page.locator("main.drawing-workspace > header");
   const bounds = await header.evaluate((element) => ({
@@ -110,11 +110,11 @@ test("compact desktop keeps the top bar single-row without hiding primary action
   expect(consoleErrors).toEqual([]);
 });
 
-test("current desktop preview is canvas-first and every dock remains keyboard recoverable", async ({
+test("desktop split preview keeps every dock keyboard recoverable", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
-  await openPreview(page);
+  await openPreview(page, `${previewPath}?view=split`);
   const panel = page.getByRole("complementary", { name: "IFC 3D 원본" });
   await expect(panel).toBeVisible();
   await expect(
@@ -130,18 +130,30 @@ test("current desktop preview is canvas-first and every dock remains keyboard re
     .evaluate((element) => element.getBoundingClientRect().toJSON());
   expect(modelBounds.bottom).toBeLessThanOrEqual(720);
   await expect(page.getByText(/P4 공동 편집 미리보기/)).toHaveCount(0);
-  await expect(
-    page.getByRole("complementary", { name: "속성 검사기" }),
-  ).toBeHidden();
+  const initialInspector = page.getByRole("complementary", {
+    name: "속성 검사기",
+  });
+  await expect(initialInspector).toBeVisible();
+  await page.keyboard.press("]");
+  await expect(initialInspector).toBeHidden();
 
   const canvas = page.getByRole("region", { name: "도면 캔버스" });
   const canvasBounds = await canvas.evaluate((element) =>
     element.getBoundingClientRect().toJSON(),
   );
+  const shellBounds = await page.locator(".drawing-workspace-shell").evaluate(
+    (element) => element.getBoundingClientRect().toJSON(),
+  );
   expect(canvasBounds.width).toBeGreaterThan(900);
-  expect(canvasBounds.height).toBeGreaterThan(600);
+  expect(Math.abs(canvasBounds.top - shellBounds.top)).toBeLessThanOrEqual(1);
+  expect(Math.abs(canvasBounds.bottom - shellBounds.bottom)).toBeLessThanOrEqual(1);
+  expect(Math.abs(canvasBounds.height - shellBounds.height)).toBeLessThanOrEqual(1);
+  expect(canvasBounds.bottom).toBeLessThanOrEqual(720);
 
   const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
+  await expect(tools).toBeHidden();
+  await page.keyboard.press("[");
+  await expect(tools).toBeVisible();
   await page.keyboard.press("[");
   await expect(tools).toBeHidden();
   await page.keyboard.press("[");
@@ -228,6 +240,19 @@ test("current desktop preview is canvas-first and every dock remains keyboard re
     ),
   ).toBeVisible();
   await expect(inspector.getByText(/WALL-EXT-01/)).toHaveCount(0);
+
+  const propertiesHeading = panel.getByRole("heading", { name: "선택 요소 속성" });
+  await propertiesHeading.scrollIntoViewIfNeeded();
+  const propertiesBounds = await propertiesHeading.boundingBox();
+  expect(propertiesBounds).not.toBeNull();
+  expect(propertiesBounds!.y).toBeGreaterThanOrEqual(shellBounds.top);
+  expect(propertiesBounds!.y + propertiesBounds!.height).toBeLessThanOrEqual(720);
+  const model = panel.getByRole("img", { name: "IFC 3D 모델 화면" });
+  await model.scrollIntoViewIfNeeded();
+  const restoredModelBounds = await model.boundingBox();
+  expect(restoredModelBounds).not.toBeNull();
+  expect(restoredModelBounds!.y).toBeGreaterThanOrEqual(shellBounds.top);
+  expect(restoredModelBounds!.y + restoredModelBounds!.height).toBeLessThanOrEqual(720);
 });
 
 test("tablet keeps one drawer beside a mounted canvas and restores canvas focus when it closes", async ({
@@ -235,21 +260,39 @@ test("tablet keeps one drawer beside a mounted canvas and restores canvas focus 
 }) => {
   for (const viewport of [
     { width: 768, height: 1024 },
+    { width: 991, height: 800 },
     { width: 1024, height: 768 },
   ]) {
     await page.setViewportSize(viewport);
-    await openPreview(page);
+    await openPreview(page, `${previewPath}?view=split`);
 
     const canvas = page.getByLabel(/도면 화면/);
+    const canvasRegion = page.getByRole("region", { name: "도면 캔버스" });
     const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
     const inspector = page.getByRole("complementary", {
       name: "속성 검사기",
     });
-    const inspectorToggle = page.getByRole("button", {
-      name: "속성 검사기 열기",
-    });
 
     await expect(canvas).toBeVisible();
+    await expect(inspector).toBeVisible();
+    await expect(tools).toBeHidden();
+    const splitBounds = await Promise.all(
+      ["#drawing-split-panel-2d", "#drawing-split-panel-3d"].map((selector) =>
+        page
+          .locator(selector)
+          .evaluate((element) => element.getBoundingClientRect().toJSON()),
+      ),
+    );
+    const canvasBounds = await canvasRegion.evaluate((element) =>
+      element.getBoundingClientRect().toJSON(),
+    );
+    for (const bounds of splitBounds) {
+      expect(bounds.width).toBeGreaterThan(0);
+      expect(bounds.left).toBeGreaterThanOrEqual(canvasBounds.left - 1);
+      expect(bounds.right).toBeLessThanOrEqual(canvasBounds.right + 1);
+    }
+
+    await page.getByRole("button", { name: "왼쪽 도구 패널 열기" }).click();
     await expect(tools).toBeVisible();
     await expect(inspector).toBeHidden();
     for (const target of await tools.getByRole("tab").all()) {
@@ -260,7 +303,7 @@ test("tablet keeps one drawer beside a mounted canvas and restores canvas focus 
       expect(bounds.width).toBeGreaterThanOrEqual(44);
       expect(bounds.height).toBeGreaterThanOrEqual(44);
     }
-    await inspectorToggle.click();
+    await page.getByRole("button", { name: "속성 검사기 열기" }).click();
     await expect(inspector).toBeVisible();
     await expect(tools).toBeHidden();
 
@@ -274,19 +317,13 @@ test("tablet keeps one drawer beside a mounted canvas and restores canvas focus 
       expect(bounds.height).toBeGreaterThanOrEqual(44);
     }
 
-    await page
-      .getByRole("button", { name: "속성 검사기 숨기기" })
-      .click();
+    await page.getByRole("button", { name: "속성 검사기 숨기기" }).click();
     await expect(inspector).toBeHidden();
     await expect(canvas).toBeFocused();
 
     const zoom = Number(await canvas.getAttribute("data-viewport-zoom"));
-    const viewportX = Number(
-      await canvas.getAttribute("data-viewport-x"),
-    );
-    const viewportY = Number(
-      await canvas.getAttribute("data-viewport-y"),
-    );
+    const viewportX = Number(await canvas.getAttribute("data-viewport-x"));
+    const viewportY = Number(await canvas.getAttribute("data-viewport-y"));
     await canvas.click({
       position: {
         x: viewportX + 450 * zoom,
@@ -310,12 +347,10 @@ test("tablet keeps one drawer beside a mounted canvas and restores canvas focus 
           ? {
               scrollWidth: element.scrollWidth,
               clientWidth: element.clientWidth,
-              buttons: [...element.querySelectorAll("button")].map(
-                (button) => {
-                  const bounds = button.getBoundingClientRect();
-                  return { width: bounds.width, height: bounds.height };
-                },
-              ),
+              buttons: [...element.querySelectorAll("button")].map((button) => {
+                const bounds = button.getBoundingClientRect();
+                return { width: bounds.width, height: bounds.height };
+              }),
             }
           : null;
       })(),
@@ -325,7 +360,8 @@ test("tablet keeps one drawer beside a mounted canvas and restores canvas focus 
     );
     expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
     expect(layout.toolbar).not.toBeNull();
-    expect(layout.toolbar!.scrollWidth).toBeLessThanOrEqual(
+    expect(layout.toolbar!.clientWidth).toBeGreaterThan(0);
+    expect(layout.toolbar!.scrollWidth).toBeGreaterThanOrEqual(
       layout.toolbar!.clientWidth,
     );
     for (const target of layout.toolbar!.buttons) {
@@ -390,13 +426,13 @@ test("tablet toolbar respects inline safe areas, scrolls overflow, and keeps its
   await toolbar.evaluate((element) => {
     (element as HTMLElement).scrollLeft = 0;
   });
-  await page.getByRole("button", { name: "건축 객체" }).click();
-  const menu = page.getByRole("menu", { name: "건축 객체 도구" });
-  await expect(menu).toBeVisible();
-  const menuBounds = await menu.evaluate((element) =>
+  const toolbarBounds = await toolbar.evaluate((element) =>
     element.getBoundingClientRect().toJSON(),
   );
-  const toolbarBounds = await toolbar.evaluate((element) =>
+  await page.getByRole("button", { name: "건축 객체" }).click();
+  const menu = page.getByRole("menu", { name: "건축 객체", exact: true });
+  await expect(menu).toBeVisible();
+  const menuBounds = await menu.evaluate((element) =>
     element.getBoundingClientRect().toJSON(),
   );
   expect(menuBounds.bottom).toBeLessThanOrEqual(toolbarBounds.top);
@@ -404,7 +440,9 @@ test("tablet toolbar respects inline safe areas, scrolls overflow, and keeps its
     width: document.documentElement.scrollWidth,
     viewportWidth: document.documentElement.clientWidth,
   }));
-  expect(documentBounds.width).toBeLessThanOrEqual(documentBounds.viewportWidth);
+  expect(documentBounds.width).toBeLessThanOrEqual(
+    documentBounds.viewportWidth,
+  );
 });
 
 test("local preview keeps its realtime indicator connected without a Supabase request", async ({
@@ -456,6 +494,17 @@ test("distinct Awareness collaborators render object and block collaboration saf
   });
 
   await openPreview(page, awarenessTestPreviewPath);
+  await page.getByRole("tab", { name: "블록" }).click();
+  await page
+    .getByRole("button", { name: /창호 W-01 인스턴스 2개 보기/ })
+    .click();
+  await page.getByRole("button", { name: "W-01 동측 인스턴스 선택" }).click();
+  await page.getByRole("textbox", { name: "이름", exact: true }).focus();
+  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText(
+    "00000000-0000-4000-8000-000000000082",
+  );
+  await page.getByRole("tab", { name: "페이지·레이어" }).click();
+  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText("없음");
   await expect(
     page.getByRole("status", { name: "공동 작업 참여자 3명" }),
   ).toBeVisible();
@@ -518,16 +567,6 @@ test("distinct Awareness collaborators render object and block collaboration saf
   ).toContainText("D-01 북측");
   await expect(lockedInstance).toBeVisible();
 
-  await page
-    .getByRole("button", { name: /창호 W-01 인스턴스 2개 보기/ })
-    .click();
-  await page.getByRole("button", { name: "W-01 동측 인스턴스 선택" }).click();
-  await page.getByRole("textbox", { name: "이름", exact: true }).focus();
-  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText(
-    "00000000-0000-4000-8000-000000000082",
-  );
-  await page.getByRole("tab", { name: "페이지·레이어" }).click();
-  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText("없음");
   expect(supabaseRequests).toEqual([]);
   expect(collaborationSockets).toEqual([]);
 });
@@ -541,7 +580,7 @@ test("collaboration initialization retry cleans partial resources and restores e
   await expect(page.getByLabel("협업 로컬 리소스 수")).toHaveText("0");
   const surface = page.getByLabel(/도면 화면/);
   await expect(surface).not.toHaveClass(/pointer-events-none/);
-  await expect(page.getByRole("button", { name: "선 도구" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "선 도구" })).toBeDisabled();
   const viewportBefore = await surface.getAttribute("data-viewport-zoom");
   await surface.hover();
   await page.mouse.wheel(0, -200);
@@ -561,7 +600,7 @@ test("collaboration initialization retry cleans partial resources and restores e
   await expect(
     page.getByRole("textbox", { name: "새 레이어 이름" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "선 도구" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "선 도구" })).toBeEnabled();
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await expect(page.getByLabel("협업 provider 수")).toHaveText("1");
   await expect(page.getByLabel("협업 재시도 상태")).toHaveText("connected");
@@ -673,6 +712,44 @@ test("preview keeps a local edit through realtime revalidation and resets only w
   ).toBeHidden();
 });
 
+test("user replacement never borrows the previous room's connected status while admission is pending", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await openPreview(page, `${previewPath}?connectionLifecycleTest=1`);
+  await waitForPreviewRealtimeEffect(page);
+  await expect(page.getByLabel("실제 미리보기 연결 횟수")).toHaveText("1");
+  const connected = page.getByRole("status", {
+    name: "공동 편집 상태: connected", exact: true,
+  });
+  const connecting = page.getByRole("status", {
+    name: "공동 편집 상태: connecting", exact: true,
+  });
+  await expect(connected).toBeVisible();
+  await page.getByRole("button", { name: "테스트 사용자 전환" }).click();
+  const release = page.getByRole("button", { name: "연결 시도 2 허용" });
+  await expect(release).toBeVisible();
+  await expect(connecting).toBeVisible();
+  await expect(connected).toHaveCount(0);
+  // Return to A before B reports any phase: identity A must not revive the
+  // initial A provider's connected status, nor accept the late B provider.
+  await page.getByRole("button", { name: "테스트 사용자 전환" }).click();
+  const releaseReturningUser = page.getByRole("button", {
+    name: "연결 시도 3 허용",
+  });
+  await expect(releaseReturningUser).toBeVisible();
+  await expect(connecting).toBeVisible();
+  await release.click();
+  await expect(page.getByLabel("실제 미리보기 연결 횟수")).toHaveText("2");
+  await expect(connecting).toBeVisible();
+  await expect(connected).toHaveCount(0);
+  await releaseReturningUser.click();
+  await expect(page.getByLabel("실제 미리보기 연결 횟수")).toHaveText("3");
+  await expect(connected).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("local preview click selects the Style tab and reveals its panel", async ({
   page,
 }) => {
@@ -706,6 +783,7 @@ test("local preview Arrow, Home, and End keys select and focus their target tabs
 
   const structureTab = page.getByRole("tab", { name: "페이지·레이어" });
   const stylesTab = page.getByRole("tab", { name: "스타일" });
+  const blocksTab = page.getByRole("tab", { name: "블록" });
   const historyTab = page.getByRole("tab", { name: "변경 이력" });
 
   await expect(async () => {
@@ -719,14 +797,24 @@ test("local preview Arrow, Home, and End keys select and focus their target tabs
   await expect(page.locator("#drawing-panel-styles")).toBeVisible();
 
   await stylesTab.press("End");
-  await expect(historyTab).toHaveAttribute("aria-selected", "true");
-  await expect(historyTab).toBeFocused();
-  await expect(page.locator("#drawing-panel-history")).toBeVisible();
+  await expect(blocksTab).toHaveAttribute("aria-selected", "true");
+  await expect(blocksTab).toBeFocused();
+  await expect(page.locator("#drawing-panel-blocks")).toBeVisible();
 
-  await historyTab.press("Home");
+  await blocksTab.press("Home");
   await expect(structureTab).toHaveAttribute("aria-selected", "true");
   await expect(structureTab).toBeFocused();
   await expect(page.locator("#drawing-panel-structure")).toBeVisible();
+  await page.getByRole("radio", { name: "검토", exact: true }).click();
+  const collaborationTab = page.getByRole("tab", { name: "댓글·이슈" });
+  await collaborationTab.press("End");
+  await expect(historyTab).toHaveAttribute("aria-selected", "true");
+  await expect(historyTab).toBeFocused();
+  await expect(page.locator("#drawing-panel-history")).toBeVisible();
+  await historyTab.press("Home");
+  await expect(collaborationTab).toHaveAttribute("aria-selected", "true");
+  await expect(collaborationTab).toBeFocused();
+  await expect(page.locator("#drawing-panel-collaboration")).toBeVisible();
 });
 
 test("hydrated export dialog explains background availability and cancels one gated run", async ({
@@ -734,10 +822,8 @@ test("hydrated export dialog explains background availability and cancels one ga
 }) => {
   await openPreview(page);
   const dialog = page.getByRole("dialog", { name: "도면 내보내기" });
-  await expect(async () => {
-    await page.getByRole("button", { name: "내보내기" }).click();
-    await expect(dialog).toBeVisible({ timeout: 250 });
-  }).toPass({ timeout: 10_000 });
+  await page.getByRole("button", { name: "내보내기" }).click();
+  await expect(dialog).toBeVisible();
 
   await dialog.getByRole("radio", { name: "PNG" }).check();
   const includeBackground = dialog.getByRole("checkbox", {
@@ -806,25 +892,30 @@ test("1280px structure panel keeps disabled explanations readable below controls
   }
 });
 
-test("architectural object tools remain accessible without toolbar overflow on desktop and tablet", async ({
-  page,
-}) => {
-  for (const viewport of [
-    { width: 1440, height: 900 },
-    { width: 768, height: 1024 },
-  ]) {
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 768, height: 1024 },
+]) {
+  test(`architectural object tools remain accessible without page overflow at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await openPreview(page);
+    await expect(page.locator("[data-storage-error-detail]")).toHaveCount(0);
     const surface = page.getByLabel(/도면 화면/);
     const initialSemanticCount = await stableSemanticCount(page);
     const semanticTrigger = page.getByRole("button", { name: "건축 객체" });
     await semanticTrigger.click();
     await page.getByRole("menuitem", { name: "벽 도구" }).click();
     await expect(semanticTrigger).toBeFocused();
-    if (viewport.width === 768)
-      await page
-        .getByRole("button", { name: "왼쪽 도구 패널 숨기기" })
-        .click();
+    if (viewport.width === 768) {
+      const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
+      const inspector = page.getByRole("complementary", { name: "속성 검사기" });
+      await expect(tools).toBeHidden();
+      await expect(inspector).toBeVisible();
+      await page.getByRole("button", { name: "속성 검사기 숨기기" }).click();
+      await expect(inspector).toBeHidden();
+      await expect(tools).toBeHidden();
+      await expect(surface).toBeFocused();
+    }
     const zoom = Number(await surface.getAttribute("data-viewport-zoom"));
     const viewportX = Number(await surface.getAttribute("data-viewport-x"));
     const viewportY = Number(await surface.getAttribute("data-viewport-y"));
@@ -841,6 +932,7 @@ test("architectural object tools remain accessible without toolbar overflow on d
     await expect(
       page.getByRole("list", { name: "건축 객체 목록" }),
     ).toContainText("Wall · wall");
+    await expect(page.locator("[data-storage-error-detail]")).toHaveCount(0);
     if (viewport.width === 1440) {
       await page.getByRole("button", { name: "선택 도구" }).click();
       await surface.click({
@@ -875,7 +967,18 @@ test("architectural object tools remain accessible without toolbar overflow on d
       await expect(page.getByRole("alert")).toContainText(/경계|다각형/);
       await page.keyboard.press("Escape");
     }
-    await semanticTrigger.click();
+    const selectedBeforeMenu = await surface.getAttribute("data-selected-object-id");
+    expect(selectedBeforeMenu).not.toBeNull();
+    const coordinates = page.locator('input[name="startXMillimeters"], input[name="startYMillimeters"], input[name="endXMillimeters"], input[name="endYMillimeters"]');
+    const coordinateValues = () => coordinates.evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
+    const coordinatesBeforeMenu = await coordinateValues();
+    if (viewport.width === 768) expect(coordinatesBeforeMenu).toHaveLength(4);
+    const expectMenuPreservesSelection = async () => {
+      await expect(surface).toHaveAttribute("data-selected-object-id", selectedBeforeMenu!);
+      await expect.poll(coordinateValues).toEqual(coordinatesBeforeMenu);
+    };
+    await semanticTrigger.press("ArrowDown");
+    await expectMenuPreservesSelection();
     for (const name of [
       "벽 도구",
       "개구부 도구",
@@ -890,8 +993,13 @@ test("architectural object tools remain accessible without toolbar overflow on d
     await expect(
       page.getByRole("menuitem", { name: "개구부 도구" }),
     ).toBeFocused();
+    await expectMenuPreservesSelection();
+    await page.keyboard.press("Delete");
+    await expectMenuPreservesSelection();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menuitem", { name: "벽 도구" })).toBeHidden();
+    await expect(page.locator("[data-storage-error-detail]")).toHaveCount(0);
+    await expect(semanticTrigger).toBeEnabled();
     await expect(semanticTrigger).toBeFocused();
     const overflow = await page.evaluate(() => {
       const toolbar = document.querySelector('[aria-label="캔버스 도구"]');
@@ -906,10 +1014,24 @@ test("architectural object tools remain accessible without toolbar overflow on d
       };
     });
     expect(overflow.document).toBeLessThanOrEqual(0);
-    expect(overflow.toolbar).toBeLessThanOrEqual(0);
+    expect(overflow.documentY).toBeLessThanOrEqual(0);
     if (viewport.width === 1440) {
-      expect(overflow.documentY).toBeLessThanOrEqual(0);
+      expect(overflow.toolbar).toBeLessThanOrEqual(0);
       await expect(page.locator(".konvajs-content > canvas")).toHaveCount(3);
+    } else {
+      const toolbar = page.getByRole("navigation", { name: "캔버스 도구" });
+      expect(await toolbar.evaluate((element) => getComputedStyle(element).overflowX)).toBe("auto");
+      const fit = page.getByRole("button", { name: "화면 맞춤" });
+      await fit.scrollIntoViewIfNeeded();
+      await fit.focus();
+      await expect(fit).toBeFocused();
+      const fitBounds = await fit.boundingBox();
+      const toolbarBounds = await toolbar.boundingBox();
+      expect(fitBounds).not.toBeNull();
+      expect(toolbarBounds).not.toBeNull();
+      expect(fitBounds!.x).toBeGreaterThanOrEqual(toolbarBounds!.x);
+      expect(fitBounds!.x + fitBounds!.width).toBeLessThanOrEqual(toolbarBounds!.x + toolbarBounds!.width);
+      expect(fitBounds!.height).toBeGreaterThanOrEqual(44);
     }
-  }
-});
+  });
+}

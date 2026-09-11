@@ -1,0 +1,10 @@
+{"event":"m1_native_dwg_import_pipeline_proof_passed","evidence":{"transportQualification":"loopback-test-bridge-not-real-postgrest-jwt-or-supabase-storage","sourceSha256":"5c287281fafa07f76a0158d5374dd7577910c107dcb55817688acf9fd8656c71","sourceByteSize":10987,"sourceHeaderVersion":"AC1024","reportSha256":"c01a5e9ebae2460de8781e90dda68a47dc8e3bf3a869d8be188d34adebc783cf","reportByteSize":1446,"readerImageId":"sha256:c67ff75cdacccad6cd77b275ad2557f889943bd29c98767c8f0e399d5e9b394f","jobId":"8c2e7236-8b30-48a1-b7bd-877c85092c00","status":"analyzed","persistenceAuthority":"not-issued","claimContenders":2,"claimWinners":1,"parserContainerResidue":0,"parserConfigResidue":0,"canonicalProof":{"transportQualification":"direct-postgresql-role-session-loopback-not-postgrest-jwt-or-supabase-storage","jobId":"8c2e7236-8b30-48a1-b7bd-877c85092c00","planId":"3c000e97-d1e7-5c12-b035-3c01bf1e6c27","persistenceAuthority":"operation-attested","sourceSha256":"5c287281fafa07f76a0158d5374dd7577910c107dcb55817688acf9fd8656c71","reportSha256":"c01a5e9ebae2460de8781e90dda68a47dc8e3bf3a869d8be188d34adebc783cf","nativeHandles":["4A","4B","4C","4D","4E"],"objectCount":5,"sourceCount":5,"planCount":2,"recoveredPrefixCount":1,"recoveredReceiptCount":2,"groupedUndoCount":2,"groupedRedoCount":2,"editUndoCount":1,"editRedoCount":1,"checkpointOperationSequence":9,"snapshotSha256":"3a87bb58fd0b45034e0c644cca81434166eb7d29359a4e40790e50d2b930c392"},"databaseResidue":0}}
+✔ M1 real PostgreSQL proves Editor operations, idempotency, starter provenance, and binding authority (6087.667667ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6257.967041

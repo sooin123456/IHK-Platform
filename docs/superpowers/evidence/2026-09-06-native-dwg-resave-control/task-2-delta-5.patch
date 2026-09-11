@@ -1,0 +1,230 @@
+diff --git a/tmp/1hk-resave-control-m6Q9WS/drawing-workspace-m1-real-database.test.mjs b/platform/tests/drawing-workspace-m1-real-database.test.mjs
+index b2bc95a..f53961f 100644
+--- a/tmp/1hk-resave-control-m6Q9WS/drawing-workspace-m1-real-database.test.mjs
++++ b/platform/tests/drawing-workspace-m1-real-database.test.mjs
+@@ -1,50 +1,51 @@
+ import assert from "node:assert/strict";
+ import { createHash, randomBytes, randomUUID } from "node:crypto";
+ import { readdir, readFile } from "node:fs/promises";
+ import test from "node:test";
+ 
+ import { proveCanonicalCollaborationSocketInitialization } from "./fixtures/drawing-collaboration-canonical-initialization.mjs";
+ import { proveDwgSourceIngestionAuthority } from "./fixtures/drawing-dwg-source-ingestion-database.mjs";
+ import { proveNativeDwgExportJobAuthority } from "./fixtures/drawing-native-dwg-jobs-database.mjs";
+ import { proveNativeDwgImportJobAuthority } from "./fixtures/drawing-native-dwg-import-jobs-database.mjs";
+ import { proveNativeDwgCanonicalImportAuthority } from "./fixtures/drawing-native-dwg-canonical-import-database.mjs";
++import { proveNativeDwgResaveJobAuthority } from "./fixtures/drawing-native-dwg-resave-jobs-database.mjs";
+ import { proveNativeDwgImportPipeline } from "./fixtures/drawing-native-dwg-import-pipeline.mjs";
+ import { proveFreshNativeDwgCanonicalPipeline } from "./fixtures/drawing-native-dwg-canonical-pipeline.mjs";
+ 
+ const databaseUrl = process.env.M1_REAL_POSTGRES_DATABASE_URL;
+ const required = process.env.M1_REAL_POSTGRES_REQUIRED === "1";
+ const nativeDwgImportPipelineRequired =
+   process.env.M1_NATIVE_DWG_IMPORT_PIPELINE_REQUIRED === "1";
+ 
+ if (!databaseUrl) {
+   test(
+     "M1 real PostgreSQL proves Editor operations, idempotency, starter provenance, and binding authority",
+     {
+       skip: required || nativeDwgImportPipelineRequired
+         ? false : "M1 real PostgreSQL gate is UNEXECUTED",
+     },
+     () => assert.fail("M1_REAL_POSTGRES_DATABASE_URL is required"),
+   );
+ } else {
+   const appRoles = Object.freeze([
+     "anon",
+     "authenticated",
+     "service_role",
+     "lukas_drawing_collaboration",
+   ]);
+   const migrationsDirectory = new URL("../supabase/migrations/", import.meta.url);
+   const sha = (value) => value.repeat(64);
+ 
+   function quoteIdentifier(value) {
+     assert.match(value, /^[a-z][a-z0-9_]{0,62}$/);
+     return `"${value}"`;
+   }
+ 
+   function isolatedUrl(source, databaseName) {
+     const url = new URL(source);
+     url.pathname = `/${databaseName}`;
+     return url.toString();
+   }
+ 
+   async function assertSqlState(promise, expected) {
+     const codes = Array.isArray(expected) ? expected : [expected];
+@@ -2772,84 +2773,89 @@ if (!databaseUrl) {
+         const concurrent = await proveCreationConcurrencyAndIdentity(
+           owner,workerA,workerB,ids,
+         );
+         await proveCalibratedPdfQuantityAuthority(owner, ids);
+         await proveCollaborationServiceStoreSuccess(owner, ids, concurrent);
+         await proveAuthenticatedEditorOperationBoundary(owner, ids, concurrent);
+         await proveRequiredPropertyBlankReviewGuard(owner, ids);
+         await proveBindingAndPurge(owner, ids, concurrent);
+         await proveStarterRollback(owner, ids);
+         await proveNativeDwgExportJobAuthority({ owner, ids });
+         if (nativeDwgImportPipelineRequired) {
+           nativeDwgImportPipelineEvidence = await proveNativeDwgImportPipeline({
+             owner,workerA,workerB,ids,
+             registerProject: (projectId) => projectIds.push(projectId),
+             dockerPath: process.env.NATIVE_DWG_DOCKER_PATH,
+             dockerHost: process.env.NATIVE_DWG_DOCKER_HOST,
+             readerImageId: process.env.NATIVE_DWG_READER_IMAGE_ID,
+             afterAnalysis: proveFreshNativeDwgCanonicalPipeline,
+           });
+           assert.deepEqual(
+             {
+               analysis: nativeDwgImportPipelineEvidence.persistenceAuthority,
+               canonical:
+                 nativeDwgImportPipelineEvidence.canonicalProof
+                   .persistenceAuthority,
+               sameJob:
+                 nativeDwgImportPipelineEvidence.jobId ===
+                 nativeDwgImportPipelineEvidence.canonicalProof.jobId,
+               sameSource:
+                 nativeDwgImportPipelineEvidence.sourceSha256 ===
+                 nativeDwgImportPipelineEvidence.canonicalProof.sourceSha256,
+             },
+             {
+               analysis: "not-issued",
+               canonical: "operation-attested",
+               sameJob: true,
+               sameSource: true,
+             },
+           );
+         }
+-        await proveNativeDwgCanonicalImportAuthority({
++        const imported = await proveNativeDwgCanonicalImportAuthority({
+           owner,workerA,workerB,ids,
+           registerProject: (projectId) => projectIds.push(projectId),
+         });
++        const otherImported = await proveNativeDwgCanonicalImportAuthority({
++          owner,workerA,workerB,ids,
++          registerProject: (projectId) => projectIds.push(projectId),
++        });
++        await proveNativeDwgResaveJobAuthority({ owner, workerA, workerB, ids, imported, otherImported });
+         await proveNativeDwgImportJobAuthority({
+           owner,workerA,workerB,ids,
+           registerProject: (projectId) => projectIds.push(projectId),
+         });
+         const reviewDocument = await createDocument(
+           owner,
+           "authenticated",
+           ids.users.editor,
+           ids.project,
+           "M1 staged review",
+           randomUUID(),
+         );
+         ids.documents.push(reviewDocument.documentId);
+         ids.revisions.push(reviewDocument.revisionId);
+         await proveStagedRevisionDecision(owner, ids, reviewDocument);
+         const collaborativeReviewDocument = await createDocument(
+           owner,
+           "authenticated",
+           ids.users.editor,
+           ids.project,
+           "M3 collaborative staged retry",
+           randomUUID(),
+         );
+         ids.documents.push(collaborativeReviewDocument.documentId);
+         ids.revisions.push(collaborativeReviewDocument.revisionId);
+         await proveCollaborativeReviewedRetry(
+           owner,
+           ids,
+           collaborativeReviewDocument,
+         );
+         await proveEntitlementOffLegacyReview(owner, ids);
+       } catch (error) {
+         primaryError = error;
+       } finally {
+         try {
+           if (owner && schemaReady) {
+             for (const projectId of projectIds)
+               await attemptCleanup(
+                 cleanupErrors,
+                 `delete project fixture ${projectId}`,
+@@ -2867,80 +2873,82 @@ if (!databaseUrl) {
+                 select
+                   (select pg_catalog.count(*)::integer from public.lukas_qto_projects
+                    where id=any(${projectIds}::uuid[])) projects,
+                   (select pg_catalog.count(*)::integer from public.lukas_drawing_documents
+                    where project_id=any(${projectIds}::uuid[])) documents,
+                   (select pg_catalog.count(*)::integer from public.lukas_drawing_objects
+                    where project_id=any(${projectIds}::uuid[])) objects,
+                   (select pg_catalog.count(*)::integer from public.lukas_drawing_operations
+                    where project_id=any(${projectIds}::uuid[])) operations,
+                   (select pg_catalog.count(*)::integer
+                    from public.lukas_drawing_object_sources
+                    where project_id=any(${projectIds}::uuid[])) object_sources,
+                   (select pg_catalog.count(*)::integer
+                    from public.lukas_drawing_revision_approvals
+                    where project_id=any(${projectIds}::uuid[])) approvals,
+                   (select pg_catalog.count(*)::integer
+                    from public.lukas_drawing_estimate_bindings
+                    where project_id=any(${projectIds}::uuid[])) bindings,
+                   (select pg_catalog.count(*)::integer from public.lukas_qto_boq_versions
+                    where project_id=any(${projectIds}::uuid[])) boqs
+               `;
+               assert.deepEqual(
+                 residue,
+                 {
+                   projects: 0, documents: 0, objects: 0, operations: 0,
+                   object_sources: 0, approvals: 0, bindings: 0, boqs: 0,
+                 },
+               );
+               for (const suffix of ["jobs", "attempts", "results"]) {
+                 const table = `public.lukas_drawing_native_dwg_import_${suffix}`;
+                 const [exists] = await owner`select to_regclass(${table}) present`;
+                 if (exists.present) {
+                   const [analysisResidue] = await owner.unsafe(
+                     `select count(*)::integer count from ${table} where project_id=any($1::uuid[])`,
+                     [projectIds],
+                   );
+                   assert.equal(analysisResidue.count, 0);
+                 }
+               }
+               for (const table of [
++                "public.lukas_drawing_native_dwg_resave_jobs",
++                "public.lukas_drawing_native_dwg_resave_attempts",
+                 "private.lukas_drawing_dxf_plan_attestations",
+                 "private.lukas_drawing_template_clone_requests",
+                 "private.lukas_drawing_snapshot_restore_requests",
+               ]) {
+                 const [ledgerResidue] = await owner.unsafe(
+                   `select count(*)::integer count from ${table} where project_id=any($1::uuid[])`,
+                   [projectIds],
+                 );
+                 assert.equal(ledgerResidue.count, 0, table);
+               }
+             });
+           }
+         } finally {
+           try {
+             for (const [label, client] of [
+               ["table-owner connection", owner],
+               ["concurrency connection A", workerA],
+               ["concurrency connection B", workerB],
+             ])
+               if (client)
+                 await attemptCleanup(
+                   cleanupErrors,label,() => client.end({ timeout: 5 }),
+                 );
+           } finally {
+             try {
+               if (databaseCleanupIntent) {
+                 await attemptCleanup(cleanupErrors, "terminate isolated database sessions", () => admin`
+                   select pg_catalog.pg_terminate_backend(pid)
+                   from pg_catalog.pg_stat_activity
+                   where datname=${databaseName} and pid<>pg_catalog.pg_backend_pid()
+                 `);
+                 await attemptCleanup(cleanupErrors, "drop isolated database", () =>
+                   admin.unsafe(`drop database if exists ${quoteIdentifier(databaseName)}`),
+                 );
+               }
+             } finally {
+               try {
+                 for (const state of roleState.reverse()) {
+                   if (state.revokeIntent)
+                     await attemptCleanup(

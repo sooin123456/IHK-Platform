@@ -8,15 +8,15 @@ import {
 } from "../app/lukas/lib/drawing-workspace.types.ts";
 import * as drawingGeometry from "../app/lukas/lib/drawing-geometry.ts";
 const {
+  createDrawingPreciseGeometryUpdate,
   drawingGeometryHitTest,
   geometryBounds,
   geometrySnapPoints,
   sampleDrawingArcPoints,
 } = drawingGeometry;
-const semanticGeometry =
-  await import("../app/lukas/lib/drawing-semantic-geometry.ts").catch(
-    () => ({}),
-  );
+const semanticGeometry = await import(
+  "../app/lukas/lib/drawing-semantic-geometry.ts"
+).catch(() => ({}));
 const {
   isSimpleDrawingBoundary,
   projectPointToDrawingWall,
@@ -89,6 +89,182 @@ const hostObject = {
   version: 1,
 };
 const objects = { [HOST_ID]: hostObject };
+
+test("precise geometry update authors exact wall and dimension millimeters", () => {
+  assert.equal(typeof createDrawingPreciseGeometryUpdate, "function");
+  const openingId = "00000000-0000-4000-8000-000000000103";
+  const layers = {
+    [LAYER_ID]: {
+      id: LAYER_ID,
+      name: "Work",
+      visible: true,
+      locked: false,
+      canvasId: "00000000-0000-4000-8000-000000000104",
+      systemKind: "work",
+      version: 1,
+    },
+  };
+  const openingObject = {
+    id: openingId,
+    name: "D-01",
+    layerId: LAYER_ID,
+    geometry: opening,
+    style: { stroke: "#000000", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  const wallState = {
+    layers,
+    objects: { [HOST_ID]: hostObject, [openingId]: openingObject },
+  };
+
+  assert.deepEqual(
+    createDrawingPreciseGeometryUpdate(
+      hostObject,
+      {
+        startXMillimeters: "125.125",
+        startYMillimeters: "250",
+        endXMillimeters: "3125.5",
+        endYMillimeters: "4250",
+      },
+      wallState,
+    ),
+    {
+      objectId: HOST_ID,
+      baseVersion: 1,
+      patch: {
+        geometry: {
+          ...wall,
+          start: { x: 125.125, y: 250 },
+          end: { x: 3125.5, y: 4250 },
+        },
+      },
+    },
+  );
+
+  const dimensionObject = {
+    ...hostObject,
+    id: "00000000-0000-4000-8000-000000000105",
+    name: "D-100",
+    geometry: {
+      type: "dimension",
+      start: { x: 10, y: 20 },
+      end: { x: 1010, y: 20 },
+      offset: 12,
+      calibrationId: null,
+    },
+    version: 7,
+  };
+  assert.deepEqual(
+    createDrawingPreciseGeometryUpdate(
+      dimensionObject,
+      {
+        startXMillimeters: "10.000001",
+        startYMillimeters: "20",
+        endXMillimeters: "1010",
+        endYMillimeters: "20",
+        offsetMillimeters: "-32.5",
+      },
+      { layers, objects: { [dimensionObject.id]: dimensionObject } },
+    ),
+    {
+      objectId: dimensionObject.id,
+      baseVersion: 7,
+      patch: {
+        geometry: {
+          ...dimensionObject.geometry,
+          start: { x: 10.000001, y: 20 },
+          end: { x: 1010, y: 20 },
+          offset: -32.5,
+        },
+      },
+    },
+  );
+});
+
+test("precise geometry update rejects lossy values and hosted-wall shrink", () => {
+  assert.equal(typeof createDrawingPreciseGeometryUpdate, "function");
+  const canvasId = "00000000-0000-4000-8000-000000000104";
+  const openingId = "00000000-0000-4000-8000-000000000103";
+  const layers = {
+    [LAYER_ID]: {
+      id: LAYER_ID,
+      name: "Work",
+      visible: true,
+      locked: false,
+      canvasId,
+      systemKind: "work",
+      version: 1,
+    },
+  };
+  const openingObject = {
+    id: openingId,
+    name: "D-01",
+    layerId: LAYER_ID,
+    geometry: opening,
+    style: { stroke: "#000000", strokeWidth: 1, fill: null },
+    version: 1,
+  };
+  const state = {
+    layers,
+    objects: { [HOST_ID]: hostObject, [openingId]: openingObject },
+  };
+  const validFields = {
+    startXMillimeters: "0",
+    startYMillimeters: "0",
+    endXMillimeters: "3000",
+    endYMillimeters: "4000",
+  };
+
+  for (const invalid of ["", "Infinity", "1.0000001", "9000000001"])
+    assert.throws(
+      () =>
+        createDrawingPreciseGeometryUpdate(
+          hostObject,
+          { ...validFields, startXMillimeters: invalid },
+          state,
+        ),
+      /millimeter|밀리미터|정밀|numeric|숫자|range|범위/i,
+    );
+
+  assert.throws(
+    () =>
+      createDrawingPreciseGeometryUpdate(
+        hostObject,
+        {
+          startXMillimeters: "0",
+          startYMillimeters: "0",
+          endXMillimeters: "800",
+          endYMillimeters: "0",
+        },
+        state,
+      ),
+    /opening|개구부|host wall|호스트 벽|fit/i,
+  );
+
+  assert.throws(
+    () =>
+      createDrawingPreciseGeometryUpdate(
+        hostObject,
+        {
+          ...validFields,
+          startXMillimeters: "8999999999.999999",
+        },
+        state,
+      ),
+    /정밀|exact|round|원문/i,
+  );
+  assert.equal(
+    createDrawingPreciseGeometryUpdate(
+      hostObject,
+      {
+        ...validFields,
+        startXMillimeters: "8999999999.999998",
+      },
+      state,
+    ).patch.geometry.start.x,
+    8_999_999_999.999998,
+  );
+});
 
 test("the exact six P4 semantic geometry variants parse strictly", () => {
   for (const geometry of [wall, opening, space, area, grid, arc]) {

@@ -1,0 +1,173 @@
+{
+  "qualification": "experimental-unqualified",
+  "scope": {
+    "projectId": "4e29583a-1eb8-4637-98c3-63e3a2c3d72f",
+    "documentId": "21b35420-584b-4e2d-8a8c-8ed7ef5da600",
+    "revisionId": "447c24a3-59b4-423f-b451-34bb14c55768",
+    "revisionVersion": 1,
+    "canvasId": "0b05d380-5825-4d52-9914-5fb5607153d9",
+    "snapshotSha256": "c97fd11de3effc2c7149b1f901f7fa4451cfb265c922dc5352abc47ab2fb1129"
+  },
+  "writerBuildSha256": "93a7db736e88f57abe76d5b57d4c493c1cc5e1bef326dcbe55be03b2d4a60bb2",
+  "independentCadQualification": "not-performed",
+  "acceptance": {
+    "accepted": true,
+    "jobId": "5b04be17-daba-4f07-93b7-a26c41621bd7",
+    "requestId": "3e0b6391-d0b8-4f81-9991-e76f5cadbb56"
+  },
+  "request": {
+    "projectId": "4e29583a-1eb8-4637-98c3-63e3a2c3d72f",
+    "documentId": "21b35420-584b-4e2d-8a8c-8ed7ef5da600",
+    "revisionId": "447c24a3-59b4-423f-b451-34bb14c55768",
+    "revisionVersion": 1,
+    "canvasId": "0b05d380-5825-4d52-9914-5fb5607153d9",
+    "snapshotSha256": "c97fd11de3effc2c7149b1f901f7fa4451cfb265c922dc5352abc47ab2fb1129",
+    "requestId": "3e0b6391-d0b8-4f81-9991-e76f5cadbb56"
+  },
+  "injectedStatusFailures": 1,
+  "sameIdRetryResumed": true,
+  "queuedReopenRestored": true,
+  "outcomes": [
+    "completed",
+    "idle"
+  ],
+  "status": "passed",
+  "receipt": {
+    "jobId": "5b04be17-daba-4f07-93b7-a26c41621bd7",
+    "attempt": 1,
+    "qualification": "experimental-unqualified",
+    "source": {
+      "projectId": "4e29583a-1eb8-4637-98c3-63e3a2c3d72f",
+      "documentId": "21b35420-584b-4e2d-8a8c-8ed7ef5da600",
+      "revisionId": "447c24a3-59b4-423f-b451-34bb14c55768",
+      "revisionVersion": 1,
+      "canvasId": "0b05d380-5825-4d52-9914-5fb5607153d9",
+      "snapshotSha256": "c97fd11de3effc2c7149b1f901f7fa4451cfb265c922dc5352abc47ab2fb1129"
+    },
+    "writerBuildSha256": "93a7db736e88f57abe76d5b57d4c493c1cc5e1bef326dcbe55be03b2d4a60bb2",
+    "structureSha256": "6ab05ade1dd617f21b83c21ea38995dad9acdc84e6d5c3e0bd07f46bc8582d13",
+    "artifacts": [
+      {
+        "kind": "dwg",
+        "sha256": "7d94793d0d35631bd7068971202c686f076659f4836205aa88c3894d1bf77201",
+        "byteSize": 13387
+      },
+      {
+        "kind": "source_manifest",
+        "sha256": "28e2b9560968dc85f5ba5b6e6cd4288a1c3ec1c7ee34fbbbe4174e17ba1d1483",
+        "byteSize": 45502
+      },
+      {
+        "kind": "authority",
+        "sha256": "c6f220f9072bd1ab09f3fc489d57cb7c0f532503a39bd3b367427b6a0acecded",
+        "byteSize": 2744
+      },
+      {
+        "kind": "report",
+        "sha256": "eb1a23ebbfc15537de11da886abe8b7ab9bb7e52ad6adbecc38e7fa63e99cede",
+        "byteSize": 21086
+      }
+    ],
+    "createdAt": "2026-09-05T20:11:31.052585+00:00"
+  },
+  "downloaded": {
+    "dwg": {
+      "sha256": "7d94793d0d35631bd7068971202c686f076659f4836205aa88c3894d1bf77201",
+      "byteSize": 13387
+    },
+    "source_manifest": {
+      "sha256": "28e2b9560968dc85f5ba5b6e6cd4288a1c3ec1c7ee34fbbbe4174e17ba1d1483",
+      "byteSize": 45502
+    },
+    "authority": {
+      "sha256": "c6f220f9072bd1ab09f3fc489d57cb7c0f532503a39bd3b367427b6a0acecded",
+      "byteSize": 2744
+    },
+    "report": {
+      "sha256": "eb1a23ebbfc15537de11da886abe8b7ab9bb7e52ad6adbecc38e7fa63e99cede",
+      "byteSize": 21086
+    }
+  },
+  "downloadHeaders": {
+    "dwg": {
+      "cache-control": "private, no-store",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "content-type": "application/acad",
+      "content-disposition": "attachment; filename=\"drawing-experimental.dwg\"",
+      "content-length": "13387"
+    },
+    "source_manifest": {
+      "cache-control": "private, no-store",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "content-type": "application/json; charset=utf-8",
+      "content-disposition": "attachment; filename=\"drawing-experimental-source-manifest.json\"",
+      "content-encoding": "br"
+    },
+    "authority": {
+      "cache-control": "private, no-store",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "content-type": "application/json; charset=utf-8",
+      "content-disposition": "attachment; filename=\"drawing-experimental-authority.json\"",
+      "content-encoding": "br"
+    },
+    "report": {
+      "cache-control": "private, no-store",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "content-type": "application/json; charset=utf-8",
+      "content-disposition": "attachment; filename=\"drawing-experimental-native-report.json\"",
+      "content-encoding": "br"
+    }
+  },
+  "viewerDownloadStatus": 200,
+  "directStorageDenied": true,
+  "outsiderStatus": 404,
+  "revokedStatus": 404,
+  "lockWaitObserved": true,
+  "leaseBeforeWait": {
+    "observed_at": "2026-09-05T20:11:34.990Z",
+    "seconds_remaining": 29.965319
+  },
+  "leaseAfterWait": {
+    "observed_at": "2026-09-05T20:12:05.277Z",
+    "expired": true
+  },
+  "delayedFailure": "stale",
+  "afterWait": {
+    "status": "processing",
+    "attempt_count": 1,
+    "last_error_code": null
+  },
+  "reclaimedOutcomes": [
+    "completed",
+    "idle"
+  ],
+  "attempts": [
+    {
+      "attempt_number": 1,
+      "upload_state": "open"
+    },
+    {
+      "attempt_number": 2,
+      "upload_state": "closed"
+    }
+  ],
+  "receiptCounts": [
+    {
+      "job_id": "0e47040d-dd8b-4393-8e43-256ac449072c",
+      "receipt_count": 1
+    },
+    {
+      "job_id": "5b04be17-daba-4f07-93b7-a26c41621bd7",
+      "receipt_count": 1
+    }
+  ],
+  "publicationReplays": [
+    "5b04be17-daba-4f07-93b7-a26c41621bd7",
+    "0e47040d-dd8b-4393-8e43-256ac449072c"
+  ],
+  "pageErrors": []
+}

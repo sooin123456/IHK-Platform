@@ -1,0 +1,782 @@
+{
+  "schemaVersion": "1hk-native-content-evidence/1",
+  "status": "local-content-verification-only",
+  "productionDwgQualified": false,
+  "publicRedistributionLicensed": false,
+  "limitations": [
+    "Schematic examples and assumed quantities require site and professional review.",
+    "Authenticated catalog import and persisted output-profile editing are not part of this content compiler.",
+    "First-party content redistribution license is unassigned; review platform/LICENSE.md separately before public distribution.",
+    "This SVG evidence is not DWG qualification or customer delivery acceptance."
+  ],
+  "assets": [
+    {
+      "kind": "native_symbol",
+      "key": "door-single-800",
+      "version": 1,
+      "contentSha256": "24cb7f4701066ec2c878903d1eb0217436acc7633ca4014cf6e7d7c2996cbdb5",
+      "previewSha256": "d61742729919ff7a4175c3a25669d14370620daea5e2909961b124bffecb6559",
+      "definitionFile": "door-single-800.native.json",
+      "previewFile": "door-single-800.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 800,
+        "height": 800
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "door"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "door-single-900",
+      "version": 1,
+      "contentSha256": "900ced1a4b2b4b2b218e55d4f34f24ce8c15db66a3d57d62104fec82e8339182",
+      "previewSha256": "57ec437743237e1752e5066a3ba5a5021f568479184ff34b42d508d5b3b7873f",
+      "definitionFile": "door-single-900.native.json",
+      "previewFile": "door-single-900.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 900,
+        "height": 900
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "door"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "door-single-1000",
+      "version": 1,
+      "contentSha256": "8ab7abbcaf56c1e9a1a6d90f11a6b503cd44c4f76e225c14255d6f090dcb4b0c",
+      "previewSha256": "bfd91888531e3e33e7aa80f559bf29c40047aeac48c1f6df0322112251cc06f4",
+      "definitionFile": "door-single-1000.native.json",
+      "previewFile": "door-single-1000.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1000,
+        "height": 1000
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "door"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "door-double-1600",
+      "version": 1,
+      "contentSha256": "1b7d9b9c5cbb29071edd2d83ae46445bae194c5460c11c8dce68c4df08984e9c",
+      "previewSha256": "95417c4d156425877b11e5bb1678240b7cce38562644b8b29c9022b4d48fa993",
+      "definitionFile": "door-double-1600.native.json",
+      "previewFile": "door-double-1600.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 800
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "door"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "door-sliding-1800",
+      "version": 1,
+      "contentSha256": "852d78055bc416673a096941e57036dc649ab00234bcf4abeb0d6cd8c7ed76d5",
+      "previewSha256": "4aae8c981d363c3752677e8f98b47822e52cc07f281c9a7d6f15881cac3ed0a3",
+      "definitionFile": "door-sliding-1800.native.json",
+      "previewFile": "door-sliding-1800.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1800,
+        "height": 200
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "door"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "window-600",
+      "version": 1,
+      "contentSha256": "bd5d95dd6260101be93a15ba47de237622d3327409ee6adcbbde0dcedcf8b9f4",
+      "previewSha256": "d4051d385ec745b087dd1905120cfe15c77a7692c098a38e68bc485e4e50156e",
+      "definitionFile": "window-600.native.json",
+      "previewFile": "window-600.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 600,
+        "height": 150
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "window"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "window-900",
+      "version": 1,
+      "contentSha256": "df772ae1a44938d0465ab2c46493dc55616a15063fff68ed7c80ccd050d69780",
+      "previewSha256": "721547d096d7df125247454fac06c7f5093a9cb8063e20cde88e12654fd0f3ef",
+      "definitionFile": "window-900.native.json",
+      "previewFile": "window-900.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 900,
+        "height": 150
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "window"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "window-1200",
+      "version": 1,
+      "contentSha256": "e3a5bb5c035a70b477dbe4ef52eb508999b156429bd46cbbb88b6bd48ea3ffa0",
+      "previewSha256": "ec8282ecfe6228740d17052fe624fed55fd724ee3c7f1cf715fef588916aca90",
+      "definitionFile": "window-1200.native.json",
+      "previewFile": "window-1200.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1200,
+        "height": 150
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "window"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "window-1500",
+      "version": 1,
+      "contentSha256": "d5367275f43d2db63cffe3fcca3a2bf0a8ed9a8b878ecd4430025b077ac112bc",
+      "previewSha256": "57352ec74f7078123e6677d2b0008db68eec46430e6b58809f1d42e6c96ccf7f",
+      "definitionFile": "window-1500.native.json",
+      "previewFile": "window-1500.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1500,
+        "height": 150
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "window"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "window-1800",
+      "version": 1,
+      "contentSha256": "f7aa5c1528834e05f942c4b9152a1471e83a78443a7a09586468fab15061fbba",
+      "previewSha256": "7eb360809ece1f1d513c1e95f50f2a2d9439cc7fe1a21c8fe43632bbe830717d",
+      "definitionFile": "window-1800.native.json",
+      "previewFile": "window-1800.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1800,
+        "height": 150
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "window"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "wall-segment-100",
+      "version": 1,
+      "contentSha256": "7574663c0255892c07ff61dcebf7393daf06a2b3cda7cb052564840ab8819774",
+      "previewSha256": "3462e47084df18642bb6ac852b013354b4caf0d568179f696e0c7a2bf79d44e7",
+      "definitionFile": "wall-segment-100.native.json",
+      "previewFile": "wall-segment-100.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1000,
+        "height": 100
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "wall"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "wall-segment-150",
+      "version": 1,
+      "contentSha256": "c528c97d52d6071ccebf1ea52e62d036bd5e4ceaae29907a017eda1159b97579",
+      "previewSha256": "ac9fffb27d78005b82ea01bbe9a65a9561f76b4ed87751a0ee1bf39dd333e427",
+      "definitionFile": "wall-segment-150.native.json",
+      "previewFile": "wall-segment-150.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1000,
+        "height": 150
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "wall"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "wall-segment-200",
+      "version": 1,
+      "contentSha256": "3225f6f34cbbc90b98cb662415ac10fdfe46b1c7c4f9b7483fa6c39a64a6261f",
+      "previewSha256": "eaefccc71ee7786aafe43da86e90f5f9d91664d98bba53a8eb25123753160576",
+      "definitionFile": "wall-segment-200.native.json",
+      "previewFile": "wall-segment-200.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1000,
+        "height": 200
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "wall"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "wall-l-partition-100",
+      "version": 1,
+      "contentSha256": "9cebeeaf9253ea7be84b60e4b1d88e5676cb39af7a3da81d0d2d79222e3d4296",
+      "previewSha256": "619c014aab7b34c37d414dbacc78e15544e63bb479ed1b0705895d943bdf1c0f",
+      "definitionFile": "wall-l-partition-100.native.json",
+      "previewFile": "wall-l-partition-100.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1000,
+        "height": 1000
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "wall"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-desk-1200x600",
+      "version": 1,
+      "contentSha256": "6d5b05ef2f5efdf02d4dfd2c16be445e4590f45c92b2bd3b7c51a0a1e693cd63",
+      "previewSha256": "e0ff9fe4c8b72ce6c780c9c8c976c1db8c1f71ed4edee47bd7ab2ee758621811",
+      "definitionFile": "furniture-desk-1200x600.native.json",
+      "previewFile": "furniture-desk-1200x600.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1200,
+        "height": 600
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-desk-1600x800",
+      "version": 1,
+      "contentSha256": "9f67a22bb2d119a9fb057b0cf2cac21774f1284b1e1adb3bbcd0e19c277d99bc",
+      "previewSha256": "b86dac4ec48f0a75d539a6139b3d2767e4312031010f81fb4e28005e1202e5a2",
+      "definitionFile": "furniture-desk-1600x800.native.json",
+      "previewFile": "furniture-desk-1600x800.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 800
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-chair-500x500",
+      "version": 1,
+      "contentSha256": "d27eb99f57f481eab805258689cf0a9722d985891c7eba76a0caa14981411a80",
+      "previewSha256": "0fb1699ebd79ad21a25c5426721d7734e37f50daca8789dfafce22e2806f7aca",
+      "definitionFile": "furniture-chair-500x500.native.json",
+      "previewFile": "furniture-chair-500x500.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 500
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-meeting-table-4-seat-1800x900",
+      "version": 1,
+      "contentSha256": "8b46e1c44ca8845730ec8646b922d88996c4a1da326ff3fc12c865051327d1f5",
+      "previewSha256": "b3fe06ce394bc26a7512fa0594bc6b64ccccaa44b7aeadef3f1945d993f6a7a2",
+      "definitionFile": "furniture-meeting-table-4-seat-1800x900.native.json",
+      "previewFile": "furniture-meeting-table-4-seat-1800x900.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1800,
+        "height": 900
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-meeting-table-6-seat-2400x1000",
+      "version": 1,
+      "contentSha256": "583fd25fd681fa7a6fd603d7cc7d6181968fb7ead36858394b01bbe9dae2af56",
+      "previewSha256": "09899959ec78d2a2017ad9858e48f2251aed6c4350cd0ece09871f1734413b0f",
+      "definitionFile": "furniture-meeting-table-6-seat-2400x1000.native.json",
+      "previewFile": "furniture-meeting-table-6-seat-2400x1000.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 2400,
+        "height": 1000
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-sofa-2-seat-1600x800",
+      "version": 1,
+      "contentSha256": "714e9ea01c5cf2388f4a3203dc287ef0a4217223d65f64656f2e5efb2c8ed13e",
+      "previewSha256": "615938cb3745776a8854d12eeacfc91e30cc80f804751cb21f030b6c17bd09b5",
+      "definitionFile": "furniture-sofa-2-seat-1600x800.native.json",
+      "previewFile": "furniture-sofa-2-seat-1600x800.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 800
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-sofa-3-seat-2200x800",
+      "version": 1,
+      "contentSha256": "d7f32a16fae1a86308a0d723919f9672b9c15672c0834efa73d84b7dbb3478d5",
+      "previewSha256": "163485de66f1eab8b9b5a0b747f4aa2bf461cd2b93e12dde9cba1c4c20054645",
+      "definitionFile": "furniture-sofa-3-seat-2200x800.native.json",
+      "previewFile": "furniture-sofa-3-seat-2200x800.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 2200,
+        "height": 800
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-cabinet-900x450",
+      "version": 1,
+      "contentSha256": "b8b4dda4d661639d5fa980efc19fb9d8d301b2dfe44f5db86fb44f443d9af3a5",
+      "previewSha256": "987369a24a4a4f1ae6e7bcd7471d41d55d6d4736c6f4c664ffb2d10d2b99b565",
+      "definitionFile": "furniture-cabinet-900x450.native.json",
+      "previewFile": "furniture-cabinet-900x450.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 900,
+        "height": 450
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-bed-single-1000x2000",
+      "version": 1,
+      "contentSha256": "a26c065bd8342fb7e66d35bfb3fe2187b2342b2f9352fa602608564a7de86dc6",
+      "previewSha256": "161cb5652b032a22772488e6ac14baf2df571d9cd418680fde40d57d66a16a4b",
+      "definitionFile": "furniture-bed-single-1000x2000.native.json",
+      "previewFile": "furniture-bed-single-1000x2000.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1000,
+        "height": 2000
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "native_symbol",
+      "key": "furniture-bed-double-1600x2000",
+      "version": 1,
+      "contentSha256": "ffdfee262e1dec7f33f864fa3f139de3cbc3877adc9d7302c4706108b14f92e0",
+      "previewSha256": "e2e2d46a514c399c36cc9fe445c4f46bcfb2f22a59f56a448dbe247153cde10f",
+      "definitionFile": "furniture-bed-double-1600x2000.native.json",
+      "previewFile": "furniture-bed-double-1600x2000.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-assets.ts",
+        "attribution": "Original schematic drawing symbol authored by 1HK.",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1600,
+        "height": 2000
+      },
+      "insertionPoint": {
+        "x": 0,
+        "y": 0
+      },
+      "classification": "furniture"
+    },
+    {
+      "kind": "workspace_template",
+      "key": "measured-plan",
+      "version": 1,
+      "contentSha256": "d202637a4e91259433636991fddfc2cc3dc330fadef57acedd9a8b889ddbe983",
+      "previewSha256": "c784f785c493b312199aa43ff71e917518d47678d94a1295d4cbaa48a8237671",
+      "definitionFile": "measured-plan.native.json",
+      "previewFile": "measured-plan.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-templates.ts",
+        "attribution": "1HK가 독립 제작한 편집 가능한 예제 도면",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "outputProfile": {
+        "paper": "A3",
+        "orientation": "landscape",
+        "widthMillimeters": 420,
+        "heightMillimeters": 297,
+        "scaleDenominator": 50
+      }
+    },
+    {
+      "kind": "workspace_template",
+      "key": "office-layout",
+      "version": 1,
+      "contentSha256": "710cf9778a18656d24d2c3c2524c008ca8281d4bc7dc909e9e251fb734335fe9",
+      "previewSha256": "0464f133af7615d18fa8f23840be797df4988a4e4de19e0c6b931273909f74ed",
+      "definitionFile": "office-layout.native.json",
+      "previewFile": "office-layout.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-templates.ts",
+        "attribution": "1HK가 독립 제작한 편집 가능한 예제 도면",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "outputProfile": {
+        "paper": "A3",
+        "orientation": "landscape",
+        "widthMillimeters": 420,
+        "heightMillimeters": 297,
+        "scaleDenominator": 50
+      }
+    },
+    {
+      "kind": "workspace_template",
+      "key": "remodel-phases",
+      "version": 1,
+      "contentSha256": "0005b875bcbaec1324fd326a88da6e9e2f803825c79c119b5f71d50323fdb9d7",
+      "previewSha256": "83aef96cb1281330ee15e416253a74ac18b843a81df8fe1312e88bfa6f887f59",
+      "definitionFile": "remodel-phases.native.json",
+      "previewFile": "remodel-phases.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-templates.ts",
+        "attribution": "1HK가 독립 제작한 편집 가능한 예제 도면",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "outputProfile": {
+        "paper": "A3",
+        "orientation": "landscape",
+        "widthMillimeters": 420,
+        "heightMillimeters": 297,
+        "scaleDenominator": 50
+      }
+    },
+    {
+      "kind": "workspace_template",
+      "key": "finishes-takeoff",
+      "version": 1,
+      "contentSha256": "98e96687054561d06c572eb137c93a5ba182ab5a6c07cf10412de77efd63f56f",
+      "previewSha256": "c49595c5882d9e5bb18122cfadcc8d870665ad10979ef109f786c5ddbb44d1b8",
+      "definitionFile": "finishes-takeoff.native.json",
+      "previewFile": "finishes-takeoff.svg",
+      "provenance": {
+        "author": "1HK",
+        "sourcePath": "platform/app/lukas/lib/drawing-native-templates.ts",
+        "attribution": "1HK가 독립 제작한 편집 가능한 예제 도면",
+        "license": "NOASSERTION",
+        "origin": "first-party-generated"
+      },
+      "units": "mm",
+      "outputProfile": {
+        "paper": "A3",
+        "orientation": "landscape",
+        "widthMillimeters": 420,
+        "heightMillimeters": 297,
+        "scaleDenominator": 50
+      }
+    }
+  ]
+}

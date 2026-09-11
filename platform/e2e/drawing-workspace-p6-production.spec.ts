@@ -17,6 +17,7 @@ import {
 } from "../scripts/drawing-p6-performance-evidence.mjs";
 import {
   buildDrawingP6UnexecutedReleaseEvidence,
+  P6_RELEASE_MIGRATION_IDS,
   writeDrawingP6ReleaseEvidence,
 } from "../scripts/drawing-p6-release-evidence.mjs";
 
@@ -265,10 +266,11 @@ test.describe.serial("P6 deployed lineage authority", () => {
         try {
           const migrations = await database`
           select version from supabase_migrations.schema_migrations
-          where version>='20260827210000' order by version
+          where version=any(${database.array([...P6_RELEASE_MIGRATION_IDS])})
+          order by version
         `;
           expect(migrations.map((row) => row.version)).toEqual([
-            "20260827210000",
+            ...P6_RELEASE_MIGRATION_IDS,
           ]);
           const versions = await database`
           select id,result_sha256,manifest_sha256
@@ -320,9 +322,12 @@ test.describe.serial("P6 deployed lineage authority", () => {
         expect(identity.database_comment).toContain(authority.backupId);
       const migrations = await sql`
         select version from supabase_migrations.schema_migrations
-        where version='20260827210000'
+        where version=any(${sql.array([...P6_RELEASE_MIGRATION_IDS])})
+        order by version
       `;
-      expect(migrations).toHaveLength(1);
+      expect(migrations.map((row) => row.version)).toEqual([
+        ...P6_RELEASE_MIGRATION_IDS,
+      ]);
       const [counts] = await sql`
         select
           (select count(*)::integer

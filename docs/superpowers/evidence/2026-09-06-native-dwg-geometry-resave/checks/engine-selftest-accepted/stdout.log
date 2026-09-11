@@ -1,0 +1,45 @@
+PASS refuses an input located inside the output directory
+PASS rejects an output name that escapes the explicit output directory
+PASS reports a removed untouched entity
+PASS reports a changed untouched entity
+PASS rejects an output-directory symlink that aliases the input parent
+PASS bounds a directory collision at the working-copy path
+PASS inventories supported orientation and alignment fields
+PASS marks non-empty insert attributes as an explicit semantic inventory gap
+PASS diagnoses duplicate entity handles instead of silently collapsing them
+/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-56c0200743e84f0b835363ce322e740c/result/qualification-report.json
+internal-synthetic=passed-with-inventory-gaps production=not-qualified
+no-edit failures=0; edit failures=not-requested
+PASS qualifies without silently editing the first entities
+/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-test-ba812a422dda48ee8427915c89820d58/result/qualification-report.json
+internal-synthetic=passed-with-inventory-gaps production=not-qualified
+no-edit failures=0; edit failures=0
+PASS edits only explicit non-first handles on a pinned DWG copy
+PASS rejects malformed, stale, duplicate and unsupported edit targets without output
+PASS validates every selected target before mutating any entity
+/private/var/folders/b_/z50hcv3524lc6wsbcqncd2q40000gn/T/selected-dwg-v2-test-fb1dfdba2b94485499e1367f734a8178/result/qualification-report.json
+internal-synthetic=passed-with-inventory-gaps production=not-qualified
+no-edit failures=0; edit failures=0
+PASS edits all five strict v2 geometry types and preserves selected identities
+PASS retains polyline vertices by index for closure, movement and count changes
+PASS rejects lossy retained polyline vertex identifiers before mutation
+PASS rejects invalid v2 payloads and reader-ineligible targets atomically
+PASS rejects malformed and over-budget v2 requests
+PASS rejects retained unknown objects before mutating v2 targets
+PASS rejects resulting document point overflow before mutating v2 targets
+PASS detects an unrequested LINE normal change
+PASS detects a switch between similarly numbered style and block references
+PASS reads literal native geometry and preserves source bytes
+PASS counts unsupported native geometry without fabrication
+PASS keeps attribute definitions out of plain TEXT import
+PASS rejects malformed native input and existing output
+PASS rejects external DWG references without producing output
+PASS accepts a full-turn ARC and appearance-only PLINEGEN
+PASS counts classic polyline vertices in the global budget
+PASS publishes one durable report under concurrent output
+PASS rejects corrupt DWG instead of reporting failsafe coverage
+PASS pipes a real generated DWG through the actual stream CLI
+PASS reads a non-seekable chunked native DWG stream
+PASS rejects malformed native streams without partial success output
+PASS bounds generated native stream input without partial success output
+35 passed, 0 failed

@@ -1,0 +1,25 @@
+✔ only review roles can assign a drawing issue (0.503542ms)
+✔ closing requires an approval record while reviewers may reopen (0.084625ms)
+✔ workers can request review but viewers cannot change status (0.056542ms)
+✔ PDF anchors stay inside one page in normalized coordinates (0.065125ms)
+✔ drawing issue input rejects blank titles and stale version values (0.993875ms)
+✔ drawing anchors reject malformed IFC identity and overflow PDF regions (0.676167ms)
+✔ drawing mutation parser requires a positive optimistic-lock version (0.77ms)
+✔ drawing mutation parser preserves issue and PDF anchor evidence (0.233584ms)
+✔ drawing mutation parser covers comments, assignment, due date, priority, and deactivation (0.644583ms)
+✔ React Router exposes the drawing library and collaboration room (0.14ms)
+✔ IFC viewer exposes deterministic camera capture and restore (0.674834ms)
+✔ drawing issue panel exposes labeled operational controls (0.666542ms)
+✔ drawing room exposes persisted anchors and append-only events (1.440292ms)
+✔ IFC drawing room uses only a verified derivative bundle while PDF keeps its signed URL (0.483541ms)
+✔ production SSR routes mount dot-client viewers only after hydration (0.784709ms)
+✔ drawing workspace keeps the DXF request clock out of the server render (0.513ms)
+✔ PDF anchors are never copied and IFC candidates require one exact identity (0.391333ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 294.6365

@@ -1,0 +1,26 @@
+[
+  {
+    "file": "app/lukas/components/drawing-workspace.tsx",
+    "before": "514bc7599aacbfdd571416dad8ac466ce2d822a35f5a75d108e3bc4e6ac17acb",
+    "current": "7c06eb1ba8c506af2a757bc742f287b612ae0e07f0eec93b5c9895e683442dd7",
+    "runtime": "7c06eb1ba8c506af2a757bc742f287b612ae0e07f0eec93b5c9895e683442dd7"
+  },
+  {
+    "file": "app/lukas/screens/local-drawing-workspace-preview.tsx",
+    "before": "11fe61ac99942005019d90d825caf01c07b3ae336647989a03fdd3c7b079251d",
+    "current": "25d7a61de013fce7bb07241867668c1487e104d4e623dbcaad91c013ed46ab95",
+    "runtime": "25d7a61de013fce7bb07241867668c1487e104d4e623dbcaad91c013ed46ab95"
+  },
+  {
+    "file": "e2e/drawing-workspace-shell.spec.ts",
+    "before": "05e96eee49f21aabca81602913926ec24d18db4b9943f68a08c95898d64ffb37",
+    "current": "ab812fec3e81a4b9a6083da02513195050e1a647c724263ab79a81cfc0b68be0",
+    "runtime": "ab812fec3e81a4b9a6083da02513195050e1a647c724263ab79a81cfc0b68be0"
+  },
+  {
+    "file": "e2e/drawing-workspace-m1-estimator.spec.ts",
+    "before": "a56f6bca98b7efb7d620db4976bfda52d569ba2549f92d31c84c4ee6d4c4c1b6",
+    "current": "f4046e57f78ad7ed65c9a6e9b2d2c6976f6973486ca5c861c82f90428e691111",
+    "runtime": "f4046e57f78ad7ed65c9a6e9b2d2c6976f6973486ca5c861c82f90428e691111"
+  }
+]

@@ -1,0 +1,30 @@
+{
+  "results": [
+    {
+      "width": 1440,
+      "status": 200,
+      "hydration": "준비됨",
+      "hydrationVisible": true,
+      "overlays": 0,
+      "surfaceCount": 1,
+      "bodyLength": 9014,
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "status": 200,
+      "hydration": "준비됨",
+      "hydrationVisible": true,
+      "overlays": 0,
+      "surfaceCount": 1,
+      "bodyLength": 9011,
+      "overflow": false
+    },
+    {
+      "route": "/",
+      "bodyLength": 1855
+    }
+  ],
+  "errors": [],
+  "consoleErrors": []
+}

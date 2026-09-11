@@ -1,0 +1,25 @@
+
+Running 17 tests using 1 worker
+
+(node:39737) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:55:1 › compact desktop keeps the top bar single-row without hiding primary actions
+[2/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:113:1 › desktop split preview keeps every dock keyboard recoverable
+[3/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:258:1 › tablet keeps one drawer beside a mounted canvas and restores canvas focus when it closes
+[4/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:374:1 › tablet entry keeps an awareness inspector exclusive with the tools drawer
+[5/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:393:1 › tablet toolbar respects inline safe areas, scrolls overflow, and keeps its menu on-screen
+[6/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:448:1 › local preview keeps its realtime indicator connected without a Supabase request
+[7/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:478:1 › distinct Awareness collaborators render object and block collaboration safely
+[8/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:574:1 › collaboration initialization retry cleans partial resources and restores editing
+[9/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:612:1 › transactional read-only bootstrap blocks stale draft editing before initialization
+[10/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:624:1 › review freeze immediately remounts read-only and a failed transition safely releases it
+[11/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:676:1 › preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes
+[12/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:715:1 › user replacement never borrows the previous room's connected status while admission is pending
+[13/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:753:1 › local preview click selects the Style tab and reveals its panel
+[14/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:779:1 › local preview Arrow, Home, and End keys select and focus their target tabs
+[15/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:820:1 › hydrated export dialog explains background availability and cancels one gated run
+[16/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:854:1 › 1280px structure panel keeps disabled explanations readable below controls
+[17/17] [chromium] › e2e/drawing-workspace-shell.spec.ts:895:1 › architectural object tools remain accessible without page overflow on desktop and tablet
+  17 passed (41.1s)

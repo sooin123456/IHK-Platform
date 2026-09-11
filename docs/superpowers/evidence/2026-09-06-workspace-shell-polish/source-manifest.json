@@ -1,0 +1,93 @@
+[
+  {
+    "file": "platform/app/lukas/components/drawing-scale-control.tsx",
+    "bytes": 6123,
+    "sha256": "2494cbf12054f26042ce98df89aeb895ea1bc3c16e1ff4fcbceaf2503bc6efb8",
+    "copiedSha256": "2494cbf12054f26042ce98df89aeb895ea1bc3c16e1ff4fcbceaf2503bc6efb8",
+    "beforeSha256": "eba765bfd6b10d0e21ca175d55b17714247e278f692434ff9c46fb679a9baf31"
+  },
+  {
+    "file": "platform/app/lukas/components/drawing-workspace.tsx",
+    "bytes": 323999,
+    "sha256": "13ee81935167cb5b87a87cffccf17f4b7401c2d7e62f2d66dbeef3c2451de937",
+    "copiedSha256": "13ee81935167cb5b87a87cffccf17f4b7401c2d7e62f2d66dbeef3c2451de937",
+    "beforeSha256": "7c06eb1ba8c506af2a757bc742f287b612ae0e07f0eec93b5c9895e683442dd7"
+  },
+  {
+    "file": "platform/app/lukas/components/ifc-property-browser.client.tsx",
+    "bytes": 33682,
+    "sha256": "8fd9ae2cafc3ecf1ffe3bb789bee8ebe3dffa3da62f03a2d414af5cc6f530ace",
+    "copiedSha256": "8fd9ae2cafc3ecf1ffe3bb789bee8ebe3dffa3da62f03a2d414af5cc6f530ace",
+    "beforeSha256": "5f7685627bb2160173bef6e3c5e5fc1b2315f164e09031e7875fa852ab5fa4a3"
+  },
+  {
+    "file": "platform/app/lukas/screens/local-drawing-workspace-preview.tsx",
+    "bytes": 64429,
+    "sha256": "85d81fa71416fe66b170471d36e43d702ea9b598cbf9152ddfaaae3c76f70bf1",
+    "copiedSha256": "85d81fa71416fe66b170471d36e43d702ea9b598cbf9152ddfaaae3c76f70bf1",
+    "beforeSha256": "25d7a61de013fce7bb07241867668c1487e104d4e623dbcaad91c013ed46ab95"
+  },
+  {
+    "file": "platform/app/lukas/screens/local-drawing-pdf-current.ts",
+    "bytes": 684,
+    "sha256": "1e98162ff0714ce71174e01067244c55233f47b0a69a0c4b1d99491120fa570c",
+    "copiedSha256": "1e98162ff0714ce71174e01067244c55233f47b0a69a0c4b1d99491120fa570c",
+    "beforeSha256": "136cabd98965fee7f22a11218d57e2431e4eb40a816ab4118343435795ad2b24"
+  },
+  {
+    "file": "platform/e2e/drawing-workspace-shell.spec.ts",
+    "bytes": 42822,
+    "sha256": "8fc85a9be10598a84322b84c8c59eaa6598f7ad98475fc83347ea6927d78508b",
+    "copiedSha256": "8fc85a9be10598a84322b84c8c59eaa6598f7ad98475fc83347ea6927d78508b",
+    "beforeSha256": "ab812fec3e81a4b9a6083da02513195050e1a647c724263ab79a81cfc0b68be0"
+  },
+  {
+    "file": "platform/e2e/drawing-workspace-p5.spec.ts",
+    "bytes": 34730,
+    "sha256": "ec36a6959ac471fa62b1f70ed63bdba87100d7382e8826f1d3dc91aec77c59e5",
+    "copiedSha256": "ec36a6959ac471fa62b1f70ed63bdba87100d7382e8826f1d3dc91aec77c59e5",
+    "beforeSha256": "e4bf6e18e87ce8725a6ce5a93631a112366794756f85643f77cfb54efc0e72ee"
+  },
+  {
+    "file": "platform/e2e/drawing-workspace-p6.spec.ts",
+    "bytes": 4571,
+    "sha256": "a032f0eaa386e05e07d974cc0386fa399e614b3362979f115e6bd4dd1d9052e7",
+    "copiedSha256": "a032f0eaa386e05e07d974cc0386fa399e614b3362979f115e6bd4dd1d9052e7",
+    "beforeSha256": "5b1a8059fa11107aac3c378952c9fde17114c723f6ba9d43b94b6c18750ccec4"
+  },
+  {
+    "file": "platform/tests/drawing-workspace-shell.test.mjs",
+    "bytes": 76253,
+    "sha256": "c6b540b13307db08402fd831102b0752343da13bf4bb4890d64fffe4699b72af",
+    "copiedSha256": "c6b540b13307db08402fd831102b0752343da13bf4bb4890d64fffe4699b72af",
+    "beforeSha256": "12fc6bbbfdbf41c9ccea63152148b5a3d295f8e74657f546b1e960f44e9a8224"
+  },
+  {
+    "file": "platform/tests/local-drawing-workspace-preview.test.mjs",
+    "bytes": 23767,
+    "sha256": "ac12f25f70f01fe14770241e84420a10cf16fecdca325bf0759ba5eb6a15bd7b",
+    "copiedSha256": "ac12f25f70f01fe14770241e84420a10cf16fecdca325bf0759ba5eb6a15bd7b",
+    "beforeSha256": "26548cd79a4be16252f5cc9088d220bfbae26400fb4f3e713d576489deafae12"
+  },
+  {
+    "file": "platform/scripts/drawing-p5-release-evidence.mjs",
+    "bytes": 5373,
+    "sha256": "8c455840371c42107b0519b04a6699e62f6ae1900e207b8f54cf93a71bc15a00",
+    "copiedSha256": "8c455840371c42107b0519b04a6699e62f6ae1900e207b8f54cf93a71bc15a00",
+    "beforeSha256": "fe4a345cf4ae0e9317ff2e1c43f1043f4b74acf4c73067f7ecb1384a991d2b2b"
+  },
+  {
+    "file": "platform/scripts/generate-p5-current-pdf.mjs",
+    "bytes": 5248,
+    "sha256": "3f30f5c2ac12d83ee33d4b1fb68f2126e0f271e4ef32d2966a62f0476830b0f3",
+    "copiedSha256": "3f30f5c2ac12d83ee33d4b1fb68f2126e0f271e4ef32d2966a62f0476830b0f3",
+    "beforeSha256": null
+  },
+  {
+    "file": "platform/tests/fixtures/p5-current-revision.pdf",
+    "bytes": 8289,
+    "sha256": "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db",
+    "copiedSha256": "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db",
+    "beforeSha256": null
+  }
+]

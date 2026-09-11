@@ -1,0 +1,56 @@
+{
+  "recordedAt": "2026-09-05T21:40:21.552Z",
+  "scope": "DWG immutable source ingestion only",
+  "head": "9f5f56d93db325ff935772252f9d4fb64d69f98c",
+  "productionDeployed": false,
+  "fullCustomerDwgEditingAndDeliveryComplete": false,
+  "focused": {
+    "passed": 167,
+    "failed": 0,
+    "skipped": 0
+  },
+  "actual": {
+    "typecheck": true,
+    "productionBuild": true,
+    "collaborationBuild": true,
+    "realPostgresStorageGatesPassed": 3,
+    "supplementalChecksPassed": 2,
+    "conditionalConfigurationNoticesSkipped": 2,
+    "chromiumPassed": 2,
+    "chromiumSeconds": 10.4,
+    "profileExitCode": 0,
+    "disposableContainersRemaining": 0
+  },
+  "original": {
+    "path": "docs/superpowers/evidence/2026-09-06-native-dwg-export-jobs/native.dwg",
+    "byteSize": 13387,
+    "header": "AC1024",
+    "sha256": "7d94793d0d35631bd7068971202c686f076659f4836205aa88c3894d1bf77201"
+  },
+  "fileSha256": {
+    "platform/app/lukas/lib/drawing-entry.ts": "94250d57b4978a742e7268205f0a8ff57ad760e32adbf21bdcaaa1a92893703b",
+    "platform/app/lukas/lib/project-file-upload.ts": "4e82db39bfda7e33e4633422c657a34c0f77d5163ccc9082788e5b3882d06214",
+    "platform/app/lukas/lib/project-file-verification.server.ts": "52ef13deab0b70bb1e4adfae8f5c37f032ccefdec0f3ae3a8f8e56e229320487",
+    "platform/app/lukas/screens/project.tsx": "beb5a10fa301af53b52200cc661d3f3d1c4bb804f3e42729537a447ce8cb5f51",
+    "platform/supabase/functions/lukas-qto-upload-verify/index.ts": "a60948ec570be2251291029ae6b8e89a82ee90dca51892570b9c6e4aba8f6e3c",
+    "platform/supabase/migrations/20260905210241_drawing_dwg_verified_source_ingestion.sql": "07e0209c2031c631d33ab2ba1405394b43e5b1e6604aaf85bc9b3357a4c273f7",
+    "platform/tests/fixtures/drawing-dwg-source-ingestion-database.mjs": "9f6f36f71339b0a91dfe06fa335bc77b9e76853cfd5b53fc2d4b77b6fc157bf0",
+    "platform/tests/drawing-workspace-m1-real-database.test.mjs": "8d2dc82535c970e23b4459dca883f86cf0bf37e9be7a1896dc0bbab0934e7a4c",
+    "platform/tests/project-upload-finalization-migration.test.mjs": "f16fa1aaec5f09e33c206ba3265c85b87453658d31d657f12c722ce603cfcf49",
+    "platform/tests/project-file-upload-verifier.test.mjs": "fd14251e604e88b94b396d56d8ff9a59a760e03d8b54a6695c3764a82555ccb4",
+    "platform/tests/project-dwg-source.test.mjs": "865c54d2786f4d3354147dd56a4458d9933d9b10fa34ffb5145725edb86b135b",
+    "platform/tests/project-file-upload-resume.test.mjs": "894f3de8cb50f5572ccfa22939f0186665c76a86d684e672d7dae7df570c41cb",
+    "platform/tests/drawing-workspace-entry-flow.test.mjs": "620da66e4c7ae47a9ec57329b75f181465b763d90e63e95fa9c3697483ef2bbe",
+    "platform/scripts/run-drawing-workspace-m1-e2e.mjs": "97fff5bcd793698449d4ff148b70b4c6f12e273ea97fb7fb711f3639b37fad8d",
+    "platform/tests/drawing-workspace-m1-release-harness.test.mjs": "13b04fd32fd0050c1276e9771fcfb52a7545c09f4ab1095ab9175b98358d7f83",
+    "platform/e2e/drawing-dwg-source-ingestion.spec.ts": "e795c3ae45a001a71ace0f33fb2efc7c86f7e2a2152423bdc0de210313638076"
+  },
+  "imageSha256": {
+    "desktop.png": "4007819126c3614beb277e00e30b9c157df6c1ead36be5a2bc3b247953943f9d",
+    "mobile.png": "a7e4d6e65cd56c2af04d297bbb5cd9f587a9141fb4cbc63662b09bf0e50c615d"
+  },
+  "privateLogSha256": {
+    "actual": "9132f1b3de86864d9da2bf00e79df2150c44915730fc653d484576b519b798b9",
+    "focused": "1f08675cf0b25ca8821d42cf8bc91041d20008d41af1fea597a1650e1b4fb29b"
+  }
+}

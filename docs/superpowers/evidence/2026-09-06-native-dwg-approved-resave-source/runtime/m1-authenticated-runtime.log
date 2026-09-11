@@ -1,0 +1,6 @@
+Error: M1 child command supabase failed (exit 1)
+    at ChildProcess.<anonymous> (file:///private/tmp/1hk-r2-r5-runtime.bQ2KdI/platform/scripts/run-drawing-workspace-m1-e2e.mjs:533:21)
+    at Object.onceWrapper (node:events:631:12)
+    at ChildProcess.emit (node:events:509:20)
+    at maybeClose (node:internal/child_process:1125:16)
+    at ChildProcess._handle.onexit (node:internal/child_process:305:5)

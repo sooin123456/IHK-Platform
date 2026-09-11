@@ -1,0 +1,994 @@
+--- before/platform/app/lukas/components/drawing-scale-control.tsx
++++ after/platform/app/lukas/components/drawing-scale-control.tsx
+@@ -154,10 +154,10 @@
+                 : "두 점 선택"}
+           </p>
+           <div className="flex gap-2">
+-            <label className="grid flex-1 gap-1">
++            <label className="grid min-w-0 flex-1 gap-1">
+               실제 길이
+               <input
+-                className="min-h-9 rounded border border-white/15 bg-slate-950 px-2"
++                className="min-h-9 w-full min-w-0 rounded border border-white/15 bg-slate-950 px-2"
+                 inputMode="decimal"
+                 name="knownLength"
+                 required
+--- before/platform/app/lukas/components/drawing-workspace.tsx
++++ after/platform/app/lukas/components/drawing-workspace.tsx
+@@ -631,6 +631,7 @@
+     ) ||
+     Boolean(candidate.closest?.("dialog")) ||
+     Boolean(candidate.closest?.("[role='dialog']")) ||
++    Boolean(candidate.closest?.("[role='menu']")) ||
+     Boolean(candidate.closest?.("[data-drawing-shortcuts='ignore']"))
+   );
+ }
+@@ -4636,6 +4637,7 @@
+ 
+   const handleWorkspaceShortcut = useCallback(
+     (event: KeyboardEvent) => {
++      if (event.defaultPrevented) return;
+       function openCommandMenu() {
+         if (!(event.metaKey || event.ctrlKey)) return false;
+         if (event.key.toLowerCase() !== "k") return false;
+@@ -7971,7 +7973,7 @@
+                     ? "drawing-split-tab-3d"
+                     : undefined
+                 }
+-                className={`max-h-[calc(100vh-4rem)] min-w-0 overflow-auto border-t border-white/10 bg-background p-4 text-foreground md:border-l md:border-t-0 ${activeView === "2d" ? "hidden" : activeView === "split" && narrowSplitTab === "2d" ? "hidden md:block" : "block"}`}
++                className={`max-h-[calc(100vh-4rem)] min-h-0 min-w-0 flex-col overflow-auto border-t border-white/10 bg-background p-4 text-foreground md:border-l md:border-t-0 ${activeView === "2d" ? "hidden" : activeView === "split" ? narrowSplitTab === "2d" ? "hidden md:flex" : "flex" : "block"}`}
+                 hidden={
+                   activeView === "split" &&
+                   narrowLayout &&
+@@ -7984,12 +7986,12 @@
+                     : undefined
+                 }
+               >
+-                <h2 className="text-sm font-bold">검증된 IFC 파생물 보기</h2>
+-                <p className="mt-2 text-sm leading-6 text-slate-400">
++                <h2 className="shrink-0 text-sm font-bold">검증된 IFC 파생물 보기</h2>
++                <p className="mt-2 shrink-0 text-sm leading-6 text-slate-400">
+                   GlobalId 연결을 기준으로 2D 객체와 IFC 요소를 함께 찾습니다.
+                 </p>
+                 {ifcMatch.status === "ambiguous" ? (
+-                  <div className="mt-3 rounded-md border p-3 text-sm">
++                  <div className="mt-3 shrink-0 rounded-md border p-3 text-sm">
+                     <p className="font-semibold">
+                       연결된 도면 객체가 여러 개입니다. 이동할 객체를
+                       선택하세요.
+@@ -8009,7 +8011,7 @@
+                   </div>
+                 ) : null}
+                 {ifcMatch.status === "no_match" ? (
+-                  <div className="mt-3 rounded-md border border-amber-400/30 bg-amber-50 p-3 text-sm text-slate-900">
++                  <div className="mt-3 shrink-0 rounded-md border border-amber-400/30 bg-amber-50 p-3 text-sm text-slate-900">
+                     <p>선택한 IFC 요소와 연결된 도면 객체가 없습니다.</p>
+                     <button
+                       className="mt-2 min-h-10 rounded-md bg-indigo-600 px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+@@ -8029,7 +8031,7 @@
+                     {ifcLoadError}
+                   </p>
+                 ) : IfcViewer ? (
+-                  <div className="mt-4">
++                  <div className={`mt-4 ${activeView === "split" ? "min-h-0 flex-1" : ""}`}>
+                     <IfcViewer
+                       compact={activeView === "split"}
+                       derivative={selectedIfc.derivative}
+--- before/platform/app/lukas/components/ifc-property-browser.client.tsx
++++ after/platform/app/lukas/components/ifc-property-browser.client.tsx
+@@ -637,9 +637,9 @@
+   }
+ 
+   return (
+-    <div className="space-y-5">
+-      <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+-        <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
++    <div className={`space-y-5 ${compact ? "h-full overflow-auto" : ""}`}>
++      <section className={`overflow-hidden rounded-2xl border bg-card shadow-sm ${compact ? "flex max-h-full min-h-0 flex-col" : ""}`}>
++        <div className={`flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between ${compact ? "shrink-0" : ""}`}>
+           <div>
+             <div className="flex items-center gap-2 font-semibold">
+               <Cuboid className="size-4 text-primary" /> IFC 3D 모델
+@@ -672,7 +672,7 @@
+           </div>
+         </div>
+         <div
+-          className={`relative overflow-hidden bg-slate-100 dark:bg-slate-950 ${compact ? "h-[20rem]" : "min-h-[22rem] sm:h-[34rem]"}`}
++          className={`relative overflow-hidden bg-slate-100 dark:bg-slate-950 ${compact ? "h-[20rem] min-h-0 shrink" : "min-h-[22rem] sm:h-[34rem]"}`}
+         >
+           <div
+             aria-label="IFC 3D 모델 화면"
+--- before/platform/app/lukas/screens/local-drawing-workspace-preview.tsx
++++ after/platform/app/lukas/screens/local-drawing-workspace-preview.tsx
+@@ -91,9 +91,10 @@
+ };
+ 
+ const sourceSha256 = "a".repeat(64);
+-const representativePdfByteSize = 62_602;
++// Public synthetic current PDF: scripts/generate-p5-current-pdf.mjs.
++const representativePdfByteSize = 8_289;
+ const representativePdfSha256 =
+-  "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326";
++  "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db";
+ const representativePreviousPdfByteSize = 63_118;
+ const representativePreviousPdfSha256 =
+   "ea75a7e655dee16a460672131424f00112f70467e495f751d77de80e409fc9bc";
+@@ -1269,6 +1270,7 @@
+     "connectionLifecycleTest",
+     "collaborationRetryTest",
+     "bootstrapReadOnlyTest",
++    "awarenessTest",
+     "verticalTest",
+     "localMultiplayerTest",
+   ].some((name) => new URL(request.url).searchParams.get(name) === "1");
+--- before/platform/app/lukas/screens/local-drawing-pdf-current.ts
++++ after/platform/app/lukas/screens/local-drawing-pdf-current.ts
+@@ -5,7 +5,7 @@
+ 
+ const representativeDrawing = path.resolve(
+   process.cwd(),
+-  "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
++  "tests/fixtures/p5-current-revision.pdf",
+ );
+ 
+ export async function loader({ request }: Route.LoaderArgs) {
+--- before/platform/e2e/drawing-workspace-shell.spec.ts
++++ after/platform/e2e/drawing-workspace-shell.spec.ts
+@@ -60,7 +60,7 @@
+     if (message.type() === "error") consoleErrors.push(message.text());
+   });
+   await page.setViewportSize({ width: 898, height: 800 });
+-  await openPreview(page, `${awarenessTestPreviewPath}&view=split`);
++  await openPreview(page, `${awarenessTestPreviewPath}&p5IfcTest=1&view=split`);
+ 
+   const header = page.locator("main.drawing-workspace > header");
+   const bounds = await header.evaluate((element) => ({
+@@ -110,11 +110,11 @@
+   expect(consoleErrors).toEqual([]);
+ });
+ 
+-test("current desktop preview is canvas-first and every dock remains keyboard recoverable", async ({
++test("desktop split preview keeps every dock keyboard recoverable", async ({
+   page,
+ }) => {
+   await page.setViewportSize({ width: 1280, height: 720 });
+-  await openPreview(page);
++  await openPreview(page, `${previewPath}?view=split`);
+   const panel = page.getByRole("complementary", { name: "IFC 3D 원본" });
+   await expect(panel).toBeVisible();
+   await expect(
+@@ -130,19 +130,31 @@
+     .evaluate((element) => element.getBoundingClientRect().toJSON());
+   expect(modelBounds.bottom).toBeLessThanOrEqual(720);
+   await expect(page.getByText(/P4 공동 편집 미리보기/)).toHaveCount(0);
+-  await expect(
+-    page.getByRole("complementary", { name: "속성 검사기" }),
+-  ).toBeHidden();
++  const initialInspector = page.getByRole("complementary", {
++    name: "속성 검사기",
++  });
++  await expect(initialInspector).toBeVisible();
++  await page.keyboard.press("]");
++  await expect(initialInspector).toBeHidden();
+ 
+   const canvas = page.getByRole("region", { name: "도면 캔버스" });
+   const canvasBounds = await canvas.evaluate((element) =>
+     element.getBoundingClientRect().toJSON(),
+   );
++  const shellBounds = await page.locator(".drawing-workspace-shell").evaluate(
++    (element) => element.getBoundingClientRect().toJSON(),
++  );
+   expect(canvasBounds.width).toBeGreaterThan(900);
+-  expect(canvasBounds.height).toBeGreaterThan(600);
++  expect(Math.abs(canvasBounds.top - shellBounds.top)).toBeLessThanOrEqual(1);
++  expect(Math.abs(canvasBounds.bottom - shellBounds.bottom)).toBeLessThanOrEqual(1);
++  expect(Math.abs(canvasBounds.height - shellBounds.height)).toBeLessThanOrEqual(1);
++  expect(canvasBounds.bottom).toBeLessThanOrEqual(720);
+ 
+   const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
++  await expect(tools).toBeHidden();
+   await page.keyboard.press("[");
++  await expect(tools).toBeVisible();
++  await page.keyboard.press("[");
+   await expect(tools).toBeHidden();
+   await page.keyboard.press("[");
+   await expect(tools).toBeVisible();
+@@ -228,6 +240,19 @@
+     ),
+   ).toBeVisible();
+   await expect(inspector.getByText(/WALL-EXT-01/)).toHaveCount(0);
++
++  const propertiesHeading = panel.getByRole("heading", { name: "선택 요소 속성" });
++  await propertiesHeading.scrollIntoViewIfNeeded();
++  const propertiesBounds = await propertiesHeading.boundingBox();
++  expect(propertiesBounds).not.toBeNull();
++  expect(propertiesBounds!.y).toBeGreaterThanOrEqual(shellBounds.top);
++  expect(propertiesBounds!.y + propertiesBounds!.height).toBeLessThanOrEqual(720);
++  const model = panel.getByRole("img", { name: "IFC 3D 모델 화면" });
++  await model.scrollIntoViewIfNeeded();
++  const restoredModelBounds = await model.boundingBox();
++  expect(restoredModelBounds).not.toBeNull();
++  expect(restoredModelBounds!.y).toBeGreaterThanOrEqual(shellBounds.top);
++  expect(restoredModelBounds!.y + restoredModelBounds!.height).toBeLessThanOrEqual(720);
+ });
+ 
+ test("tablet keeps one drawer beside a mounted canvas and restores canvas focus when it closes", async ({
+@@ -401,15 +426,15 @@
+   await toolbar.evaluate((element) => {
+     (element as HTMLElement).scrollLeft = 0;
+   });
++  const toolbarBounds = await toolbar.evaluate((element) =>
++    element.getBoundingClientRect().toJSON(),
++  );
+   await page.getByRole("button", { name: "건축 객체" }).click();
+-  const menu = page.getByRole("menu", { name: "건축 객체 도구" });
++  const menu = page.getByRole("menu", { name: "건축 객체", exact: true });
+   await expect(menu).toBeVisible();
+   const menuBounds = await menu.evaluate((element) =>
+     element.getBoundingClientRect().toJSON(),
+   );
+-  const toolbarBounds = await toolbar.evaluate((element) =>
+-    element.getBoundingClientRect().toJSON(),
+-  );
+   expect(menuBounds.bottom).toBeLessThanOrEqual(toolbarBounds.top);
+   const documentBounds = await page.evaluate(() => ({
+     width: document.documentElement.scrollWidth,
+@@ -469,6 +494,17 @@
+   });
+ 
+   await openPreview(page, awarenessTestPreviewPath);
++  await page.getByRole("tab", { name: "블록" }).click();
++  await page
++    .getByRole("button", { name: /창호 W-01 인스턴스 2개 보기/ })
++    .click();
++  await page.getByRole("button", { name: "W-01 동측 인스턴스 선택" }).click();
++  await page.getByRole("textbox", { name: "이름", exact: true }).focus();
++  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText(
++    "00000000-0000-4000-8000-000000000082",
++  );
++  await page.getByRole("tab", { name: "페이지·레이어" }).click();
++  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText("없음");
+   await expect(
+     page.getByRole("status", { name: "공동 작업 참여자 3명" }),
+   ).toBeVisible();
+@@ -531,16 +567,6 @@
+   ).toContainText("D-01 북측");
+   await expect(lockedInstance).toBeVisible();
+ 
+-  await page
+-    .getByRole("button", { name: /창호 W-01 인스턴스 2개 보기/ })
+-    .click();
+-  await page.getByRole("button", { name: "W-01 동측 인스턴스 선택" }).click();
+-  await page.getByRole("textbox", { name: "이름", exact: true }).focus();
+-  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText(
+-    "00000000-0000-4000-8000-000000000082",
+-  );
+-  await page.getByRole("tab", { name: "페이지·레이어" }).click();
+-  await expect(page.getByLabel("로컬 임시 잠금")).toHaveText("없음");
+   expect(supabaseRequests).toEqual([]);
+   expect(collaborationSockets).toEqual([]);
+ });
+@@ -554,7 +580,7 @@
+   await expect(page.getByLabel("협업 로컬 리소스 수")).toHaveText("0");
+   const surface = page.getByLabel(/도면 화면/);
+   await expect(surface).not.toHaveClass(/pointer-events-none/);
+-  await expect(page.getByRole("button", { name: "선 도구" })).toHaveCount(0);
++  await expect(page.getByRole("button", { name: "선 도구" })).toBeDisabled();
+   const viewportBefore = await surface.getAttribute("data-viewport-zoom");
+   await surface.hover();
+   await page.mouse.wheel(0, -200);
+@@ -574,7 +600,7 @@
+   await expect(
+     page.getByRole("textbox", { name: "새 레이어 이름" }),
+   ).toBeVisible();
+-  await expect(page.getByRole("button", { name: "선 도구" })).toBeVisible();
++  await expect(page.getByRole("button", { name: "선 도구" })).toBeEnabled();
+   await page.evaluate(() => window.dispatchEvent(new Event("online")));
+   await expect(page.getByLabel("협업 provider 수")).toHaveText("1");
+   await expect(page.getByLabel("협업 재시도 상태")).toHaveText("connected");
+@@ -757,6 +783,7 @@
+ 
+   const structureTab = page.getByRole("tab", { name: "페이지·레이어" });
+   const stylesTab = page.getByRole("tab", { name: "스타일" });
++  const blocksTab = page.getByRole("tab", { name: "블록" });
+   const historyTab = page.getByRole("tab", { name: "변경 이력" });
+ 
+   await expect(async () => {
+@@ -770,14 +797,24 @@
+   await expect(page.locator("#drawing-panel-styles")).toBeVisible();
+ 
+   await stylesTab.press("End");
+-  await expect(historyTab).toHaveAttribute("aria-selected", "true");
+-  await expect(historyTab).toBeFocused();
+-  await expect(page.locator("#drawing-panel-history")).toBeVisible();
++  await expect(blocksTab).toHaveAttribute("aria-selected", "true");
++  await expect(blocksTab).toBeFocused();
++  await expect(page.locator("#drawing-panel-blocks")).toBeVisible();
+ 
+-  await historyTab.press("Home");
++  await blocksTab.press("Home");
+   await expect(structureTab).toHaveAttribute("aria-selected", "true");
+   await expect(structureTab).toBeFocused();
+   await expect(page.locator("#drawing-panel-structure")).toBeVisible();
++  await page.getByRole("radio", { name: "검토", exact: true }).click();
++  const collaborationTab = page.getByRole("tab", { name: "댓글·이슈" });
++  await collaborationTab.press("End");
++  await expect(historyTab).toHaveAttribute("aria-selected", "true");
++  await expect(historyTab).toBeFocused();
++  await expect(page.locator("#drawing-panel-history")).toBeVisible();
++  await historyTab.press("Home");
++  await expect(collaborationTab).toHaveAttribute("aria-selected", "true");
++  await expect(collaborationTab).toBeFocused();
++  await expect(page.locator("#drawing-panel-collaboration")).toBeVisible();
+ });
+ 
+ test("hydrated export dialog explains background availability and cancels one gated run", async ({
+@@ -785,10 +822,8 @@
+ }) => {
+   await openPreview(page);
+   const dialog = page.getByRole("dialog", { name: "도면 내보내기" });
+-  await expect(async () => {
+-    await page.getByRole("button", { name: "내보내기" }).click();
+-    await expect(dialog).toBeVisible({ timeout: 250 });
+-  }).toPass({ timeout: 10_000 });
++  await page.getByRole("button", { name: "내보내기" }).click();
++  await expect(dialog).toBeVisible();
+ 
+   await dialog.getByRole("radio", { name: "PNG" }).check();
+   const includeBackground = dialog.getByRole("checkbox", {
+@@ -857,23 +892,30 @@
+   }
+ });
+ 
+-test("architectural object tools remain accessible without toolbar overflow on desktop and tablet", async ({
+-  page,
+-}) => {
+-  for (const viewport of [
+-    { width: 1440, height: 900 },
+-    { width: 768, height: 1024 },
+-  ]) {
++for (const viewport of [
++  { width: 1440, height: 900 },
++  { width: 768, height: 1024 },
++]) {
++  test(`architectural object tools remain accessible without page overflow at ${viewport.width}px`, async ({ page }) => {
+     await page.setViewportSize(viewport);
+     await openPreview(page);
++    await expect(page.locator("[data-storage-error-detail]")).toHaveCount(0);
+     const surface = page.getByLabel(/도면 화면/);
+     const initialSemanticCount = await stableSemanticCount(page);
+     const semanticTrigger = page.getByRole("button", { name: "건축 객체" });
+     await semanticTrigger.click();
+     await page.getByRole("menuitem", { name: "벽 도구" }).click();
+     await expect(semanticTrigger).toBeFocused();
+-    if (viewport.width === 768)
+-      await page.getByRole("button", { name: "왼쪽 도구 패널 숨기기" }).click();
++    if (viewport.width === 768) {
++      const tools = page.getByRole("complementary", { name: "도면 도구 패널" });
++      const inspector = page.getByRole("complementary", { name: "속성 검사기" });
++      await expect(tools).toBeHidden();
++      await expect(inspector).toBeVisible();
++      await page.getByRole("button", { name: "속성 검사기 숨기기" }).click();
++      await expect(inspector).toBeHidden();
++      await expect(tools).toBeHidden();
++      await expect(surface).toBeFocused();
++    }
+     const zoom = Number(await surface.getAttribute("data-viewport-zoom"));
+     const viewportX = Number(await surface.getAttribute("data-viewport-x"));
+     const viewportY = Number(await surface.getAttribute("data-viewport-y"));
+@@ -890,6 +932,7 @@
+     await expect(
+       page.getByRole("list", { name: "건축 객체 목록" }),
+     ).toContainText("Wall · wall");
++    await expect(page.locator("[data-storage-error-detail]")).toHaveCount(0);
+     if (viewport.width === 1440) {
+       await page.getByRole("button", { name: "선택 도구" }).click();
+       await surface.click({
+@@ -924,7 +967,18 @@
+       await expect(page.getByRole("alert")).toContainText(/경계|다각형/);
+       await page.keyboard.press("Escape");
+     }
+-    await semanticTrigger.click();
++    const selectedBeforeMenu = await surface.getAttribute("data-selected-object-id");
++    expect(selectedBeforeMenu).not.toBeNull();
++    const coordinates = page.locator('input[name="startXMillimeters"], input[name="startYMillimeters"], input[name="endXMillimeters"], input[name="endYMillimeters"]');
++    const coordinateValues = () => coordinates.evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
++    const coordinatesBeforeMenu = await coordinateValues();
++    if (viewport.width === 768) expect(coordinatesBeforeMenu).toHaveLength(4);
++    const expectMenuPreservesSelection = async () => {
++      await expect(surface).toHaveAttribute("data-selected-object-id", selectedBeforeMenu!);
++      await expect.poll(coordinateValues).toEqual(coordinatesBeforeMenu);
++    };
++    await semanticTrigger.press("ArrowDown");
++    await expectMenuPreservesSelection();
+     for (const name of [
+       "벽 도구",
+       "개구부 도구",
+@@ -939,8 +993,13 @@
+     await expect(
+       page.getByRole("menuitem", { name: "개구부 도구" }),
+     ).toBeFocused();
++    await expectMenuPreservesSelection();
++    await page.keyboard.press("Delete");
++    await expectMenuPreservesSelection();
+     await page.keyboard.press("Escape");
+     await expect(page.getByRole("menuitem", { name: "벽 도구" })).toBeHidden();
++    await expect(page.locator("[data-storage-error-detail]")).toHaveCount(0);
++    await expect(semanticTrigger).toBeEnabled();
+     await expect(semanticTrigger).toBeFocused();
+     const overflow = await page.evaluate(() => {
+       const toolbar = document.querySelector('[aria-label="캔버스 도구"]');
+@@ -955,10 +1014,24 @@
+       };
+     });
+     expect(overflow.document).toBeLessThanOrEqual(0);
+-    expect(overflow.toolbar).toBeLessThanOrEqual(0);
++    expect(overflow.documentY).toBeLessThanOrEqual(0);
+     if (viewport.width === 1440) {
+-      expect(overflow.documentY).toBeLessThanOrEqual(0);
++      expect(overflow.toolbar).toBeLessThanOrEqual(0);
+       await expect(page.locator(".konvajs-content > canvas")).toHaveCount(3);
++    } else {
++      const toolbar = page.getByRole("navigation", { name: "캔버스 도구" });
++      expect(await toolbar.evaluate((element) => getComputedStyle(element).overflowX)).toBe("auto");
++      const fit = page.getByRole("button", { name: "화면 맞춤" });
++      await fit.scrollIntoViewIfNeeded();
++      await fit.focus();
++      await expect(fit).toBeFocused();
++      const fitBounds = await fit.boundingBox();
++      const toolbarBounds = await toolbar.boundingBox();
++      expect(fitBounds).not.toBeNull();
++      expect(toolbarBounds).not.toBeNull();
++      expect(fitBounds!.x).toBeGreaterThanOrEqual(toolbarBounds!.x);
++      expect(fitBounds!.x + fitBounds!.width).toBeLessThanOrEqual(toolbarBounds!.x + toolbarBounds!.width);
++      expect(fitBounds!.height).toBeGreaterThanOrEqual(44);
+     }
+-  }
+-});
++  });
++}
+--- before/platform/e2e/drawing-workspace-p5.spec.ts
++++ after/platform/e2e/drawing-workspace-p5.spec.ts
+@@ -213,7 +213,7 @@
+   });
+   const source = await readFile(
+     path.resolve(
+-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
++      "tests/fixtures/p5-current-revision.pdf",
+     ),
+   );
+   const changedDocument = await PDFDocument.load(source);
+@@ -382,12 +382,19 @@
+   await expect(
+     page.getByRole("group", { name: "PDF 개정 비교" }),
+   ).toBeVisible();
+-  await expect(
+-    page.getByRole("tab", { name: "결과", exact: true }),
+-  ).toHaveAttribute("aria-selected", "true");
+   const objectTab = page.getByRole("tab", { name: "객체", exact: true });
++  const resultTab = page.getByRole("tab", { name: "결과", exact: true });
++  await expect(objectTab).toHaveAttribute("aria-selected", "true");
++  await expect(resultTab).toHaveAttribute("aria-selected", "false");
++  await resultTab.click();
++  await expect(resultTab).toHaveAttribute("aria-selected", "true");
++  await expect(objectTab).toHaveAttribute("aria-selected", "false");
++  await expect(
++    page.getByRole("tabpanel", { name: "결과", exact: true }),
++  ).toBeVisible();
+   await objectTab.click();
+   await expect(objectTab).toHaveAttribute("aria-selected", "true");
++  await expect(resultTab).toHaveAttribute("aria-selected", "false");
+   await expect(
+     page.getByRole("region", { name: "선택 객체 원본 근거" }),
+   ).toContainText("조회 전용");
+@@ -409,7 +416,7 @@
+   page.setDefaultTimeout(15_000);
+   const source = await readFile(
+     path.resolve(
+-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
++      "tests/fixtures/p5-current-revision.pdf",
+     ),
+   );
+   let loadRequests = 0;
+@@ -525,7 +532,7 @@
+   page.setDefaultTimeout(15_000);
+   const source = await readFile(
+     path.resolve(
+-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
++      "tests/fixtures/p5-current-revision.pdf",
+     ),
+   );
+   let loadRequests = 0;
+@@ -593,7 +600,7 @@
+ }) => {
+   const source = await readFile(
+     path.resolve(
+-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
++      "tests/fixtures/p5-current-revision.pdf",
+     ),
+   );
+   let releasePrevious!: () => void;
+@@ -633,7 +640,7 @@
+   page.on("pageerror", (error) => pageErrors.push(error.message));
+   const source = await readFile(
+     path.resolve(
+-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
++      "tests/fixtures/p5-current-revision.pdf",
+     ),
+   );
+   const hash = createHash("sha256").update(source).digest("hex");
+@@ -653,12 +660,22 @@
+   await expect(snapshot).toContainText(
+     '"selectedIds":["00000000-0000-4000-8000-000000000071"]',
+   );
+-  await expect(
+-    page.getByRole("tab", { name: "결과", exact: true }),
+-  ).toHaveAttribute("aria-selected", "true");
+   const objectTab = page.getByRole("tab", { name: "객체", exact: true });
++  const resultTab = page.getByRole("tab", { name: "결과", exact: true });
++  await expect(objectTab).toHaveAttribute("aria-selected", "true");
++  await expect(resultTab).toHaveAttribute("aria-selected", "false");
++  await resultTab.click();
++  await expect(resultTab).toHaveAttribute("aria-selected", "true");
++  await expect(objectTab).toHaveAttribute("aria-selected", "false");
++  await expect(
++    page.getByRole("tabpanel", { name: "결과", exact: true }),
++  ).toBeVisible();
+   await objectTab.click();
+   await expect(objectTab).toHaveAttribute("aria-selected", "true");
++  await expect(resultTab).toHaveAttribute("aria-selected", "false");
++  await expect(snapshot).toContainText(
++    '"selectedIds":["00000000-0000-4000-8000-000000000071"]',
++  );
+   await page.getByRole("button", { name: "PDF 영역 원본 근거 연결" }).click();
+   expect(pageErrors).toEqual([]);
+   await expect(snapshot).toContainText('"sourceKind":"pdf_region"');
+--- before/platform/e2e/drawing-workspace-p6.spec.ts
++++ after/platform/e2e/drawing-workspace-p6.spec.ts
+@@ -31,8 +31,8 @@
+   await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+   const sourceBefore = await responseDigest(page, "/__p5-current.pdf");
+   expect(sourceBefore).toEqual({
+-    bytes: 62_602,
+-    sha256: "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
++    bytes: 8_289,
++    sha256: "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db",
+   });
+   const surface = page.getByLabel(/도면 화면/);
+   await expect(surface).toHaveAttribute(
+--- before/platform/tests/drawing-workspace-shell.test.mjs
++++ after/platform/tests/drawing-workspace-shell.test.mjs
+@@ -1871,6 +1871,67 @@
+   assert.equal(resolve({ key: "Escape", target: null }), null);
+ });
+ 
++test("menu roots and descendants own edit keys without moving or mutating drawing selection", () => {
++  const resolve = workspaceModule.resolveDrawingWorkspaceShortcut;
++  const menu = { tagName: "DIV", role: "menu" };
++  const event = {
++    altKey: false,
++    ctrlKey: false,
++    metaKey: false,
++    shiftKey: false,
++  };
++  for (const tagName of ["DIV", "SPAN"]) {
++    const target = {
++      tagName,
++      closest: (selector) => (selector === "[role='menu']" ? menu : null),
++    };
++    for (const keys of [
++      { key: "ArrowDown" },
++      { key: "ArrowUp" },
++      { key: "ArrowLeft" },
++      { key: "ArrowRight", shiftKey: true },
++      { key: "Delete" },
++      { key: "Backspace" },
++      { key: "z", metaKey: true },
++      { key: "z", ctrlKey: true, shiftKey: true },
++      { key: "c", metaKey: true },
++      { key: "v", ctrlKey: true },
++      { key: "d", metaKey: true },
++    ])
++      assert.equal(
++        resolve({ ...event, ...keys, target }),
++        null,
++        `${tagName} within menu must retain ${keys.key}`,
++      );
++  }
++  assert.deepEqual(resolve({ ...event, key: "ArrowDown", target: null }), {
++    type: "move",
++    delta: { x: 0, y: 1 },
++  });
++  assert.deepEqual(resolve({ ...event, key: "Delete", target: null }), {
++    type: "delete",
++  });
++});
++
++test("menu roots and descendants own brackets without toggling workspace docks", () => {
++  const resolve = workspaceModule.resolveDrawingWorkspaceDockShortcut;
++  const menu = { tagName: "DIV", role: "menu" };
++  for (const tagName of ["DIV", "SPAN"]) {
++    const target = {
++      tagName,
++      closest: (selector) => (selector === "[role='menu']" ? menu : null),
++    };
++    for (const key of ["[", "]"])
++      assert.equal(
++        resolve({ key, target }),
++        null,
++        `${tagName} within menu must retain ${key}`,
++      );
++  }
++  assert.equal(resolve({ key: "[", target: null }), "left");
++  assert.equal(resolve({ key: "]", target: null }), "inspector");
++});
++
+ test("split view preserves the lineage inspector and collapses only the left dock on compact desktop widths", () => {
+   const resolve = workspaceModule.resolveDrawingWorkspaceSplitDockState;
+   assert.equal(typeof resolve, "function");
+--- before/platform/tests/local-drawing-workspace-preview.test.mjs
++++ after/platform/tests/local-drawing-workspace-preview.test.mjs
+@@ -3,6 +3,7 @@
+ import { readFile } from "node:fs/promises";
+ import { fileURLToPath } from "node:url";
+ import test from "node:test";
++import { PDFDocument } from "pdf-lib";
+ import { createServer } from "vite";
+ 
+ import routes from "../app/routes.ts";
+@@ -12,6 +13,7 @@
+   appType: "custom",
+   configFile: false,
+   logLevel: "silent",
++  root: fileURLToPath(new URL("../", import.meta.url)),
+   resolve: {
+     alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
+   },
+@@ -23,6 +25,9 @@
+ const pdfPreview = await vite.ssrLoadModule(
+   "/app/lukas/screens/local-drawing-pdf-preview.ts",
+ );
++const currentPdfPreview = await vite.ssrLoadModule(
++  "/app/lukas/screens/local-drawing-pdf-current.ts",
++);
+ test.after(() => vite.close());
+ const testEnvironment = process.env.NODE_ENV;
+ process.env.NODE_ENV = "development";
+@@ -113,8 +118,81 @@
+   });
+   assert.equal(denied.status, 404);
+   process.env.NODE_ENV = "development";
++});
++
++test("current PDF resource matches its immutable preview descriptor and public fixture", async () => {
++  const loaded = unwrapRouteData(
++    await preview.loader({
++      request: request(
++        "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
++      ),
++      params: {},
++    }),
++  );
++  const descriptor = loaded.sourceBundle.pdf;
++  const response = await currentPdfPreview.loader({
++    request: request(`http://127.0.0.1:5173${descriptor.signedUrl}`),
++    params: {},
++  });
++  assert.equal(response.status, 200);
++  assert.equal(response.headers.get("content-type"), "application/pdf");
++  assert.equal(response.headers.get("cache-control"), "no-store");
++  const bytes = Buffer.from(await response.arrayBuffer());
++  assert.equal(bytes.subarray(0, 4).toString(), "%PDF");
++  assert.equal(bytes.byteLength, descriptor.byteSize);
++  assert.equal(
++    createHash("sha256").update(bytes).digest("hex"),
++    descriptor.sha256,
++  );
++  assert.deepEqual(
++    bytes,
++    await readFile(new URL("./fixtures/p5-current-revision.pdf", import.meta.url)),
++  );
++  const current = await PDFDocument.load(bytes);
++  const previous = await PDFDocument.load(
++    await readFile(new URL("./fixtures/p5-previous-revision.pdf", import.meta.url)),
++  );
++  assert.equal(current.getPageCount(), 3);
++  assert.deepEqual(
++    current.getPages().map((page) => page.getSize()),
++    previous.getPages().map((page) => page.getSize()),
++  );
++  assert.equal(
++    current.getTitle(),
++    "1HK synthetic current revision - NOT FOR CONSTRUCTION",
++  );
++  assert.notEqual(descriptor.sha256, loaded.sourceBundle.previousPdf.sha256);
++  assert.equal(loaded.workspace.primarySource.sha256, descriptor.sha256);
++  assert.equal(loaded.workspace.document.source_sha256, descriptor.sha256);
++  assert.deepEqual(
++    preview.localP5SourceManifest().find((source) => source.kind === "pdf_current"),
++    {
++      kind: "pdf_current",
++      id: descriptor.id,
++      byteSize: descriptor.byteSize,
++      sha256: descriptor.sha256,
++      signedUrl: descriptor.signedUrl,
++    },
++  );
+ });
+ 
++test("current PDF resource rejects non-loopback and production requests", async () => {
++  const args = (url) => ({ request: request(url), params: {} });
++  assert.equal(
++    (await currentPdfPreview.loader(args("http://192.168.0.20/__p5-current.pdf"))).status,
++    404,
++  );
++  process.env.NODE_ENV = "production";
++  try {
++    assert.equal(
++      (await currentPdfPreview.loader(args("http://127.0.0.1:5173/__p5-current.pdf"))).status,
++      404,
++    );
++  } finally {
++    process.env.NODE_ENV = "development";
++  }
++});
++
+ test("P2 preview server module does not import browser-only state modules", async () => {
+   const source = await readFile(
+     new URL(
+@@ -172,12 +250,12 @@
+   );
+ 
+   assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
+-  assert.equal(loaded.sourceBundle.pdf.byteSize, 62_602);
++  assert.equal(loaded.sourceBundle.pdf.byteSize, 8_289);
+   assert.equal(
+     loaded.sourceBundle.pdf.sha256,
+-    "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
++    "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db",
+   );
+-  assert.equal(loaded.workspace.primarySource.byte_size, 62_602);
++  assert.equal(loaded.workspace.primarySource.byte_size, 8_289);
+   assert.equal(
+     loaded.workspace.primarySource.sha256,
+     loaded.sourceBundle.pdf.sha256,
+@@ -270,7 +348,7 @@
+   assert.match(source, /합성 매핑 예제 · 원본 IFC 형상 아님/);
+ });
+ 
+-test("awareness harness preserves the canonical integrated workspace", async () => {
++test("awareness harness uses its legacy fixture with explicit IFC opt-in", async () => {
+   const loaded = unwrapRouteData(
+     await preview.loader({
+       request: request(
+@@ -281,13 +359,28 @@
+   );
+ 
+   assert.equal(loaded.awarenessTest, true);
+-  assert.equal(loaded.canonicalP5, true);
++  assert.equal(loaded.canonicalP5, false);
+   assert.equal(loaded.viewMode, "split");
+-  assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
++  assert.equal(loaded.sourceBundle, undefined);
++  const withIfc = unwrapRouteData(
++    await preview.loader({
++      request: request(
++        "http://127.0.0.1:5173/workspace-preview/drawing-workspace?awarenessTest=1&p5IfcTest=1&view=split",
++      ),
++      params: {},
++    }),
++  );
++  assert.equal(withIfc.awarenessTest, true);
++  assert.equal(withIfc.p5IfcTest, true);
++  assert.equal(withIfc.canonicalP5, false);
++  assert.equal(withIfc.viewMode, "split");
++  assert.equal(withIfc.sourceBundle.pdf, null);
+   assert.equal(
+-    loaded.selectedIfcFileId,
++    withIfc.sourceBundle.ifc.id,
+     "00000000-0000-4000-8000-0000000000a1",
+   );
++  assert.equal(withIfc.selectedIfcFileId, withIfc.sourceBundle.ifc.id);
++  assert.equal(withIfc.sourceBundle.ifc.derivative.status, "ready");
+ });
+ 
+ test("P5 local baseline contains exactly 10,000 objects and 2,000 immutable IFC links", async () => {
+@@ -558,6 +651,11 @@
+   assert.deepEqual(accepted.data, {
+     ok: true,
+     clientOperationId: "00000000-0000-4000-8000-000000000091",
++    result: {
++      operationId: "00000000-0000-4000-8000-000000000091",
++      sequence: 262_298,
++      resultVersions: { "00000000-0000-4000-8000-000000000021": 2 },
++    },
+   });
+ 
+   const malformed = new FormData();
+--- before/platform/scripts/drawing-p5-release-evidence.mjs
++++ after/platform/scripts/drawing-p5-release-evidence.mjs
+@@ -13,9 +13,9 @@
+ export const P5_SOURCE_FIXTURES = [
+   {
+     kind: "pdf_current",
+-    file: "../../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+-    byteSize: 62_602,
+-    sha256: "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
++    file: "../tests/fixtures/p5-current-revision.pdf",
++    byteSize: 8_289,
++    sha256: "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db",
+   },
+   {
+     kind: "pdf_previous",
+--- before/platform/scripts/generate-p5-current-pdf.mjs
++++ after/platform/scripts/generate-p5-current-pdf.mjs
+@@ -0,0 +1,169 @@
++import { createHash } from "node:crypto";
++import { writeFile } from "node:fs/promises";
++
++import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
++
++// Self-authored vector data only. Preserve the public predecessor's page sizes.
++// Run: node scripts/generate-p5-current-pdf.mjs
++const sizes = [
++  [3370.393700787402, 2383.9370078740158],
++  [3370.393700787402, 2383.9370078740158],
++  [2383.9370078740158, 1683.7795275590552],
++];
++const target = new URL(
++  "../tests/fixtures/p5-current-revision.pdf",
++  import.meta.url,
++);
++const document = await PDFDocument.create();
++const fixedDate = new Date("2026-01-01T00:00:00.000Z");
++document.setCreationDate(fixedDate);
++document.setModificationDate(fixedDate);
++document.setTitle("1HK synthetic current revision - NOT FOR CONSTRUCTION");
++document.setAuthor("1HK synthetic fixture generator");
++document.setCreator("1HK public PDF fixture");
++document.setProducer("1HK public PDF fixture / pdf-lib 1.17.1");
++document.setSubject("Self-authored technical vectors for local preview tests");
++const regular = await document.embedFont(StandardFonts.Helvetica);
++const bold = await document.embedFont(StandardFonts.HelveticaBold);
++const ink = rgb(0.12, 0.19, 0.26);
++const accent = rgb(0.05, 0.4, 0.47);
++const pale = rgb(0.9, 0.95, 0.96);
++const grid = rgb(0.83, 0.87, 0.89);
++const titles = [
++  "A-101 / SYNTHETIC PLAN",
++  "A-201 / SYNTHETIC SECTION",
++  "D-301 / SYNTHETIC DETAIL",
++];
++
++for (const [index, size] of sizes.entries()) {
++  const page = document.addPage(size);
++  const scale = Math.min(size[0] / 1000, size[1] / 710);
++  const text = (value, x, y, fontSize = 13, strong = false, color = ink) =>
++    page.drawText(value, {
++      x: x * scale,
++      y: y * scale,
++      size: fontSize * scale,
++      font: strong ? bold : regular,
++      color,
++    });
++  const line = (x1, y1, x2, y2, width = 1, color = ink) =>
++    page.drawLine({
++      start: { x: x1 * scale, y: y1 * scale },
++      end: { x: x2 * scale, y: y2 * scale },
++      thickness: width * scale,
++      color,
++    });
++  const box = (
++    x,
++    y,
++    width,
++    height,
++    fill = pale,
++    border = ink,
++    borderWidth = 2,
++  ) =>
++    page.drawRectangle({
++      x: x * scale,
++      y: y * scale,
++      width: width * scale,
++      height: height * scale,
++      color: fill,
++      borderColor: border,
++      borderWidth: borderWidth * scale,
++    });
++
++  box(24, 24, 952, 662, rgb(1, 1, 1), grid, 1);
++  text("1HK / PUBLIC WORKSPACE FIXTURE", 44, 655, 13, true, accent);
++  text(titles[index], 44, 622, 25, true);
++  text("SYNTHETIC - NOT FOR CONSTRUCTION", 44, 589, 17, true, accent);
++  text(
++    "No real site or design. Diagram coordinates are uncalibrated fixture units.",
++    44,
++    566,
++    12,
++  );
++  line(44, 550, 956, 550, 1, grid);
++
++  if (index === 0) {
++    for (const x of [120, 360, 600, 840]) line(x, 135, x, 510, 0.7, grid);
++    for (const y of [170, 330, 490]) line(90, y, 885, y, 0.7, grid);
++    box(120, 170, 720, 320, pale, ink, 5);
++    line(360, 170, 360, 490, 4);
++    line(600, 170, 600, 490, 4);
++    line(120, 330, 600, 330, 4);
++    for (const [label, x, y] of [
++      ["ROOM A", 175, 405],
++      ["ROOM B", 415, 405],
++      ["ROOM C", 175, 245],
++      ["ROOM D", 415, 245],
++      ["HALL", 670, 325],
++    ]) {
++      text(label, x, y, 17, true);
++      text("TEST GEOMETRY", x, y - 24, 10, false, accent);
++    }
++    for (const x of [195, 435, 675])
++      box(x, 482, 80, 16, rgb(1, 1, 1), accent, 2);
++    line(120, 125, 840, 125, 1, accent);
++    line(120, 115, 120, 140, 1, accent);
++    line(840, 115, 840, 140, 1, accent);
++    text(
++      "720 FIXTURE UNITS / NOT A MEASURED DISTANCE",
++      295,
++      98,
++      12,
++      true,
++      accent,
++    );
++  } else if (index === 1) {
++    for (const y of [180, 320, 460]) {
++      box(135, y, 690, 14, pale, ink, 3);
++      line(95, y, 880, y, 0.6, grid);
++    }
++    for (const x of [155, 465, 785]) box(x, 194, 20, 266, pale, ink, 3);
++    line(120, 180, 850, 180, 4, accent);
++    for (const [y, name] of [
++      [230, "TEST LEVEL 01"],
++      [370, "TEST LEVEL 02"],
++    ]) {
++      text(name, 245, y, 18, true);
++      text("VOID / SYNTHETIC SECTION", 515, y, 13, false, accent);
++    }
++    text("SECTION A-A / UNCALIBRATED", 335, 125, 14, true, accent);
++  } else {
++    box(165, 180, 160, 310, pale, ink, 4);
++    box(325, 285, 435, 55, pale, ink, 4);
++    for (let y = 190; y < 480; y += 22) line(174, y, 312, y + 10, 0.8, grid);
++    for (let x = 335; x < 750; x += 22) line(x, 292, x + 10, 331, 0.8, grid);
++    line(245, 440, 480, 485, 1, accent);
++    text("01 / SYNTHETIC VERTICAL MEMBER", 485, 482, 13, true, accent);
++    line(575, 312, 680, 410, 1, accent);
++    text("02 / TEST JOINT", 685, 411, 13, true, accent);
++    text("DETAIL 01 / VECTOR RENDERING SAMPLE", 225, 125, 14, true, accent);
++  }
++
++  line(44, 78, 956, 78, 1, grid);
++  text(
++    "SELF-AUTHORED TEST DATA / NO SITE, DESIGN OR CALIBRATED DIMENSIONS",
++    44,
++    56,
++    11,
++    true,
++  );
++  text(
++    `FIXTURE REVISION 02 / PAGE ${index + 1} OF 3`,
++    695,
++    36,
++    11,
++    false,
++    accent,
++  );
++}
++
++const bytes = await document.save({ useObjectStreams: false });
++await writeFile(target, bytes);
++console.log(
++  JSON.stringify({
++    byteSize: bytes.byteLength,
++    sha256: createHash("sha256").update(bytes).digest("hex"),
++  }),
++);

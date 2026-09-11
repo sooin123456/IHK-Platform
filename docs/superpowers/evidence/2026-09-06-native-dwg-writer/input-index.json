@@ -1,0 +1,223 @@
+{
+  "syntheticScope": true,
+  "authenticatedSnapshot": false,
+  "artifacts": [
+    {
+      "key": "measured-plan",
+      "sha256": "4c8723209a2cf98c0d3d7ac095b96d4b0aa858608d6eea76ea4deffbb4863c24",
+      "bytes": 21292,
+      "sourceUnchanged": true,
+      "syntheticCadVariant": false,
+      "expected": {
+        "entities": 19,
+        "blockEntities": 4,
+        "measurements": [
+          6000,
+          4000
+        ],
+        "paper": [
+          420,
+          297
+        ],
+        "scale": 0.02,
+        "model": [
+          21000,
+          14850
+        ]
+      }
+    },
+    {
+      "key": "office-layout",
+      "sha256": "bb8cf4197c5e0197e5edd7df709245823638a4bc34ee70e7a22205c34f4870d7",
+      "bytes": 20786,
+      "sourceUnchanged": true,
+      "syntheticCadVariant": false,
+      "expected": {
+        "entities": 10,
+        "blockEntities": 13,
+        "measurements": [
+          10000
+        ],
+        "paper": [
+          420,
+          297
+        ],
+        "scale": 0.02,
+        "model": [
+          21000,
+          14850
+        ]
+      }
+    },
+    {
+      "key": "remodel-phases",
+      "sha256": "d99f738478c5a8f2cedf7db9221e66e9e513a71eb58287385fd2f65ba1d030bc",
+      "bytes": 20764,
+      "sourceUnchanged": true,
+      "syntheticCadVariant": false,
+      "expected": {
+        "entities": 16,
+        "blockEntities": 4,
+        "measurements": [
+          8000
+        ],
+        "paper": [
+          420,
+          297
+        ],
+        "scale": 0.02,
+        "model": [
+          21000,
+          14850
+        ]
+      }
+    },
+    {
+      "key": "finishes-takeoff",
+      "sha256": "ea88bceecb49b2142cdce12313998f1915f38bcace5551fe14ab12e042b2ad80",
+      "bytes": 12149,
+      "sourceUnchanged": true,
+      "syntheticCadVariant": false,
+      "expected": {
+        "entities": 6,
+        "blockEntities": 3,
+        "measurements": [
+          6000
+        ],
+        "paper": [
+          420,
+          297
+        ],
+        "scale": 0.02,
+        "model": [
+          21000,
+          14850
+        ]
+      }
+    },
+    {
+      "key": "all-symbols",
+      "sha256": "d230f96abfb7bc2fa6f04594d94ed4ad1f5ea31fdc629db7226c122eb55647c3",
+      "bytes": 106492,
+      "sourceUnchanged": true,
+      "syntheticCadVariant": false,
+      "expected": {
+        "entities": 24,
+        "blocks": 24,
+        "inserts": 24,
+        "circles": 12,
+        "circularHatches": 12,
+        "firstInsert": {
+          "origin": [
+            1000,
+            -1000
+          ],
+          "rotationDegrees": -30,
+          "scale": [
+            -2,
+            3
+          ],
+          "basis": [
+            [
+              1000,
+              -1000
+            ],
+            [
+              -558.8457268119896,
+              -100
+            ],
+            [
+              -350,
+              -3338.268590217984
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "key": "edge-cases",
+      "sha256": "a0eff634a3a3914e6205cb32e7bd28122dd9ac8f1756e47545fdf1f7535ca1dd",
+      "bytes": 8546,
+      "sourceUnchanged": true,
+      "syntheticCadVariant": true,
+      "expected": {
+        "entities": 6,
+        "blockEntities": 0,
+        "measurements": [
+          6000,
+          5000
+        ],
+        "circle": [
+          200,
+          -300,
+          50
+        ],
+        "arc": [
+          10,
+          -20,
+          100,
+          -120,
+          -30
+        ],
+        "negativeDimension": {
+          "start": [
+            0,
+            0
+          ],
+          "end": [
+            6000,
+            0
+          ],
+          "definition": [
+            6000,
+            -500
+          ],
+          "text": [
+            3000,
+            -500
+          ]
+        },
+        "diagonalDimension": {
+          "start": [
+            0,
+            0
+          ],
+          "end": [
+            3000,
+            -4000
+          ],
+          "definition": [
+            3400,
+            -3700
+          ],
+          "text": [
+            1900,
+            -1700
+          ]
+        },
+        "literalText": "한글\\{원문}\\P\n다음 줄 😀 50%",
+        "textRotationDegrees": -30
+      }
+    },
+    {
+      "key": "blank-custom-paper",
+      "sha256": "8cde32e0a500aa695b1f2963407372f6ebc9abe653d074006b23b5ec176e971c",
+      "bytes": 3384,
+      "sourceUnchanged": true,
+      "syntheticCadVariant": false,
+      "expected": {
+        "entities": 0,
+        "blocks": 0,
+        "paper": [
+          400,
+          600
+        ],
+        "model": [
+          8000,
+          12000
+        ],
+        "scale": 0.05
+      }
+    }
+  ]
+}

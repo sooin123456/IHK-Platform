@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
@@ -73,14 +73,15 @@ async function mountedPage(
     throw (
       link.error ?? new Error("P7 production browser login token is absent")
     );
-  const path = `/projects/${authority.project}/drawings/${authority.file}/workspace?document=${authority.document}`;
+  const path = `/projects/${authority.project}/workspaces/${authority.document}`;
   const page = await context.newPage();
   const webSockets: string[] = [];
   page.on("websocket", (socket) => webSockets.push(socket.url()));
   await page.goto(
     `${authority.baseUrl.origin}/auth/confirm?token_hash=${encodeURIComponent(link.data.properties.hashed_token)}&type=magiclink&next=${encodeURIComponent(path)}`,
   );
-  await page.waitForURL((url) => url.pathname === path.split("?")[0]);
+  await page.waitForURL((url) => url.pathname === path && url.search === "");
+  const mountedUrl = new URL(page.url());
   await expect(page.getByLabel(/도면 화면/)).toBeVisible();
   await expect(
     page.getByRole("status", { name: "공동 편집 상태: connected" }),
@@ -90,7 +91,11 @@ async function mountedPage(
       webSockets.some((url) => url === authority.collaborationUrl.toString()),
     )
     .toBe(true);
-  return { page, webSockets };
+  return {
+    page,
+    webSockets,
+    mountedPath: `${mountedUrl.pathname}${mountedUrl.search}`,
+  };
 }
 
 async function persistedOutboxOperationIds(page: Page) {
@@ -382,7 +387,7 @@ test.describe.serial("P7 mounted production completion authority", () => {
     expect(review.data.decided_by).toBe(commenterIdentity.id);
     const approval = await admin
       .from("lukas_drawing_revision_approvals")
-      .select("decision,decided_by")
+      .select("decision,decided_by,subject_version,snapshot_sha256")
       .eq("revision_id", authority.revision)
       .eq("decision", "approved")
       .order("created_at", { ascending: false })
@@ -392,6 +397,17 @@ test.describe.serial("P7 mounted production completion authority", () => {
     expect(approval.data.decided_by).toBe(approverIdentity.id);
     expect(approval.data.decided_by).not.toBe(authorIdentity.id);
     expect(approval.data.decided_by).not.toBe(review.data.decided_by);
+    const approvedSnapshot = await admin
+      .from("lukas_drawing_snapshots")
+      .select("operation_sequence,sha256")
+      .eq("project_id", authority.project)
+      .eq("revision_id", authority.revision)
+      .eq("revision_version", approval.data.subject_version)
+      .eq("sha256", approval.data.snapshot_sha256)
+      .single();
+    if (approvedSnapshot.error) throw approvedSnapshot.error;
+    expect(approvedSnapshot.data.operation_sequence).toBeGreaterThanOrEqual(0);
+    expect(approvedSnapshot.data.sha256).toBe(approval.data.snapshot_sha256);
 
     const directUpdate = await authorApi
       .from("lukas_drawing_revisions")
@@ -429,51 +445,120 @@ test.describe.serial("P7 mounted production completion authority", () => {
     expect(frozenOperation.error).toBeTruthy();
 
     await approverPage.reload();
-    let exportRequestId = "";
-    approverPage.on("request", (request) => {
-      if (request.method() !== "POST" || !request.url().includes("/export"))
-        return;
-      const match = request
-        .postData()
-        ?.match(/name="request_id"\r\n\r\n([0-9a-f-]{36})/i);
-      if (match?.[1]) exportRequestId = match[1];
-    });
-    const downloadPromise = approverPage.waitForEvent("download");
     await approverPage.getByRole("button", { name: "내보내기" }).click();
     const dialog = approverPage.getByRole("dialog", { name: "도면 내보내기" });
-    await dialog.getByRole("radio", { name: "PDF" }).check();
-    await dialog.getByRole("button", { name: "다운로드" }).click();
-    const download = await downloadPromise;
-    const exportPath = await download.path();
-    if (!exportPath) throw new Error("P7 production export has no bytes");
-    const exportBytes = new Uint8Array(
-      await (await import("node:fs/promises")).readFile(exportPath),
+    const drawingExports: Array<{
+      requestId: string;
+      artifactType: "drawing_pdf" | "drawing_png" | "drawing_svg";
+      sha256: string;
+      byteSize: number;
+      actorId: string;
+      workspaceId: string;
+      revisionId: string;
+      revisionVersion: number;
+      operationCheckpoint: number;
+      checkpointSha256: string;
+      revisionSnapshotSha256: string;
+    }> = [];
+    for (const artifactType of [
+      "drawing_pdf",
+      "drawing_png",
+      "drawing_svg",
+    ] as const) {
+      const format = artifactType.slice("drawing_".length).toUpperCase();
+      await dialog.getByRole("radio", { name: format }).check();
+      const [download, exportRequest] = await Promise.all([
+        approverPage.waitForEvent("download", { timeout: 45_000 }),
+        approverPage.waitForRequest(
+          (request) =>
+            request.method() === "POST" &&
+            request.url().includes("/export") &&
+            Boolean(
+              request
+                .postData()
+                ?.includes(`name="artifact_type"\r\n\r\n${artifactType}`),
+            ),
+          { timeout: 45_000 },
+        ),
+        dialog.getByRole("button", { name: "다운로드" }).click(),
+      ]);
+      const requestId = exportRequest
+        .postData()
+        ?.match(/name="request_id"\r\n\r\n([0-9a-f-]{36})/i)?.[1];
+      if (!requestId)
+        throw new Error(`P7 ${artifactType} export has no request identity`);
+      const exportPath = await download.path();
+      if (!exportPath)
+        throw new Error(`P7 ${artifactType} production export has no bytes`);
+      const exportBytes = new Uint8Array(await readFile(exportPath));
+      expect(exportBytes.byteLength).toBeGreaterThan(0);
+      expect(requestId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+
+      const exportAudit = await admin
+        .from("lukas_qto_export_events")
+        .select(
+          "request_id,artifact_type,artifact_sha256,artifact_byte_size,workspace_id,revision_id,revision_version,operation_checkpoint,checkpoint_sha256,revision_snapshot_sha256,actor_id",
+        )
+        .eq("project_id", authority.project)
+        .eq("actor_id", approverIdentity.id)
+        .eq("request_id", requestId)
+        .single();
+      if (exportAudit.error) throw exportAudit.error;
+      expect(exportAudit.data.artifact_sha256).toBe(sha256(exportBytes));
+      expect(exportAudit.data.artifact_byte_size).toBe(exportBytes.byteLength);
+      expect(exportAudit.data.artifact_type).toBe(artifactType);
+      expect(exportAudit.data.workspace_id).toBe(authority.document);
+      expect(exportAudit.data.revision_id).toBe(authority.revision);
+      expect(exportAudit.data.revision_version).toBe(
+        approval.data.subject_version,
+      );
+      expect(exportAudit.data.operation_checkpoint).toBe(
+        approvedSnapshot.data.operation_sequence,
+      );
+      expect(exportAudit.data.checkpoint_sha256).toBe(
+        approvedSnapshot.data.sha256,
+      );
+      expect(exportAudit.data.revision_snapshot_sha256).toBe(
+        approval.data.snapshot_sha256,
+      );
+      drawingExports.push({
+        requestId: exportAudit.data.request_id,
+        artifactType,
+        sha256: exportAudit.data.artifact_sha256,
+        byteSize: exportAudit.data.artifact_byte_size,
+        actorId: exportAudit.data.actor_id,
+        workspaceId: exportAudit.data.workspace_id,
+        revisionId: exportAudit.data.revision_id,
+        revisionVersion: exportAudit.data.revision_version,
+        operationCheckpoint: exportAudit.data.operation_checkpoint,
+        checkpointSha256: exportAudit.data.checkpoint_sha256,
+        revisionSnapshotSha256: exportAudit.data.revision_snapshot_sha256,
+      });
+    }
+    expect(drawingExports.map(({ artifactType }) => artifactType)).toEqual([
+      "drawing_pdf",
+      "drawing_png",
+      "drawing_svg",
+    ]);
+    expect(new Set(drawingExports.map(({ requestId }) => requestId)).size).toBe(
+      3,
     );
-    expect(exportBytes.byteLength).toBeGreaterThan(0);
+    const pdfExport = drawingExports.find(
+      ({ artifactType }) => artifactType === "drawing_pdf",
+    );
+    if (!pdfExport)
+      throw new Error("P7 production PDF export receipt is absent");
     const sourceAfter = await readSourceEvidence(approverApi);
     expect(sourceAfter).toEqual(sourceBefore);
-    expect(exportRequestId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-
-    const exportAudit = await admin
-      .from("lukas_qto_export_events")
-      .select("request_id,artifact_type,sha256,byte_size,actor_id")
-      .eq("project_id", authority.project)
-      .eq("actor_id", approverIdentity.id)
-      .eq("request_id", exportRequestId)
-      .single();
-    if (exportAudit.error) throw exportAudit.error;
-    expect(exportAudit.data.sha256).toBe(sha256(exportBytes));
-    expect(exportAudit.data.byte_size).toBe(exportBytes.byteLength);
-    expect(exportAudit.data.artifact_type).toBe("drawing_pdf");
 
     await writeFile(
       evidencePath,
       `${JSON.stringify(
         {
-          schemaVersion: 1,
-          authority: "P7_MOUNTED_PRODUCTION_PLAYWRIGHT_V1",
+          schemaVersion: 2,
+          authority: "P7_MOUNTED_PRODUCTION_PLAYWRIGHT_V2",
           invocationId,
           runId: authority.runId,
           commit: authority.commit,
@@ -487,6 +572,7 @@ test.describe.serial("P7 mounted production completion authority", () => {
           projectId: authority.project,
           documentId: authority.document,
           revisionId: authority.revision,
+          mountedPaths: mounted.map(({ mountedPath }) => mountedPath),
           sourceBefore,
           sourceAfter,
           collaborationUrls,
@@ -506,14 +592,21 @@ test.describe.serial("P7 mounted production completion authority", () => {
             decision: approval.data.decision,
             decidedBy: approval.data.decided_by,
             authorId: authorIdentity.id,
+            subjectVersion: approval.data.subject_version,
+            snapshotSha256: approval.data.snapshot_sha256,
+          },
+          approvedSnapshot: {
+            operationCheckpoint: approvedSnapshot.data.operation_sequence,
+            sha256: approvedSnapshot.data.sha256,
           },
           export: {
-            requestId: exportAudit.data.request_id,
-            artifactType: exportAudit.data.artifact_type,
-            sha256: sha256(exportBytes),
-            byteSize: exportBytes.byteLength,
-            auditActorId: exportAudit.data.actor_id,
+            requestId: pdfExport.requestId,
+            artifactType: pdfExport.artifactType,
+            sha256: pdfExport.sha256,
+            byteSize: pdfExport.byteSize,
+            auditActorId: pdfExport.actorId,
           },
+          drawingExports,
           recordedAt: new Date().toISOString(),
         },
         null,

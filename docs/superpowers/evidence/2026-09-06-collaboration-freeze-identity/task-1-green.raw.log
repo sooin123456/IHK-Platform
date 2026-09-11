@@ -1,0 +1,37 @@
+^D✔ a foreign persisted lease fences a second coordinator before the owner reads (14.409833ms)
+✔ an expired persisted lease permits one takeover and denies stale completion (2.790125ms)
+✔ the active owner heartbeat renews the persisted cross-instance fence (3.161208ms)
+✔ a detached-load preparation heartbeat persists until cancel (0.449833ms)
+✔ same-request preparations share acquisition and only the last cancel releases (0.183916ms)
+✔ an owner failure cannot release a same-request handoff preparation (0.653ms)
+✔ freeze manifest compares only immutable business fields and authoritative outcome (0.921042ms)
+✔ freeze manifest preserves an authoritative deleted result (0.416166ms)
+✔ pending and conflicted ledgers cannot freeze (0.642875ms)
+✔ freeze persists freezing before frozen and is idempotent across a lost response (1.175792ms)
+✔ a detached active owner fences a separately loaded document before begin commits (0.994875ms)
+✔ the server owns a room before deferred detached storage load (4.682459ms)
+✔ a committed freezing snapshot reconciles without mutating its identity (0.370334ms)
+✔ freeze metadata reconciliation changes only the differing field (0.4605ms)
+✔ a live Hocuspocus freeze persists only through the freeze transaction (27.793666ms)
+✔ a persisted preparation lease rejects foreign live updates during detached load (1.780334ms)
+✔ a same-request server retry shares the active owner before detached load (1.173875ms)
+✔ an active freeze owner fences periodic recovery until review commits (0.997542ms)
+✔ a completed owner lease expires deterministically and recovers once (0.858958ms)
+✔ validation failure releases the matching request but committed review never releases (0.997333ms)
+✔ a review commit racing release leaves the live document frozen (0.373917ms)
+✔ a fresh server resolves interrupted and rejected freezes before admission (1.350292ms)
+✔ fresh servers replay exact committed freezes without acquiring a draft lease (3.169084ms)
+✔ rejection authority immediately releases an already-loaded live room (0.782083ms)
+✔ freeze authentication uses a separate constant-time bounded secret (0.206083ms)
+✔ application server freezes before the DB transition and releases the same request on validation failure (0.842959ms)
+✔ application server reconciles the same freeze request after its response is lost (0.437292ms)
+✔ a definitively rejected DB transition safely releases the draft freeze (0.361292ms)
+✔ internal freeze handler rejects browser credentials and returns a persisted manifest (0.838125ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 241.73025

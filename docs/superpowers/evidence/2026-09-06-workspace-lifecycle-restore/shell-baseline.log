@@ -1,0 +1,262 @@
+
+Running 16 tests using 1 worker
+
+(node:31052) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:55:1 › compact desktop keeps the top bar single-row without hiding primary actions
+[2/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:113:1 › current desktop preview is canvas-first and every dock remains keyboard recoverable
+  1) [chromium] › e2e/drawing-workspace-shell.spec.ts:113:1 › current desktop preview is canvas-first and every dock remains keyboard recoverable 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('complementary', { name: 'IFC 3D 원본' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('complementary', { name: 'IFC 3D 원본' })
+
+
+      117 |   await openPreview(page);
+      118 |   const panel = page.getByRole("complementary", { name: "IFC 3D 원본" });
+    > 119 |   await expect(panel).toBeVisible();
+          |                       ^
+      120 |   await expect(
+      121 |     panel.getByRole("img", { name: "IFC 3D 모델 화면" }),
+      122 |   ).toBeVisible();
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:119:23
+
+    Error Context: test-results/drawing-workspace-shell-cu-d570f-emains-keyboard-recoverable-chromium/error-context.md
+
+
+(node:31108) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[3/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:233:1 › tablet keeps one drawer beside a mounted canvas and restores canvas focus when it closes
+[4/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:349:1 › tablet entry keeps an awareness inspector exclusive with the tools drawer
+[5/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:368:1 › tablet toolbar respects inline safe areas, scrolls overflow, and keeps its menu on-screen
+  2) [chromium] › e2e/drawing-workspace-shell.spec.ts:368:1 › tablet toolbar respects inline safe areas, scrolls overflow, and keeps its menu on-screen 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('menu', { name: '건축 객체 도구' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('menu', { name: '건축 객체 도구' })
+
+
+      404 |   await page.getByRole("button", { name: "건축 객체" }).click();
+      405 |   const menu = page.getByRole("menu", { name: "건축 객체 도구" });
+    > 406 |   await expect(menu).toBeVisible();
+          |                      ^
+      407 |   const menuBounds = await menu.evaluate((element) =>
+      408 |     element.getBoundingClientRect().toJSON(),
+      409 |   );
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:406:22
+
+    Error Context: test-results/drawing-workspace-shell-ta-de66b-nd-keeps-its-menu-on-screen-chromium/error-context.md
+
+
+(node:31185) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[6/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:423:1 › local preview keeps its realtime indicator connected without a Supabase request
+[7/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:453:1 › distinct Awareness collaborators render object and block collaboration safely
+  3) [chromium] › e2e/drawing-workspace-shell.spec.ts:453:1 › distinct Awareness collaborators render object and block collaboration safely 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('status', { name: '공동 작업 참여자 3명' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('status', { name: '공동 작업 참여자 3명' })
+
+
+      472 |   await expect(
+      473 |     page.getByRole("status", { name: "공동 작업 참여자 3명" }),
+    > 474 |   ).toBeVisible();
+          |     ^
+      475 |   const participants = page.getByRole("list", { name: "참여자 목록" });
+      476 |   await expect(participants.getByText("김도윤", { exact: true })).toBeVisible();
+      477 |   await expect(participants.getByText("나", { exact: true })).toHaveCount(1);
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:474:5
+
+    Error Context: test-results/drawing-workspace-shell-di-ec1b9--block-collaboration-safely-chromium/error-context.md
+
+
+(node:31210) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[8/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:548:1 › collaboration initialization retry cleans partial resources and restores editing
+  4) [chromium] › e2e/drawing-workspace-shell.spec.ts:548:1 › collaboration initialization retry cleans partial resources and restores editing 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('button', { name: '선 도구' })
+    Expected: 0
+    Received: 1
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 5000ms
+      - waiting for getByRole('button', { name: '선 도구' })
+        14 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      555 |   const surface = page.getByLabel(/도면 화면/);
+      556 |   await expect(surface).not.toHaveClass(/pointer-events-none/);
+    > 557 |   await expect(page.getByRole("button", { name: "선 도구" })).toHaveCount(0);
+          |                                                            ^
+      558 |   const viewportBefore = await surface.getAttribute("data-viewport-zoom");
+      559 |   await surface.hover();
+      560 |   await page.mouse.wheel(0, -200);
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:557:60
+
+    Error Context: test-results/drawing-workspace-shell-co-00ce3-ources-and-restores-editing-chromium/error-context.md
+
+
+(node:31238) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[9/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:586:1 › transactional read-only bootstrap blocks stale draft editing before initialization
+[10/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:598:1 › review freeze immediately remounts read-only and a failed transition safely releases it
+[11/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:650:1 › preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes
+[12/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:689:1 › local preview click selects the Style tab and reveals its panel
+[13/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:715:1 › local preview Arrow, Home, and End keys select and focus their target tabs
+  5) [chromium] › e2e/drawing-workspace-shell.spec.ts:715:1 › local preview Arrow, Home, and End keys select and focus their target tabs 
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator: getByRole('tab', { name: '변경 이력' })
+    Expected: "true"
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toHaveAttribute" with timeout 5000ms
+      - waiting for getByRole('tab', { name: '변경 이력' })
+
+
+      733 |
+      734 |   await stylesTab.press("End");
+    > 735 |   await expect(historyTab).toHaveAttribute("aria-selected", "true");
+          |                            ^
+      736 |   await expect(historyTab).toBeFocused();
+      737 |   await expect(page.locator("#drawing-panel-history")).toBeVisible();
+      738 |
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:735:28
+
+    Error Context: test-results/drawing-workspace-shell-lo-1a918-and-focus-their-target-tabs-chromium/error-context.md
+
+
+(node:31296) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[14/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:745:1 › hydrated export dialog explains background availability and cancels one gated run
+  6) [chromium] › e2e/drawing-workspace-shell.spec.ts:745:1 › hydrated export dialog explains background availability and cancels one gated run 
+
+    Error: locator.click: Timeout 5000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: '내보내기' })
+
+
+    Call Log:
+    - Timeout 10000ms exceeded while waiting on the predicate
+
+      751 |     await page.getByRole("button", { name: "내보내기" }).click();
+      752 |     await expect(dialog).toBeVisible({ timeout: 250 });
+    > 753 |   }).toPass({ timeout: 10_000 });
+          |      ^
+      754 |
+      755 |   await dialog.getByRole("radio", { name: "PNG" }).check();
+      756 |   const includeBackground = dialog.getByRole("checkbox", {
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:753:6
+
+    Error Context: test-results/drawing-workspace-shell-hy-d6a53-y-and-cancels-one-gated-run-chromium/error-context.md
+
+
+(node:31338) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[15/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:781:1 › 1280px structure panel keeps disabled explanations readable below controls
+  7) [chromium] › e2e/drawing-workspace-shell.spec.ts:781:1 › 1280px structure panel keeps disabled explanations readable below controls 
+
+    Error: expect(received).toBeLessThanOrEqual(expected)
+
+    Expected: <= 239
+    Received:    243
+
+      795 |     scrollWidth: element.scrollWidth,
+      796 |   }));
+    > 797 |   expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth);
+          |                              ^
+      798 |
+      799 |   const rectangles = await explanations.evaluateAll((nodes) =>
+      800 |     nodes.map((node) => {
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:797:30
+
+    Error Context: test-results/drawing-workspace-shell-12-ee8c3-ons-readable-below-controls-chromium/error-context.md
+
+
+(node:31344) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[16/16] [chromium] › e2e/drawing-workspace-shell.spec.ts:822:1 › architectural object tools remain accessible without toolbar overflow on desktop and tablet
+  8) [chromium] › e2e/drawing-workspace-shell.spec.ts:822:1 › architectural object tools remain accessible without toolbar overflow on desktop and tablet 
+
+    Error: expect(locator).toBeFocused() failed
+
+    Locator:  getByRole('menuitem', { name: '벽 도구' })
+    Expected: focused
+    Received: inactive
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toBeFocused" with timeout 5000ms
+      - waiting for getByRole('menuitem', { name: '벽 도구' })
+        14 × locator resolved to <div tabindex="-1" role="menuitem" aria-label="벽 도구" data-variant="default" data-orientation="vertical" data-radix-collection-item="" data-slot="dropdown-menu-item" class="data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-defa…>벽 도구</div>
+           - unexpected value "inactive"
+
+
+      897 |     ])
+      898 |       await expect(page.getByRole("menuitem", { name })).toBeVisible();
+    > 899 |     await expect(page.getByRole("menuitem", { name: "벽 도구" })).toBeFocused();
+          |                                                                ^
+      900 |     await page.keyboard.press("ArrowDown");
+      901 |     await expect(
+      902 |       page.getByRole("menuitem", { name: "개구부 도구" }),
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:899:64
+
+    Error Context: test-results/drawing-workspace-shell-ar-1c461-rflow-on-desktop-and-tablet-chromium/error-context.md
+
+
+  8 failed
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:113:1 › current desktop preview is canvas-first and every dock remains keyboard recoverable 
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:368:1 › tablet toolbar respects inline safe areas, scrolls overflow, and keeps its menu on-screen 
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:453:1 › distinct Awareness collaborators render object and block collaboration safely 
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:548:1 › collaboration initialization retry cleans partial resources and restores editing 
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:715:1 › local preview Arrow, Home, and End keys select and focus their target tabs 
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:745:1 › hydrated export dialog explains background availability and cancels one gated run 
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:781:1 › 1280px structure panel keeps disabled explanations readable below controls 
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:822:1 › architectural object tools remain accessible without toolbar overflow on desktop and tablet 
+  8 passed (1.2m)

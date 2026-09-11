@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1856mm" height="1056mm" viewBox="0 0 1856 1056">
+<rect x="0" y="0" width="1856" height="1056" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/jamb-left" transform="matrix(1 0 0 1 128 128)">
+<line x1="0" y1="0" x2="0" y2="100" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/jamb-right" transform="matrix(1 0 0 1 128 128)">
+<line x1="1600" y1="0" x2="1600" y2="100" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/leaf-left" transform="matrix(1 0 0 1 128 128)">
+<line x1="0" y1="0" x2="0" y2="800" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/leaf-right" transform="matrix(1 0 0 1 128 128)">
+<line x1="1600" y1="0" x2="1600" y2="800" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/swing-left" transform="matrix(1 0 0 1 128 128)">
+<polyline points="800,0 772.7408,207.0552 692.82,400 565.6856,565.6856 400,692.82 207.0552,772.7408 0,800" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/swing-right" transform="matrix(1 0 0 1 128 128)">
+<polyline points="800,0 827.2592,207.0552 907.18,400 1034.3144,565.6856 1200,692.82 1392.9448,772.7408 1600,800" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+</svg>

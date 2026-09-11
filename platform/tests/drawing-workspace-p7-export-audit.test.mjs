@@ -1,15 +1,31 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import { createServer } from "vite";
 
 const projectId = "74000000-0000-4000-8000-000000000002";
 const workspaceId = "74000000-0000-4000-8000-000000000003";
 const revisionId = "74000000-0000-4000-8000-000000000004";
+const revisionVersion = 7;
+const operationCheckpoint = 23;
+const checkpointSha256 = "b".repeat(64);
+
+const migrationDirectory = new URL("../supabase/migrations/", import.meta.url);
+const allMigrations = readdirSync(migrationDirectory)
+  .filter((name) => name.endsWith(".sql"))
+  .map((name) => readFileSync(new URL(name, migrationDirectory), "utf8"))
+  .join("\n");
 
 const migration = readFileSync(
   new URL(
     "../supabase/migrations/20260828052729_drawing_workspace_retention_restore.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const exportLineageMigration = readFileSync(
+  new URL(
+    "../supabase/migrations/20260901224223_drawing_export_revision_lineage.sql",
     import.meta.url,
   ),
   "utf8",
@@ -42,6 +58,52 @@ test("project exports are append-only, exact-byte hashed, and RPC-authorized", (
   );
 });
 
+test("drawing v2 receipts bind the saved canonical checkpoint without replacing the legacy RPC", () => {
+  assert.match(
+    exportLineageMigration,
+    /alter table public\.lukas_qto_export_events[\s\S]*add column (?:if not exists )?workspace_id uuid/i,
+  );
+  assert.match(exportLineageMigration, /revision_id uuid/i);
+  assert.match(exportLineageMigration, /revision_version bigint/i);
+  assert.match(exportLineageMigration, /operation_checkpoint bigint/i);
+  assert.match(exportLineageMigration, /checkpoint_sha256 text/i);
+  assert.match(exportLineageMigration, /revision_snapshot_sha256 text/i);
+  assert.match(
+    exportLineageMigration,
+    /revision_version is not null[\s\S]*operation_checkpoint is not null[\s\S]*checkpoint_sha256 is not null/i,
+  );
+  assert.match(
+    exportLineageMigration,
+    /create function public\.lukas_qto_record_drawing_export\([\s\S]*p_workspace_id uuid[\s\S]*p_revision_id uuid[\s\S]*p_revision_version bigint[\s\S]*p_operation_checkpoint bigint[\s\S]*p_checkpoint_sha256 text/i,
+  );
+  assert.doesNotMatch(
+    exportLineageMigration,
+    /drop function public\.lukas_qto_record_project_export\(uuid,text,text,bigint,uuid\)/i,
+  );
+  assert.match(
+    exportLineageMigration,
+    /lukas_qto_record_drawing_export[\s\S]*private\.lukas_qto_verified_session\(\)/i,
+  );
+  assert.match(
+    exportLineageMigration,
+    /from public\.lukas_drawing_revisions r[\s\S]*r\.document_id=p_workspace_id[\s\S]*v_revision\.version<>p_revision_version/i,
+  );
+  assert.match(exportLineageMigration, /for no key update of r/i);
+  assert.match(
+    exportLineageMigration,
+    /private\.lukas_drawing_p2_canonical_snapshot\(\s*p_revision_id,\s*true\s*\)/i,
+  );
+  assert.match(exportLineageMigration, /p_checkpoint_sha256 is null/i);
+  assert.match(
+    exportLineageMigration,
+    /operationSequence'\)::bigint\s+is distinct from p_operation_checkpoint/i,
+  );
+  assert.match(
+    exportLineageMigration,
+    /from public\.lukas_drawing_snapshots s[\s\S]*join public\.lukas_drawing_revision_approvals a[\s\S]*a\.snapshot_sha256=s\.sha256[\s\S]*a\.decision='approved'[\s\S]*s\.revision_version=p_revision_version/i,
+  );
+});
+
 test("every actual project export response crosses the audit boundary", () => {
   const drawing = readFileSync(
     new URL(
@@ -52,7 +114,7 @@ test("every actual project export response crosses the audit boundary", () => {
   );
   const drawingRoute = readFileSync(
     new URL(
-      "../app/lukas/screens/drawing-workspace-export.ts",
+      "../app/lukas/screens/drawing-workspace-export.server.ts",
       import.meta.url,
     ),
     "utf8",
@@ -87,7 +149,7 @@ test("every actual project export response crosses the audit boundary", () => {
   );
 });
 
-test("drawing export audit posts to the canonical workspace identity", async () => {
+test("drawing export retry preserves one request identity and canonical checkpoint", async () => {
   const vite = await createServer({
     appType: "custom",
     logLevel: "silent",
@@ -100,9 +162,11 @@ test("drawing export audit posts to the canonical workspace identity", async () 
     revokeObjectURL: URL.revokeObjectURL,
   };
   const calls = [];
+  const requestId = "74000000-0000-4000-8000-000000000005";
   try {
     globalThis.fetch = async (url, init) => {
       calls.push([String(url), init]);
+      if (calls.length === 1) throw new TypeError("response lost");
       return new Response(new Blob(["pdf"], { type: "application/pdf" }), {
         headers: { "content-type": "application/pdf" },
         status: 200,
@@ -124,19 +188,260 @@ test("drawing export audit posts to the canonical workspace identity", async () 
       workspaceId,
       projectId,
       revisionId,
+      revisionVersion,
+      operationCheckpoint,
+      checkpointSha256,
+      requestId,
     );
+    assert.equal(calls.length, 2);
     assert.equal(
       calls[0][0],
       `/projects/${projectId}/workspaces/${workspaceId}/export`,
     );
     assert.equal(calls[0][1].method, "POST");
+    assert.equal(calls[0][1].body.get("request_id"), requestId);
+    assert.equal(calls[1][1].body.get("request_id"), requestId);
     assert.equal(calls[0][1].body.get("revision_id"), revisionId);
+    assert.equal(
+      calls[0][1].body.get("revision_version"),
+      String(revisionVersion),
+    );
+    assert.equal(
+      calls[0][1].body.get("operation_checkpoint"),
+      String(operationCheckpoint),
+    );
+    assert.equal(calls[0][1].body.get("checkpoint_sha256"), checkpointSha256);
     assert.doesNotMatch(calls[0][0], /\/drawings\//);
+
+    calls.length = 0;
+    globalThis.fetch = async (url, init) => {
+      calls.push([String(url), init]);
+      if (calls.length === 1) throw new TypeError("response lost");
+      return new Response("unavailable", { status: 503 });
+    };
+    await assert.rejects(
+      auditDrawingExport(
+        new Blob(["pdf"], { type: "application/pdf" }),
+        "drawing.pdf",
+        workspaceId,
+        projectId,
+        revisionId,
+        revisionVersion,
+        operationCheckpoint,
+        checkpointSha256,
+        requestId,
+      ),
+      /감사 기록 실패 \(503\)/,
+    );
+    assert.equal(calls.length, 2, "one export attempt retries at most once");
+    assert.equal(calls[0][1].body.get("request_id"), requestId);
+    assert.equal(calls[1][1].body.get("request_id"), requestId);
+
+    calls.length = 0;
+    globalThis.fetch = async (url, init) => {
+      calls.push([String(url), init]);
+      throw new TypeError("both responses lost");
+    };
+    for (let userRetry = 0; userRetry < 2; userRetry += 1) {
+      await assert.rejects(
+        auditDrawingExport(
+          new Blob(["pdf"], { type: "application/pdf" }),
+          "drawing.pdf",
+          workspaceId,
+          projectId,
+          revisionId,
+          revisionVersion,
+          operationCheckpoint,
+          checkpointSha256,
+          requestId,
+        ),
+        /both responses lost/,
+      );
+    }
+    assert.equal(calls.length, 4);
+    assert.ok(
+      calls.every(([, init]) => init.body.get("request_id") === requestId),
+      "caller-held request identity survives a user-triggered retry",
+    );
   } finally {
     globalThis.fetch = original.fetch;
     globalThis.document = original.document;
     URL.createObjectURL = original.createObjectURL;
     URL.revokeObjectURL = original.revokeObjectURL;
+    await vite.close();
+  }
+});
+
+test("HTTP export retry returns stored bytes without a route-level live-version preflight", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  try {
+    const { handleDrawingExportRequest } = await vite.ssrLoadModule(
+      "/app/lukas/screens/drawing-workspace-export.server.ts",
+    );
+    const calls = [];
+    const client = {
+      from() {
+        assert.fail(
+          "an existing receipt retry must reach the idempotent RPC first",
+        );
+      },
+      async rpc(name, args) {
+        calls.push({ name, args });
+        return {
+          data: {
+            request_id: args.p_request_id,
+            revision_version: args.p_revision_version,
+          },
+          error: null,
+        };
+      },
+    };
+    const form = new FormData();
+    form.set(
+      "artifact",
+      new File(["<svg/>"], "drawing.svg", { type: "image/svg+xml" }),
+    );
+    form.set("artifact_type", "drawing_svg");
+    form.set("filename", "drawing.svg");
+    form.set("request_id", "74000000-0000-4000-8000-000000000009");
+    form.set("revision_id", revisionId);
+    form.set("revision_version", String(revisionVersion));
+    form.set("operation_checkpoint", String(operationCheckpoint));
+    form.set("checkpoint_sha256", checkpointSha256);
+    const response = await handleDrawingExportRequest({
+      client,
+      headers: new Headers(),
+      projectId,
+      request: new Request("https://example.test/export", {
+        body: form,
+        method: "POST",
+      }),
+      workspaceId,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "<svg/>");
+    assert.equal(calls[0].name, "lukas_qto_record_drawing_export");
+    assert.equal(calls[0].args.p_operation_checkpoint, operationCheckpoint);
+    assert.equal(calls[0].args.p_checkpoint_sha256, checkpointSha256);
+  } finally {
+    await vite.close();
+  }
+});
+
+test("HTTP drawing export returns a Korean filename through ASCII and RFC 5987 dispositions", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  try {
+    const { handleDrawingExportRequest } = await vite.ssrLoadModule(
+      "/app/lukas/screens/drawing-workspace-export.server.ts",
+    );
+    const form = new FormData();
+    form.set(
+      "artifact",
+      new File(["<svg/>"], "A동 실내 적산.svg", {
+        type: "image/svg+xml",
+      }),
+    );
+    form.set("artifact_type", "drawing_svg");
+    form.set("filename", "A동 실내 적산.svg");
+    form.set("request_id", "74000000-0000-4000-8000-000000000012");
+    form.set("revision_id", revisionId);
+    form.set("revision_version", String(revisionVersion));
+    form.set("operation_checkpoint", String(operationCheckpoint));
+    form.set("checkpoint_sha256", checkpointSha256);
+    const response = await handleDrawingExportRequest({
+      client: {
+        async rpc() {
+          return { data: { id: "receipt" }, error: null };
+        },
+      },
+      headers: new Headers(),
+      projectId,
+      request: new Request("https://example.test/export", {
+        body: form,
+        method: "POST",
+      }),
+      workspaceId,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "<svg/>");
+    assert.equal(
+      response.headers.get("content-disposition"),
+      "attachment; filename=\"A_ __ __.svg\"; filename*=UTF-8''A%EB%8F%99%20%EC%8B%A4%EB%82%B4%20%EC%A0%81%EC%82%B0.svg",
+    );
+  } finally {
+    await vite.close();
+  }
+});
+
+test("HTTP drawing export requires exactly one canonical decimal revision and checkpoint", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  try {
+    const { handleDrawingExportRequest } = await vite.ssrLoadModule(
+      "/app/lukas/screens/drawing-workspace-export.server.ts",
+    );
+    const form = () => {
+      const value = new FormData();
+      value.set(
+        "artifact",
+        new File(["<svg/>"], "drawing.svg", { type: "image/svg+xml" }),
+      );
+      value.set("artifact_type", "drawing_svg");
+      value.set("filename", "drawing.svg");
+      value.set("request_id", "74000000-0000-4000-8000-000000000013");
+      value.set("revision_id", revisionId);
+      value.set("revision_version", String(revisionVersion));
+      value.set("operation_checkpoint", String(operationCheckpoint));
+      value.set("checkpoint_sha256", checkpointSha256);
+      return value;
+    };
+    for (const [name, mutate] of [
+      ["missing", (value) => value.delete("operation_checkpoint")],
+      ["empty", (value) => value.set("operation_checkpoint", "")],
+      ["duplicate", (value) => value.append("operation_checkpoint", "24")],
+      ["whitespace", (value) => value.set("operation_checkpoint", " 23")],
+      ["leading zero", (value) => value.set("operation_checkpoint", "023")],
+      ["exponent", (value) => value.set("operation_checkpoint", "2.3e1")],
+      ["revision whitespace", (value) => value.set("revision_version", " 7")],
+      ["revision leading zero", (value) => value.set("revision_version", "07")],
+      ["revision exponent", (value) => value.set("revision_version", "7e0")],
+    ]) {
+      const value = form();
+      mutate(value);
+      let calls = 0;
+      await assert.rejects(
+        handleDrawingExportRequest({
+          client: {
+            async rpc() {
+              calls += 1;
+              return { data: { id: "receipt" }, error: null };
+            },
+          },
+          headers: new Headers(),
+          projectId,
+          request: new Request("https://example.test/export", {
+            body: value,
+            method: "POST",
+          }),
+          workspaceId,
+        }),
+        (error) => error instanceof Response && error.status === 400,
+        name,
+      );
+      assert.equal(calls, 0, `${name} reaches no export RPC`);
+    }
+  } finally {
     await vite.close();
   }
 });
@@ -149,15 +454,16 @@ test("drawing export scope binds the canonical workspace and revision", async ()
   });
   try {
     const { validateDrawingExportScope } = await vite.ssrLoadModule(
-      "/app/lukas/screens/drawing-workspace-export.ts",
+      "/app/lukas/screens/drawing-workspace-export.server.ts",
     );
     const calls = [];
     const client = {
       from(table) {
-        const call = { table, filters: [] };
+        const call = { table, columns: "", filters: [] };
         calls.push(call);
         const builder = {
-          select() {
+          select(columns) {
+            call.columns = columns;
             return builder;
           },
           eq(column, value) {
@@ -167,7 +473,11 @@ test("drawing export scope binds the canonical workspace and revision", async ()
           maybeSingle() {
             if (table === "lukas_drawing_revisions")
               return Promise.resolve({
-                data: { id: revisionId, document_id: workspaceId },
+                data: {
+                  id: revisionId,
+                  document_id: workspaceId,
+                  version: revisionVersion,
+                },
               });
             if (table === "lukas_drawing_documents")
               return Promise.resolve({
@@ -182,6 +492,7 @@ test("drawing export scope binds the canonical workspace and revision", async ()
     await validateDrawingExportScope(client, {
       projectId,
       revisionId,
+      revisionVersion,
       workspaceId,
     });
     assert.deepEqual(
@@ -192,9 +503,59 @@ test("drawing export scope binds the canonical workspace and revision", async ()
       ["id", workspaceId],
       ["project_id", projectId],
     ]);
+    assert.equal(calls[0].columns, "id,document_id,version");
     assert.equal(
       calls.some((call) => call.table === "lukas_qto_files"),
       false,
+    );
+  } finally {
+    await vite.close();
+  }
+});
+
+test("canonical export rejects a stale client revision version before audit", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  try {
+    const { validateDrawingExportScope } = await vite.ssrLoadModule(
+      "/app/lukas/screens/drawing-workspace-export.server.ts",
+    );
+    const client = {
+      from(table) {
+        const builder = {
+          select() {
+            return builder;
+          },
+          eq() {
+            return builder;
+          },
+          maybeSingle() {
+            return Promise.resolve({
+              data:
+                table === "lukas_drawing_revisions"
+                  ? {
+                      id: revisionId,
+                      document_id: workspaceId,
+                      version: revisionVersion + 1,
+                    }
+                  : { id: workspaceId },
+            });
+          },
+        };
+        return builder;
+      },
+    };
+    await assert.rejects(
+      validateDrawingExportScope(client, {
+        projectId,
+        revisionId,
+        revisionVersion,
+        workspaceId,
+      }),
+      (error) => error instanceof Response && error.status === 409,
     );
   } finally {
     await vite.close();
@@ -211,7 +572,7 @@ test("canonical export rejects mismatched workspace/revision before audit", asyn
   const calls = [];
   try {
     const { validateDrawingExportScope } = await vite.ssrLoadModule(
-      "/app/lukas/screens/drawing-workspace-export.ts",
+      "/app/lukas/screens/drawing-workspace-export.server.ts",
     );
     const client = {
       from(table) {
@@ -230,6 +591,7 @@ test("canonical export rejects mismatched workspace/revision before audit", asyn
                   ? {
                       id: revisionId,
                       document_id: "74000000-0000-4000-8000-000000000099",
+                      version: revisionVersion,
                     }
                   : { id: workspaceId, source_file_id: null },
             });
@@ -243,6 +605,7 @@ test("canonical export rejects mismatched workspace/revision before audit", asyn
         await validateDrawingExportScope(client, {
           projectId,
           revisionId,
+          revisionVersion,
           workspaceId,
         });
         auditReached = true;
@@ -375,14 +738,26 @@ test("server export helper hashes the exact response bytes and fails closed", as
     "drawing_pdf",
     bytes,
     "74000000-0000-4000-8000-000000000003",
+    {
+      workspaceId,
+      revisionId,
+      revisionVersion,
+      operationCheckpoint,
+      checkpointSha256,
+    },
   );
   assert.deepEqual(result.bytes, bytes);
-  assert.equal(calls[0].name, "lukas_qto_record_project_export");
+  assert.equal(calls[0].name, "lukas_qto_record_drawing_export");
   assert.equal(
     calls[0].args.p_artifact_sha256,
     "3d1f57c984978ef98a18378c8166c1cb8ede02c03eeb6aee7e2f121dfeee3e56",
   );
   assert.equal(calls[0].args.p_artifact_byte_size, 4);
+  assert.equal(calls[0].args.p_workspace_id, workspaceId);
+  assert.equal(calls[0].args.p_revision_id, revisionId);
+  assert.equal(calls[0].args.p_revision_version, revisionVersion);
+  assert.equal(calls[0].args.p_operation_checkpoint, operationCheckpoint);
+  assert.equal(calls[0].args.p_checkpoint_sha256, checkpointSha256);
   client.rpc = async () => ({ data: null, error: { message: "denied" } });
   await assert.rejects(
     recordProjectExport(
@@ -390,7 +765,85 @@ test("server export helper hashes the exact response bytes and fails closed", as
       "74000000-0000-4000-8000-000000000002",
       "drawing_pdf",
       bytes,
+      "74000000-0000-4000-8000-000000000004",
+      {
+        workspaceId,
+        revisionId,
+        revisionVersion,
+        operationCheckpoint,
+        checkpointSha256,
+      },
     ),
     /감사 기록 실패.*denied/,
   );
+});
+
+test("new app falls back to the five-argument RPC only while drawing v2 is absent", async () => {
+  const { recordProjectExport } = await import(
+    "../app/lukas/lib/project-export-audit.server.ts"
+  );
+  const calls = [];
+  const client = {
+    async rpc(name, args) {
+      calls.push({ name, args });
+      if (name === "lukas_qto_record_drawing_export")
+        return {
+          data: null,
+          error: {
+            code: "PGRST202",
+            message: "function is not in schema cache",
+          },
+        };
+      return { data: { id: "legacy-event" }, error: null };
+    },
+  };
+  await recordProjectExport(
+    client,
+    projectId,
+    "drawing_png",
+    new Uint8Array([1, 2, 3]),
+    "74000000-0000-4000-8000-000000000010",
+    {
+      workspaceId,
+      revisionId,
+      revisionVersion,
+      operationCheckpoint,
+      checkpointSha256,
+    },
+  );
+  assert.deepEqual(
+    calls.map(({ name }) => name),
+    ["lukas_qto_record_drawing_export", "lukas_qto_record_project_export"],
+  );
+  assert.deepEqual(Object.keys(calls[1].args).sort(), [
+    "p_artifact_byte_size",
+    "p_artifact_sha256",
+    "p_artifact_type",
+    "p_project_id",
+    "p_request_id",
+  ]);
+
+  calls.length = 0;
+  client.rpc = async (name, args) => {
+    calls.push({ name, args });
+    return { data: null, error: { code: "P7R05", message: "lineage invalid" } };
+  };
+  await assert.rejects(
+    recordProjectExport(
+      client,
+      projectId,
+      "drawing_png",
+      new Uint8Array([1, 2, 3]),
+      "74000000-0000-4000-8000-000000000011",
+      {
+        workspaceId,
+        revisionId,
+        revisionVersion,
+        operationCheckpoint,
+        checkpointSha256,
+      },
+    ),
+    /lineage invalid/,
+  );
+  assert.equal(calls.length, 1);
 });

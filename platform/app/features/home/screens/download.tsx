@@ -40,6 +40,8 @@ export default function DownloadBeta() {
     url: import.meta.env.VITE_REVIT_2025_BETA_URL as string | undefined,
     sha256: import.meta.env.VITE_REVIT_2025_BETA_SHA256 as string | undefined,
     version: import.meta.env.VITE_REVIT_2025_BETA_VERSION as string | undefined,
+    allowLoopback:
+      import.meta.env.VITE_M1_E2E_ALLOW_LOOPBACK_RELEASE === "1",
   });
 
   return (

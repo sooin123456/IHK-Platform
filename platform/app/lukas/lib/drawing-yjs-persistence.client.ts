@@ -6,12 +6,14 @@ import { DRAWING_COLLABORATION_SERVER_ORIGIN } from "./drawing-collaboration-pro
 const canonicalUuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-export function drawingYjsPersistenceName(revisionId: string) {
+export function drawingYjsPersistenceName(ownerId: string, revisionId: string) {
+  if (!canonicalUuid.test(ownerId))
+    throw new Error("Drawing Yjs persistence requires a canonical owner UUID.");
   if (!canonicalUuid.test(revisionId))
     throw new Error(
       "Drawing Yjs persistence requires a canonical revision UUID.",
     );
-  return `1hk:drawing-draft:v1:${revisionId}`;
+  return `1hk:drawing-draft:v2:${ownerId}:${revisionId}`;
 }
 
 export type DrawingYjsPersistence = {
@@ -53,15 +55,17 @@ export function createDrawingYjsDocument(authoritativeState?: Uint8Array) {
 
 /** Opens only in a browser; callers await sync before enabling a network provider. */
 export async function openDrawingYjsPersistence({
+  ownerId,
   revisionId,
   document,
 }: {
+  ownerId: string;
   revisionId: string;
   document: Y.Doc;
 }): Promise<DrawingYjsPersistence | null> {
   if (typeof window === "undefined" || typeof indexedDB === "undefined")
     return null;
-  const name = drawingYjsPersistenceName(revisionId);
+  const name = drawingYjsPersistenceName(ownerId, revisionId);
   const persistence = new IndexeddbPersistence(name, document);
   const database = await persistence._db;
   let closed = false;

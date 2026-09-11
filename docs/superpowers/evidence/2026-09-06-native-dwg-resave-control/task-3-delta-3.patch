@@ -1,0 +1,611 @@
+diff --git a/platform/tests/drawing-native-dwg-resave-worker.test.mjs b/platform/tests/drawing-native-dwg-resave-worker.test.mjs
+new file mode 100644
+index 0000000..ffc7531
+--- /dev/null
++++ b/platform/tests/drawing-native-dwg-resave-worker.test.mjs
+@@ -0,0 +1,605 @@
++import assert from "node:assert/strict";
++import { createHash } from "node:crypto";
++import { fileURLToPath } from "node:url";
++import test from "node:test";
++import { createServer } from "vite";
++import { fixture, uuid } from "./fixtures/drawing-native-dwg-resave-source.mjs";
++
++const vite = await createServer({
++  appType: "custom",
++  configFile: false,
++  logLevel: "silent",
++  resolve: {
++    alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
++  },
++  server: { middlewareMode: true },
++});
++test.after(() => vite.close());
++const { buildNativeDrawingDwgResaveAttestation: build } =
++  await vite.ssrLoadModule(
++    "/app/lukas/lib/drawing-native-dwg-resave-attestation.server.ts",
++  );
++const { NativeDrawingDwgResaveSandboxError: SandboxError } =
++  await vite.ssrLoadModule(
++    "/app/lukas/lib/drawing-native-dwg-sandbox.server.ts",
++  );
++const worker = await vite
++  .ssrLoadModule("/app/lukas/lib/drawing-native-dwg-resave-worker.server.ts")
++  .catch(() => ({}));
++const run = (options) => {
++  assert.equal(
++    typeof worker.runNativeDrawingDwgResaveAttempt,
++    "function",
++    "required cancellation-aware attempt API",
++  );
++  return worker.runNativeDrawingDwgResaveAttempt(options);
++};
++const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
++const deferred = () => Promise.withResolvers();
++const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
++const imageId = "sha256:" + "c".repeat(64);
++
++async function setup() {
++  const f = fixture();
++  const sourceBytes = Buffer.from("AC1024worker-finite-source");
++  Object.assign(f.report.source, {
++    sha256: sha(sourceBytes),
++    byteSize: sourceBytes.length,
++  });
++  const analysis = f.payload.analysis;
++  Object.assign(analysis.result.receipt.source, f.report.source);
++  analysis.scope.sourceSha256 = f.report.source.sha256;
++  analysis.result.reportText = JSON.stringify(f.report);
++  analysis.result.receipt.reportSha256 = sha(analysis.result.reportText);
++  analysis.result.receipt.reportByteSize = Buffer.byteLength(
++    analysis.result.reportText,
++  );
++  Object.assign(f.canonical.sources[0], {
++    sourceSha256: f.report.source.sha256,
++    reportSha256: analysis.result.receipt.reportSha256,
++  });
++  f.canonical.objects[0].geometry.end = { x: 55, y: 65 };
++  f.rehash();
++  const attestation = await build(f.scope, f.payload, imageId);
++  const claim = {
++    jobId: uuid(90),
++    attemptNumber: 1,
++    leaseToken: uuid(91),
++    leaseExpiresAt: new Date(Date.now() + 300000).toISOString(),
++    actorId: uuid(80),
++    scope: f.scope,
++    source: {
++      ...analysis.result.receipt.source,
++      bucket: "lukas-qto",
++      path: "owned/source.dwg",
++    },
++    attestation,
++    payload: f.payload,
++  };
++  const dwgBytes = Buffer.from("AC1024worker-finite-output");
++  const report = {
++    schemaVersion: "1hk-dwg-resave/1",
++    qualification: "experimental-unqualified",
++    persistenceAuthority: "not-issued",
++    source: f.report.source,
++    request: {
++      schemaVersion: "1hk-dwg-edits/2",
++      sha256: attestation.request.sha256,
++      byteSize: attestation.request.byteSize,
++      handles: ["2A"],
++    },
++    output: {
++      sha256: sha(dwgBytes),
++      byteSize: dwgBytes.length,
++      headerVersion: "AC1024",
++    },
++    engine: { name: "ACadSharp", version: "3.7.1" },
++    verification: {
++      noEditRoundTrip: "passed",
++      selectedEditRoundTrip: "passed",
++      geometryTolerance: 1e-9,
++      inventoriedEntityCount: 1,
++      editedEntityCount: 1,
++      inventoryCoverage: "supported-fields-only",
++      independentCad: "not-performed",
++    },
++  };
++  const result = {
++    report,
++    reportBytes: Buffer.from(JSON.stringify(report)),
++    dwgBytes,
++  };
++  const calls = [];
++  const identity = {
++    jobId: claim.jobId,
++    attemptNumber: claim.attemptNumber,
++    leaseToken: claim.leaseToken,
++  };
++  const state = {
++    control: { action: "continue", reason: null },
++    controlReply: null,
++    ackReply: null,
++    failReply: null,
++    downloadCalls: 0,
++    nativeCalls: 0,
++  };
++  const options = {
++    claim,
++    imageId,
++    dockerPath: "/owned/docker",
++    dockerHost: "unix:///owned/socket",
++    serviceClient: {
++      rpc(name, args) {
++        return {
++          async abortSignal(signal) {
++            calls.push({ name, args, signal });
++            assert.equal(signal.aborted, false);
++            assert.deepEqual(
++              {
++                p_job_id: args.p_job_id,
++                p_attempt_number: args.p_attempt_number,
++                p_lease_token: args.p_lease_token,
++              },
++              {
++                p_job_id: claim.jobId,
++                p_attempt_number: claim.attemptNumber,
++                p_lease_token: claim.leaseToken,
++              },
++            );
++            if (name === "lukas_drawing_native_dwg_resave_control")
++              return state.controlReply
++                ? state.controlReply(signal)
++                : { data: { ...identity, ...state.control }, error: null };
++            if (name === "lukas_drawing_ack_native_dwg_resave_cancel")
++              return state.ackReply
++                ? state.ackReply(signal)
++                : { data: { ...identity, status: "cancelled" }, error: null };
++            assert.equal(
++              name,
++              "lukas_drawing_fail_native_dwg_resave",
++              "no publication/admission RPC is authorized",
++            );
++            return state.failReply
++              ? state.failReply(signal)
++              : {
++                  data: {
++                    ...identity,
++                    status: args.p_retryable ? "retry_wait" : "failed",
++                  },
++                  error: null,
++                };
++          },
++        };
++      },
++    },
++    async downloadSource(input) {
++      state.downloadCalls++;
++      assert.deepEqual(input.source, claim.source);
++      assert.equal(input.signal.aborted, false);
++      return sourceBytes;
++    },
++    async resave(input) {
++      state.nativeCalls++;
++      assert.equal(input.imageId, imageId);
++      assert.deepEqual(input.expectedSource, f.report.source);
++      assert.deepEqual(input.sourceBytes, sourceBytes);
++      assert.equal(input.requestBytes.toString(), attestation.request.text);
++      assert.equal(input.timeoutMilliseconds, 120000);
++      return result;
++    },
++  };
++  const settlements = () =>
++    calls.filter(
++      (call) => call.name !== "lukas_drawing_native_dwg_resave_control",
++    );
++  return { options, state, calls, identity, result, sourceBytes, settlements };
++}
++
++test("prepared carries exact validated native identities without a completion receipt", async () => {
++  const h = await setup();
++  const output = await run(h.options);
++  assert.equal(output.outcome, "prepared");
++  assert.deepEqual(output.claim, h.options.claim);
++  assert.deepEqual(output.result, h.result);
++  assert.equal(output.result.report.persistenceAuthority, "not-issued");
++  assert.equal(h.calls.length, 2);
++  assert.equal(h.settlements().length, 0);
++});
++
++for (const stage of ["download", "native"])
++  test(
++    `control cancellation aborts pending ${stage} and waits for owned cleanup before acknowledgement`,
++    { timeout: 10000 },
++    async () => {
++      const h = await setup(),
++        started = deferred(),
++        aborted = deferred(),
++        cleanup = deferred();
++      let settled = false;
++      h.options[stage === "download" ? "downloadSource" : "resave"] = async ({
++        signal,
++      }) => {
++        started.resolve();
++        await new Promise((resolve) =>
++          signal.addEventListener(
++            "abort",
++            () => {
++              aborted.resolve();
++              resolve();
++            },
++            { once: true },
++          ),
++        );
++        await cleanup.promise;
++        throw stage === "native"
++          ? new SandboxError(true)
++          : new Error("download cancelled");
++      };
++      const pending = run(h.options).then((value) => {
++        settled = true;
++        return value;
++      });
++      await started.promise;
++      h.state.control = { action: "cancel", reason: "cancel_requested" };
++      await aborted.promise;
++      assert.equal(
++        h.calls.filter((c) => c.name.endsWith("_control")).at(-1).signal
++          .aborted,
++        false,
++      );
++      assert.equal(settled, false);
++      assert.equal(h.settlements().length, 0);
++      cleanup.resolve();
++      assert.equal((await pending).outcome, "cancelled");
++      assert.equal(h.settlements().length, 1);
++      assert.equal(h.settlements()[0].signal.aborted, false);
++    },
++  );
++
++test("cancel immediately after native return denies prepared output", async () => {
++  const h = await setup();
++  const native = h.options.resave;
++  h.options.resave = async (input) => {
++    const value = await native(input);
++    h.state.control = { action: "cancel", reason: "cancel_requested" };
++    return value;
++  };
++  assert.equal((await run(h.options)).outcome, "cancelled");
++});
++
++for (const stage of ["download", "native"])
++  test(
++    `abort-ignoring ${stage} result waits for settlement and cannot erase latched cancellation`,
++    { timeout: 10000 },
++    async () => {
++      const h = await setup(),
++        started = deferred(),
++        late = deferred();
++      let signal,
++        settled = false;
++      h.options[stage === "download" ? "downloadSource" : "resave"] = (
++        input,
++      ) => {
++        signal = input.signal;
++        started.resolve();
++        return late.promise;
++      };
++      const pending = run(h.options).then((x) => {
++        settled = true;
++        return x;
++      });
++      await started.promise;
++      h.state.control = { action: "cancel", reason: "cancel_requested" };
++      await sleep(1150);
++      assert.equal(signal.aborted, true);
++      assert.equal(settled, false);
++      assert.equal(h.settlements().length, 0);
++      h.state.control = { action: "continue", reason: null };
++      late.resolve(stage === "download" ? h.sourceBytes : h.result);
++      assert.equal((await pending).outcome, "cancelled");
++    },
++  );
++
++for (const errorKind of ["unconfirmed", "unknown", "confirmed"])
++  for (const cancel of [true, false])
++    test(`${errorKind} native cleanup with cancel=${cancel} determines whether settlement is allowed`, async () => {
++      const h = await setup();
++      h.options.resave = async () => {
++        if (cancel)
++          h.state.control = { action: "cancel", reason: "cancel_requested" };
++        throw errorKind === "unknown"
++          ? new Error("unknown cleanup")
++          : new SandboxError(errorKind === "confirmed");
++      };
++      const output = await run(h.options);
++      assert.equal(
++        output.outcome,
++        errorKind === "confirmed"
++          ? cancel
++            ? "cancelled"
++            : "retry_scheduled"
++          : cancel
++            ? "control_uncertain"
++            : "settlement_uncertain",
++      );
++      assert.equal(h.settlements().length, errorKind === "confirmed" ? 1 : 0);
++    });
++
++for (const [action, reason, want] of [
++  ["stop", "authority_revoked", "failed"],
++  ["stop", "lease_expired", "stale"],
++  ["cancel", "cancel_requested", "cancelled"],
++])
++  test(`initial ${reason} prevents source work`, async () => {
++    const h = await setup();
++    h.state.control = { action, reason };
++    assert.equal((await run(h.options)).outcome, want);
++    assert.equal(h.state.downloadCalls, 0);
++    assert.equal(h.state.nativeCalls, 0);
++    if (reason === "authority_revoked")
++      assert.equal(h.settlements()[0].args.p_failure_code, "authority_revoked");
++  });
++
++for (const reply of [
++  () => ({ data: null, error: { code: "PNR13" } }),
++  () => ({ data: null, error: { code: "other" } }),
++  () => {
++    throw new Error("offline");
++  },
++  () => ({ data: { action: "continue", reason: null }, error: null }),
++])
++  test("refused, failed or malformed initial control never starts execution", async () => {
++    const h = await setup();
++    h.state.controlReply = reply;
++    assert.ok(
++      ["stale", "control_uncertain"].includes((await run(h.options)).outcome),
++    );
++    assert.equal(h.state.downloadCalls, 0);
++    assert.equal(h.settlements().length, 0);
++  });
++
++test(
++  "failed independent poll aborts native without settlement",
++  { timeout: 10000 },
++  async () => {
++    const h = await setup(),
++      started = deferred();
++    h.options.resave = ({ signal }) =>
++      new Promise((_, reject) => {
++        started.resolve();
++        signal.addEventListener("abort", () => reject(new SandboxError(true)), {
++          once: true,
++        });
++      });
++    const pending = run(h.options);
++    await started.promise;
++    h.state.controlReply = () => {
++      throw new Error("offline");
++    };
++    assert.equal((await pending).outcome, "control_uncertain");
++    assert.equal(h.settlements().length, 0);
++  },
++);
++
++for (const kind of ["control", "ack", "fail"])
++  test(
++    `${kind} deadline bounds RPC transport even when abort is ignored`,
++    { timeout: 9000 },
++    async () => {
++      const h = await setup();
++      let rpcSignal;
++      h.state[
++        kind === "control"
++          ? "controlReply"
++          : kind === "ack"
++            ? "ackReply"
++            : "failReply"
++      ] = (signal) => {
++        rpcSignal = signal;
++        return new Promise(() => {});
++      };
++      if (kind === "ack")
++        h.state.control = { action: "cancel", reason: "cancel_requested" };
++      if (kind === "fail")
++        h.options.downloadSource = async () => {
++          throw new Error("offline");
++        };
++      const started = Date.now();
++      assert.equal(
++        (await run(h.options)).outcome,
++        kind === "fail" ? "settlement_uncertain" : "control_uncertain",
++      );
++      assert.equal(rpcSignal.aborted, true);
++      assert.ok(Date.now() - started < 7000);
++    },
++  );
++
++for (const kind of ["ack", "fail"])
++  for (const field of [
++    "jobId",
++    "attemptNumber",
++    "leaseToken",
++    "status",
++    "extra",
++    "lost",
++  ])
++    test(`${kind} refuses ${field} settlement response`, async () => {
++      const h = await setup();
++      const data = {
++        ...h.identity,
++        status: kind === "ack" ? "cancelled" : "retry_wait",
++      };
++      if (field === "extra") data.extra = true;
++      else if (field !== "lost")
++        data[field] =
++          field === "attemptNumber"
++            ? 2
++            : field === "status"
++              ? "completed"
++              : uuid(99);
++      h.state[kind === "ack" ? "ackReply" : "failReply"] = () => {
++        if (field === "lost") throw new Error("lost response");
++        return { data, error: null };
++      };
++      if (kind === "ack")
++        h.state.control = { action: "cancel", reason: "cancel_requested" };
++      else
++        h.options.downloadSource = async () => {
++          throw new Error("offline");
++        };
++      assert.equal(
++        (await run(h.options)).outcome,
++        kind === "ack" ? "control_uncertain" : "settlement_uncertain",
++      );
++    });
++
++test("worker shutdown interrupts source as retryable failure without cancel acknowledgement", async () => {
++  const h = await setup(),
++    started = deferred(),
++    shutdown = new AbortController();
++  h.options.signal = shutdown.signal;
++  h.options.downloadSource = ({ signal }) =>
++    new Promise((_, reject) => {
++      started.resolve();
++      signal.addEventListener("abort", () => reject(new Error("interrupted")), {
++        once: true,
++      });
++    });
++  const pending = run(h.options);
++  await started.promise;
++  shutdown.abort();
++  assert.equal((await pending).outcome, "retry_scheduled");
++  assert.equal(h.settlements()[0].args.p_failure_code, "worker_interrupted");
++});
++
++test("malformed source bytes settle terminal mismatch before native invocation", async () => {
++  const h = await setup();
++  h.options.downloadSource = async () => Buffer.from("AC1024wrong");
++  assert.equal((await run(h.options)).outcome, "failed");
++  assert.equal(h.state.nativeCalls, 0);
++  assert.equal(h.settlements()[0].args.p_failure_code, "source_mismatch");
++  assert.equal(h.settlements()[0].args.p_retryable, false);
++});
++
++for (const change of [
++  (h) => (h.options.imageId = "sha256:" + "d".repeat(64)),
++  (h) => (h.options.claim.attestation.request.sha256 = "0".repeat(64)),
++  (h) => {
++    h.options.claim.payload.analysis.result.reportText = "{}";
++  },
++])
++  test("image or authority mismatch never downloads or runs native", async () => {
++    const h = await setup();
++    change(h);
++    assert.notEqual((await run(h.options)).outcome, "prepared");
++    assert.equal(h.state.downloadCalls, 0);
++    assert.equal(h.state.nativeCalls, 0);
++  });
++
++for (const change of [
++  (r) => (r.dwgBytes[8] ^= 1),
++  (r) => (r.report.request.sha256 = "0".repeat(64)),
++  (r) => (r.report.output.sha256 = "0".repeat(64)),
++  (r) => (r.reportBytes[0] = 32),
++  (r) => (r.report.persistenceAuthority = "issued"),
++])
++  test("native output mismatch settles terminal output_invalid", async () => {
++    const h = await setup();
++    change(h.result);
++    assert.equal((await run(h.options)).outcome, "failed");
++    assert.equal(h.settlements()[0].args.p_failure_code, "output_invalid");
++    assert.equal(h.settlements()[0].args.p_retryable, false);
++  });
++
++test("returned bytes and report are snapshotted before delayed post-native control", async () => {
++  const h = await setup(),
++    post = deferred(),
++    release = deferred();
++  let calls = 0;
++  const expected = structuredClone(h.result);
++  h.state.controlReply = async () => {
++    if (++calls === 2) {
++      post.resolve();
++      await release.promise;
++    }
++    return {
++      data: { ...h.identity, action: "continue", reason: null },
++      error: null,
++    };
++  };
++  const pending = run(h.options);
++  await post.promise;
++  h.result.dwgBytes.fill(0);
++  h.result.reportBytes.fill(0);
++  h.result.report.output.sha256 = "0".repeat(64);
++  release.resolve();
++  const output = await pending;
++  assert.equal(output.outcome, "prepared");
++  assert.deepEqual(output.result.report, expected.report);
++  assert.deepEqual([...output.result.dwgBytes], [...expected.dwgBytes]);
++  assert.deepEqual([...output.result.reportBytes], [...expected.reportBytes]);
++});
++
++test(
++  "post-native control starts immediately while an earlier poll is pending and awaits its refusal",
++  { timeout: 10000 },
++  async () => {
++    const h = await setup(),
++      native = deferred(),
++      polled = deferred(),
++      release = deferred();
++    let controls = 0,
++      settled = false;
++    h.options.resave = () => native.promise;
++    h.state.controlReply = async () => {
++      if (++controls === 2) {
++        polled.resolve();
++        await release.promise;
++        return {
++          data: { ...h.identity, action: "cancel", reason: "cancel_requested" },
++          error: null,
++        };
++      }
++      return {
++        data: { ...h.identity, action: "continue", reason: null },
++        error: null,
++      };
++    };
++    const pending = run(h.options).then((value) => {
++      settled = true;
++      return value;
++    });
++    await polled.promise;
++    native.resolve(h.result);
++    await sleep(30);
++    try {
++      assert.equal(
++        controls,
++        3,
++        "post-native check must not wait for the earlier pending poll",
++      );
++      assert.equal(settled, false);
++    } finally {
++      release.resolve();
++      await pending;
++    }
++    assert.equal((await pending).outcome, "cancelled");
++  },
++);
++
++test("trusted runtime configuration is captured before source transport awaits", async () => {
++  const h = await setup();
++  h.options.downloadSource = async () => {
++    h.options.imageId = "sha256:" + "d".repeat(64);
++    h.options.dockerPath = "/wrong/docker";
++    h.options.dockerHost = "unix:///wrong/socket";
++    return h.sourceBytes;
++  };
++  const native = h.options.resave;
++  h.options.resave = async (input) => {
++    assert.equal(input.dockerPath, "/owned/docker");
++    assert.equal(input.dockerHost, "unix:///owned/socket");
++    return native(input);
++  };
++  assert.equal((await run(h.options)).outcome, "prepared");
++});

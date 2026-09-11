@@ -24,8 +24,17 @@ type RevisionReviewDatabase = {
           project_id: string;
           file_id: string;
           anchor_kind: "ifc_element" | "pdf_region";
+          element_id: string | null;
           ifc_global_id: string | null;
+          camera_json: unknown;
+          page_number: number | null;
+          x: number | null;
+          y: number | null;
+          width: number | null;
+          height: number | null;
+          label: string;
           active: boolean;
+          deactivation_note: string | null;
           replaces_anchor_id: string | null;
         };
         Insert: never;
@@ -82,6 +91,18 @@ export type DrawingRevisionReviewItem = {
   kind: "ifc_candidate" | "manual_reanchor_required";
   ifcGlobalId: string | null;
 };
+
+export const drawingRevisionReviewBatchSize = 50;
+
+export type DrawingRevisionReviewPage = {
+  items: DrawingRevisionReviewItem[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+};
+
+export function parseDrawingRevisionReviewCursor(value: string | null) {
+  return value === null ? null : z.string().uuid().parse(value);
+}
 
 export async function assertGenericDrawingAnchorMutationAllowed(
   baseClient: DrawingClient,
@@ -214,6 +235,46 @@ export type RelinkDrawingAnchorInput = z.infer<
   typeof RelinkDrawingAnchorInputSchema
 >;
 
+export class DrawingRevisionRelinkError extends Error {
+  readonly kind: "forbidden" | "rejected" | "conflict" | "retryable";
+  readonly code: string;
+
+  constructor(
+    kind: "forbidden" | "rejected" | "conflict" | "retryable",
+    code: string,
+  ) {
+    super(
+      kind === "forbidden"
+        ? "도면 근거를 새 개정본에 연결할 권한이 없습니다."
+        : kind === "rejected"
+          ? "현재 작업실의 정확한 개정 관계에서만 근거를 연결할 수 있습니다."
+          : kind === "conflict"
+            ? "도면 근거가 이미 변경되었습니다. 최신 상태를 다시 확인해 주세요."
+            : "도면 근거 연결이 일시적으로 지연되었습니다. 같은 요청으로 다시 시도해 주세요.",
+    );
+    this.name = "DrawingRevisionRelinkError";
+    this.kind = kind;
+    this.code = code;
+  }
+}
+
+function drawingRevisionRelinkError(error: unknown) {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String(error.code)
+      : "UNKNOWN";
+  return new DrawingRevisionRelinkError(
+    code === "42501"
+      ? "forbidden"
+      : code === "P1R01"
+        ? "rejected"
+        : code === "P1C01"
+          ? "conflict"
+          : "retryable",
+    code,
+  );
+}
+
 export function parseRelinkDrawingAnchorForm(
   form: FormData,
 ): RelinkDrawingAnchorInput {
@@ -252,11 +313,76 @@ export async function relinkDrawingIssueAnchor(
       p_note: value.note,
     },
   );
-  if (error)
-    throw new Error(
-      `도면 근거를 새 개정본에 연결하지 못했습니다: ${error.message}`,
-    );
+  if (error) throw drawingRevisionRelinkError(error);
   return RelinkDrawingAnchorResultSchema.parse(data);
+}
+
+function sameRelinkCamera(
+  value: unknown,
+  expected: { position: number[]; target: number[] },
+) {
+  if (!value || typeof value !== "object") return false;
+  const camera = value as { position?: unknown; target?: unknown };
+  return (["position", "target"] as const).every((key) => {
+    const tuple = camera[key];
+    return (
+      Array.isArray(tuple) &&
+      tuple.length === 3 &&
+      tuple.every((item, index) => Number(item) === expected[key][index])
+    );
+  });
+}
+
+export async function loadDrawingRevisionRelinkReplay(
+  baseClient: DrawingClient,
+  input: RelinkDrawingAnchorInput,
+): Promise<z.infer<typeof RelinkDrawingAnchorResultSchema> | null> {
+  const value = RelinkDrawingAnchorInputSchema.parse(input);
+  const client =
+    baseClient as unknown as SupabaseClient<RevisionReviewDatabase>;
+  const select =
+    "id,issue_id,project_id,file_id,anchor_kind,element_id,ifc_global_id,camera_json,page_number,x,y,width,height,label,active,deactivation_note,replaces_anchor_id";
+  const { data: replacement, error: replacementError } = await client
+    .from("lukas_drawing_issue_anchors")
+    .select(select)
+    .eq("id", value.newAnchorId)
+    .maybeSingle();
+  if (replacementError) throw drawingRevisionRelinkError(replacementError);
+  if (!replacement) return null;
+  const { data: previous, error: previousError } = await client
+    .from("lukas_drawing_issue_anchors")
+    .select(select)
+    .eq("id", value.previousAnchorId)
+    .maybeSingle();
+  if (previousError) throw drawingRevisionRelinkError(previousError);
+  const anchorMatches =
+    value.anchor.kind === "pdf_region"
+      ? replacement.page_number === value.anchor.pageNumber &&
+        Number(replacement.x) === value.anchor.x &&
+        Number(replacement.y) === value.anchor.y &&
+        Number(replacement.width) === value.anchor.width &&
+        Number(replacement.height) === value.anchor.height
+      : replacement.element_id === value.anchor.elementId &&
+        replacement.ifc_global_id === value.anchor.ifcGlobalId &&
+        sameRelinkCamera(replacement.camera_json, value.anchor.camera);
+  if (
+    !previous ||
+    previous.active ||
+    previous.deactivation_note !== value.note ||
+    !replacement.active ||
+    replacement.replaces_anchor_id !== value.previousAnchorId ||
+    replacement.issue_id !== previous.issue_id ||
+    replacement.project_id !== previous.project_id ||
+    replacement.file_id !== value.currentFileId ||
+    replacement.anchor_kind !== value.anchor.kind ||
+    replacement.label !== value.anchor.label ||
+    !anchorMatches
+  )
+    throw new DrawingRevisionRelinkError("conflict", "P1C01");
+  return RelinkDrawingAnchorResultSchema.parse({
+    previousAnchorId: value.previousAnchorId,
+    newAnchorId: value.newAnchorId,
+  });
 }
 
 export async function loadDrawingRevisionReview(
@@ -264,6 +390,17 @@ export async function loadDrawingRevisionReview(
   projectId: string,
   currentFileId: string,
 ): Promise<DrawingRevisionReviewItem[]> {
+  return (
+    await loadDrawingRevisionReviewPage(baseClient, projectId, currentFileId)
+  ).items;
+}
+
+export async function loadDrawingRevisionReviewPage(
+  baseClient: DrawingClient,
+  projectId: string,
+  currentFileId: string,
+  afterAnchorId: string | null = null,
+): Promise<DrawingRevisionReviewPage> {
   const client =
     baseClient as unknown as SupabaseClient<RevisionReviewDatabase>;
   const { data: revision, error: revisionError } = await client
@@ -276,18 +413,47 @@ export async function loadDrawingRevisionReview(
     throw new Error(
       `도면 개정 관계를 불러오지 못했습니다: ${revisionError.message}`,
     );
-  if (!revision) return [];
+  if (!revision) return { items: [], nextCursor: null, previousCursor: null };
 
-  const { data: anchors, error: anchorError } = await client
+  const anchorQuery = client
     .from("lukas_drawing_issue_anchors")
     .select("id,issue_id,file_id,anchor_kind,ifc_global_id,active")
     .eq("file_id", revision.previous_file_id)
-    .eq("active", true);
+    .eq("active", true)
+    .order("id");
+  const { data: loadedAnchors, error: anchorError } = afterAnchorId
+    ? await anchorQuery
+        .gt("id", afterAnchorId)
+        .limit(drawingRevisionReviewBatchSize + 1)
+    : await anchorQuery.limit(drawingRevisionReviewBatchSize + 1);
   if (anchorError)
     throw new Error(
       `이전 도면 근거를 불러오지 못했습니다: ${anchorError.message}`,
     );
-  if (!anchors?.length) return [];
+  if (!loadedAnchors?.length)
+    return { items: [], nextCursor: null, previousCursor: null };
+  const hasMore = loadedAnchors.length > drawingRevisionReviewBatchSize;
+  const anchors = loadedAnchors.slice(0, drawingRevisionReviewBatchSize);
+  const previousCursor = afterAnchorId
+    ? await (async () => {
+        const { data: previousAnchors, error: previousAnchorError } =
+          await client
+            .from("lukas_drawing_issue_anchors")
+            .select("id")
+            .eq("file_id", revision.previous_file_id)
+            .eq("active", true)
+            .lt("id", afterAnchorId)
+            .order("id", { ascending: false })
+            .limit(drawingRevisionReviewBatchSize);
+        if (previousAnchorError)
+          throw new Error(
+            `이전 도면 근거를 불러오지 못했습니다: ${previousAnchorError.message}`,
+          );
+        return previousAnchors?.length === drawingRevisionReviewBatchSize
+          ? (previousAnchors.at(-1)?.id ?? null)
+          : null;
+      })()
+    : null;
 
   const issueIds = [...new Set(anchors.map((anchor) => anchor.issue_id))];
   const { data: issues, error: issueError } = await client
@@ -320,39 +486,102 @@ export async function loadDrawingRevisionReview(
       `IFC 요소 식별 관계를 불러오지 못했습니다: ${identityRows.error.message}`,
     );
 
-  return anchors.reduce<DrawingRevisionReviewItem[]>((result, anchor) => {
-    const issue = issueById.get(anchor.issue_id);
-    if (!issue) return result;
-    if (anchor.anchor_kind === "ifc_element" && anchor.ifc_global_id) {
-      const matches = [
-        ...new Set(
-          (identityRows.data ?? [])
-            .filter((row) => row.ifc_global_id === anchor.ifc_global_id)
-            .map((row) => row.revit_element_id),
-        ),
-      ];
-      if (matches.length === 1) {
-        result.push({
-          issueId: issue.id,
-          issueTitle: issue.title,
-          previousAnchorId: anchor.id,
-          previousFileId: anchor.file_id,
-          sourceKind: anchor.anchor_kind,
-          kind: "ifc_candidate" as const,
-          ifcGlobalId: anchor.ifc_global_id,
-        });
-        return result;
+  const items = anchors.reduce<DrawingRevisionReviewItem[]>(
+    (result, anchor) => {
+      const issue = issueById.get(anchor.issue_id);
+      if (!issue) return result;
+      if (anchor.anchor_kind === "ifc_element" && anchor.ifc_global_id) {
+        const matches = [
+          ...new Set(
+            (identityRows.data ?? [])
+              .filter((row) => row.ifc_global_id === anchor.ifc_global_id)
+              .map((row) => row.revit_element_id),
+          ),
+        ];
+        if (matches.length === 1) {
+          result.push({
+            issueId: issue.id,
+            issueTitle: issue.title,
+            previousAnchorId: anchor.id,
+            previousFileId: anchor.file_id,
+            sourceKind: anchor.anchor_kind,
+            kind: "ifc_candidate" as const,
+            ifcGlobalId: anchor.ifc_global_id,
+          });
+          return result;
+        }
       }
-    }
-    result.push({
-      issueId: issue.id,
-      issueTitle: issue.title,
-      previousAnchorId: anchor.id,
-      previousFileId: anchor.file_id,
-      sourceKind: anchor.anchor_kind,
-      kind: "manual_reanchor_required" as const,
-      ifcGlobalId: null,
-    });
-    return result;
-  }, []);
+      result.push({
+        issueId: issue.id,
+        issueTitle: issue.title,
+        previousAnchorId: anchor.id,
+        previousFileId: anchor.file_id,
+        sourceKind: anchor.anchor_kind,
+        kind: "manual_reanchor_required" as const,
+        ifcGlobalId: null,
+      });
+      return result;
+    },
+    [],
+  );
+  return {
+    items,
+    nextCursor: hasMore ? (anchors.at(-1)?.id ?? null) : null,
+    previousCursor,
+  };
+}
+
+export async function loadDrawingRevisionReviewCandidate(
+  baseClient: DrawingClient,
+  projectId: string,
+  currentFileId: string,
+  previousAnchorId: string,
+): Promise<DrawingRevisionReviewItem | null> {
+  const client =
+    baseClient as unknown as SupabaseClient<RevisionReviewDatabase>;
+  const { data: revision, error: revisionError } = await client
+    .from("lukas_qto_file_revisions")
+    .select("previous_file_id,current_file_id,project_id")
+    .eq("project_id", projectId)
+    .eq("current_file_id", currentFileId)
+    .maybeSingle();
+  if (revisionError)
+    throw new Error(
+      `도면 개정 관계를 불러오지 못했습니다: ${revisionError.message}`,
+    );
+  if (!revision) return null;
+
+  const { data: anchor, error: anchorError } = await client
+    .from("lukas_drawing_issue_anchors")
+    .select("id,issue_id,project_id,file_id,anchor_kind,ifc_global_id,active")
+    .eq("id", previousAnchorId)
+    .eq("project_id", projectId)
+    .eq("file_id", revision.previous_file_id)
+    .eq("active", true)
+    .maybeSingle();
+  if (anchorError)
+    throw new Error(
+      `이전 도면 근거를 불러오지 못했습니다: ${anchorError.message}`,
+    );
+  if (!anchor) return null;
+
+  const { data: issue, error: issueError } = await client
+    .from("lukas_drawing_issues")
+    .select("id,project_id,title,status")
+    .eq("id", anchor.issue_id)
+    .eq("project_id", projectId)
+    .maybeSingle();
+  if (issueError)
+    throw new Error(`재검토 이슈를 불러오지 못했습니다: ${issueError.message}`);
+  if (!issue) return null;
+
+  return {
+    issueId: issue.id,
+    issueTitle: issue.title,
+    previousAnchorId: anchor.id,
+    previousFileId: anchor.file_id,
+    sourceKind: anchor.anchor_kind,
+    kind: "manual_reanchor_required",
+    ifcGlobalId: null,
+  };
 }

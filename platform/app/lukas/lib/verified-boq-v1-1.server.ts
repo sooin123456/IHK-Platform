@@ -65,6 +65,9 @@ export type VerifiedBoqV1_1Result = Omit<
 };
 
 const sha256Pattern = /^[0-9a-f]{64}$/;
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const nativeHandlePattern = /^[1-9A-F][0-9A-F]{0,15}$/;
 const positiveElementId = /^[1-9][0-9]*$/;
 
 function bytewise(left: string, right: string) {
@@ -142,37 +145,116 @@ function canonicalSource(source: DrawingQuantitySource): DrawingQuantitySource {
   if (compareExact(parseExactDecimal(rawQuantity), exactZero) < 0)
     throw new Error("P6B04: Drawing 원수량은 음수일 수 없습니다.");
 
-  const sourceAnchors = source.sourceAnchors
-    .map((anchor) => {
-      if (!sha256Pattern.test(anchor.sourceSha256))
-        throw new Error("P6B04: 원본 근거 확인번호가 올바르지 않습니다.");
-      if (
-        (anchor.sourceKind === "pdf_region" &&
-          (anchor.pdfRegion === null || anchor.ifcGlobalId !== null)) ||
-        (anchor.sourceKind === "ifc_element" &&
-          (anchor.pdfRegion !== null || !anchor.ifcGlobalId?.trim()))
-      )
-        throw new Error("P6B04: 원본 근거 종류와 좌표가 일치하지 않습니다.");
-      return {
-        sourceFileId: normalizedId(anchor.sourceFileId, "원본 파일 ID"),
-        sourceSha256: anchor.sourceSha256,
-        sourceKind: anchor.sourceKind,
-        pdfRegion:
-          anchor.pdfRegion === null
-            ? null
-            : {
-                pageNumber: anchor.pdfRegion.pageNumber,
-                x: anchor.pdfRegion.x,
-                y: anchor.pdfRegion.y,
-                width: anchor.pdfRegion.width,
-                height: anchor.pdfRegion.height,
-              },
-        ifcGlobalId: anchor.ifcGlobalId,
-      };
-    })
-    .sort((left, right) =>
-      bytewise(JSON.stringify(left), JSON.stringify(right)),
-    );
+  const sourceAnchors: DrawingQuantitySource["sourceAnchors"] =
+    source.sourceAnchors
+      .map((anchor): DrawingQuantitySource["sourceAnchors"][number] => {
+        if (!sha256Pattern.test(anchor.sourceSha256))
+          throw new Error("P6B04: 원본 근거 확인번호가 올바르지 않습니다.");
+        const dxfEntity = "dxfEntity" in anchor ? anchor.dxfEntity : undefined;
+        const dwgEntity = "dwgEntity" in anchor ? anchor.dwgEntity : undefined;
+        if (
+          (anchor.sourceKind === "pdf_region" &&
+            (anchor.pdfRegion === null ||
+              anchor.ifcGlobalId !== null ||
+              dxfEntity !== undefined ||
+              dwgEntity !== undefined)) ||
+          (anchor.sourceKind === "ifc_element" &&
+            (anchor.pdfRegion !== null ||
+              !anchor.ifcGlobalId?.trim() ||
+              dxfEntity !== undefined ||
+              dwgEntity !== undefined)) ||
+          (anchor.sourceKind === "dxf_entity" &&
+            (anchor.pdfRegion !== null ||
+              anchor.ifcGlobalId !== null ||
+              dwgEntity !== undefined ||
+              !dxfEntity ||
+              Object.keys(dxfEntity).sort().join(",") !==
+                "entityKey,entityType,handle,importerVersion,sourceLayer,unitCode,unitSource" ||
+              dxfEntity.entityKey.length < 1 ||
+              dxfEntity.entityKey.length > 1_024 ||
+              dxfEntity.entityKey !== dxfEntity.entityKey.trim() ||
+              /[\u0000-\u001f\u007f]/u.test(dxfEntity.entityKey) ||
+              ![
+                "LINE",
+                "LWPOLYLINE",
+                "POLYLINE",
+                "CIRCLE",
+                "ARC",
+                "TEXT",
+              ].includes(dxfEntity.entityType) ||
+              dxfEntity.sourceLayer.length < 1 ||
+              dxfEntity.sourceLayer.length > 255 ||
+              dxfEntity.sourceLayer !== dxfEntity.sourceLayer.trim() ||
+              dxfEntity.sourceLayer.includes("\0") ||
+              (dxfEntity.handle !== null &&
+                !/^[0-9A-F]{1,32}$/.test(dxfEntity.handle)) ||
+              ![1, 2, 4, 5, 6].includes(dxfEntity.unitCode) ||
+              !["declared", "user_selected"].includes(dxfEntity.unitSource) ||
+              dxfEntity.importerVersion !== 1)) ||
+          (anchor.sourceKind === "dwg_entity" &&
+            (anchor.pdfRegion !== null ||
+              anchor.ifcGlobalId !== null ||
+              dxfEntity !== undefined ||
+              !dwgEntity ||
+              Object.keys(dwgEntity).sort().join(",") !==
+                "analysisJobId,entityType,handle,importerVersion,layerHandle,ownerHandle,reportSha256,sourceLayer,unitCode,unitSource" ||
+              !uuidPattern.test(dwgEntity.analysisJobId) ||
+              !sha256Pattern.test(dwgEntity.reportSha256) ||
+              !nativeHandlePattern.test(dwgEntity.handle) ||
+              !nativeHandlePattern.test(dwgEntity.ownerHandle) ||
+              !nativeHandlePattern.test(dwgEntity.layerHandle) ||
+              !["LINE", "LWPOLYLINE", "CIRCLE", "ARC", "TEXT"].includes(
+                dwgEntity.entityType,
+              ) ||
+              dwgEntity.sourceLayer.length < 1 ||
+              dwgEntity.sourceLayer.length > 255 ||
+              dwgEntity.sourceLayer !== dwgEntity.sourceLayer.trim() ||
+              dwgEntity.sourceLayer.includes("\0") ||
+              ![1, 2, 4, 5, 6].includes(dwgEntity.unitCode) ||
+              !["declared", "user_selected"].includes(dwgEntity.unitSource) ||
+              dwgEntity.importerVersion !== 1)) ||
+          !["pdf_region", "ifc_element", "dxf_entity", "dwg_entity"].includes(
+            anchor.sourceKind,
+          )
+        )
+          throw new Error("P6B04: 원본 근거 종류와 좌표가 일치하지 않습니다.");
+        const common = {
+          sourceFileId: normalizedId(anchor.sourceFileId, "원본 파일 ID"),
+          sourceSha256: anchor.sourceSha256,
+        };
+        if (anchor.sourceKind === "pdf_region")
+          return {
+            ...common,
+            sourceKind: "pdf_region",
+            pdfRegion: { ...anchor.pdfRegion },
+            ifcGlobalId: null,
+          };
+        if (anchor.sourceKind === "ifc_element")
+          return {
+            ...common,
+            sourceKind: "ifc_element",
+            pdfRegion: null,
+            ifcGlobalId: anchor.ifcGlobalId,
+          };
+        return anchor.sourceKind === "dxf_entity"
+          ? {
+              ...common,
+              sourceKind: "dxf_entity",
+              pdfRegion: null,
+              ifcGlobalId: null,
+              dxfEntity: { ...anchor.dxfEntity },
+            }
+          : {
+              ...common,
+              sourceKind: "dwg_entity",
+              pdfRegion: null,
+              ifcGlobalId: null,
+              dwgEntity: { ...anchor.dwgEntity },
+            };
+      })
+      .sort((left, right) =>
+        bytewise(JSON.stringify(left), JSON.stringify(right)),
+      );
   unique(sourceAnchors, (row) => JSON.stringify(row), "원본 근거");
   const issueLinks = source.issueLinks
     .map((row) => ({ issueId: normalizedId(row.issueId, "이슈 ID") }))

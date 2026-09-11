@@ -9,6 +9,7 @@ export function readPublicReleaseConfig(input: {
   url?: string;
   sha256?: string;
   version?: string;
+  allowLoopback?: boolean;
 }): PublicReleaseConfig {
   const version = input.version?.trim() || "현장 베타";
   const sha256 = input.sha256?.trim().toUpperCase();
@@ -16,7 +17,11 @@ export function readPublicReleaseConfig(input: {
 
   try {
     const parsed = new URL(input.url?.trim() || "");
-    if (parsed.protocol === "https:") url = parsed.toString();
+    const isLoopback =
+      input.allowLoopback === true &&
+      parsed.protocol === "http:" &&
+      ["127.0.0.1", "::1", "[::1]"].includes(parsed.hostname);
+    if (parsed.protocol === "https:" || isLoopback) url = parsed.toString();
   } catch {
     url = undefined;
   }

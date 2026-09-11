@@ -21,7 +21,14 @@ export type IfcRenderDerivativeDescriptor =
       geometrySignedUrl: null;
     }
   | {
-      status: "pending" | "failed";
+      status:
+        | "not_queued"
+        | "queued"
+        | "processing"
+        | "retry_wait"
+        | "completed"
+        | "pending"
+        | "failed";
       version: number | null;
       sourceSha256: string;
       manifestSha256: null;

@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -22,6 +23,7 @@ import {
   validateDrawingP7ReleaseEvidence,
   writeDrawingP7ReleaseEvidence,
 } from "./drawing-p7-release-evidence.mjs";
+import { inspectDrawingP7RestoreEvidence } from "./drawing-p7-restore-evidence.mjs";
 import {
   invalidateDrawingP7ReleaseDocuments,
   writeDrawingP7ReleaseDocuments,
@@ -376,8 +378,8 @@ export function requireP7ProductionAuthorities(environment = process.env) {
 
 export function validateP7ProductionReceipt(receipt, authority, invocationId) {
   if (
-    receipt?.schemaVersion !== 1 ||
-    receipt.authority !== "P7_MOUNTED_PRODUCTION_PLAYWRIGHT_V1"
+    receipt?.schemaVersion !== 2 ||
+    receipt.authority !== "P7_MOUNTED_PRODUCTION_PLAYWRIGHT_V2"
   )
     throw new Error("P7 production receipt authority is invalid");
   if (receipt.invocationId !== invocationId)
@@ -393,6 +395,15 @@ export function validateP7ProductionReceipt(receipt, authority, invocationId) {
     throw new Error(
       "P7 production receipt deployment or mounted route mismatch",
     );
+  const canonicalWorkspacePath = `/projects/${authority.project}/workspaces/${authority.document}`;
+  if (
+    !isDeepStrictEqual(receipt.mountedPaths, [
+      canonicalWorkspacePath,
+      canonicalWorkspacePath,
+      canonicalWorkspacePath,
+    ])
+  )
+    throw new Error("P7 production mounted route evidence is invalid");
   if (!isDeepStrictEqual(receipt.identities, authority.identities))
     throw new Error("P7 production receipt identity mismatch");
   if (
@@ -442,13 +453,76 @@ export function validateP7ProductionReceipt(receipt, authority, invocationId) {
   )
     throw new Error("P7 production independent approval authority failed");
   if (
-    receipt.export?.auditActorId !== authority.identities[2].id ||
-    !uuid.test(receipt.export?.requestId ?? "") ||
-    receipt.export?.artifactType !== "drawing_pdf" ||
-    !/^[0-9a-f]{64}$/.test(receipt.export?.sha256 ?? "") ||
-    !(receipt.export?.byteSize > 0)
+    !Number.isInteger(receipt.approval.subjectVersion) ||
+    !(receipt.approval.subjectVersion > 0) ||
+    !/^[0-9a-f]{64}$/.test(receipt.approval.snapshotSha256 ?? "") ||
+    !isDeepStrictEqual(Object.keys(receipt.approvedSnapshot ?? {}).sort(), [
+      "operationCheckpoint",
+      "sha256",
+    ]) ||
+    !Number.isInteger(receipt.approvedSnapshot.operationCheckpoint) ||
+    !(receipt.approvedSnapshot.operationCheckpoint >= 0) ||
+    receipt.approvedSnapshot.sha256 !== receipt.approval.snapshotSha256
+  )
+    throw new Error("P7 production approval snapshot authority failed");
+  const drawingExportFields = [
+    "actorId",
+    "artifactType",
+    "byteSize",
+    "checkpointSha256",
+    "operationCheckpoint",
+    "requestId",
+    "revisionId",
+    "revisionSnapshotSha256",
+    "revisionVersion",
+    "sha256",
+    "workspaceId",
+  ];
+  const drawingExportTypes = ["drawing_pdf", "drawing_png", "drawing_svg"];
+  if (
+    !Array.isArray(receipt.drawingExports) ||
+    receipt.drawingExports.length !== drawingExportTypes.length ||
+    new Set(
+      receipt.drawingExports.map(({ requestId }) => requestId.toLowerCase()),
+    ).size !== drawingExportTypes.length
   )
     throw new Error("P7 production export audit evidence is invalid");
+  for (const [index, artifactType] of drawingExportTypes.entries()) {
+    const drawingExport = receipt.drawingExports[index];
+    if (
+      !isDeepStrictEqual(
+        Object.keys(drawingExport ?? {}).sort(),
+        drawingExportFields,
+      ) ||
+      drawingExport.artifactType !== artifactType ||
+      !uuid.test(drawingExport.requestId ?? "") ||
+      !/^[0-9a-f]{64}$/.test(drawingExport.sha256 ?? "") ||
+      !Number.isInteger(drawingExport.byteSize) ||
+      !(drawingExport.byteSize > 0) ||
+      drawingExport.actorId !== authority.identities[2].id ||
+      drawingExport.workspaceId !== authority.document ||
+      drawingExport.revisionId !== authority.revision ||
+      !Number.isInteger(drawingExport.revisionVersion) ||
+      drawingExport.revisionVersion !== receipt.approval.subjectVersion ||
+      !Number.isInteger(drawingExport.operationCheckpoint) ||
+      drawingExport.operationCheckpoint !==
+        receipt.approvedSnapshot.operationCheckpoint ||
+      drawingExport.checkpointSha256 !== receipt.approvedSnapshot.sha256 ||
+      drawingExport.revisionSnapshotSha256 !== receipt.approval.snapshotSha256
+    )
+      throw new Error("P7 production export audit evidence is invalid");
+  }
+  const pdfExport = receipt.drawingExports[0];
+  if (
+    !isDeepStrictEqual(receipt.export, {
+      requestId: pdfExport.requestId,
+      artifactType: pdfExport.artifactType,
+      sha256: pdfExport.sha256,
+      byteSize: pdfExport.byteSize,
+      auditActorId: pdfExport.actorId,
+    })
+  )
+    throw new Error("P7 production PDF export summary is invalid");
   if (Number.isNaN(Date.parse(receipt.recordedAt)))
     throw new Error("P7 production receipt timestamp is invalid");
   return receipt;
@@ -513,14 +587,95 @@ export function p7ProductionGateStatus(
   gateId,
   exitCode,
   providerEvidence = null,
+  expectedRestoreIdentity = {},
 ) {
+  if (gateId === "production.managed_restore") {
+    const status = classifyDrawingP7RestoreEvidence(
+      providerEvidence,
+      expectedRestoreIdentity,
+    );
+    if (exitCode === 0 && status === "PASS") return "PASS";
+    if (exitCode === 2 && status === "UNEXECUTED") return "UNEXECUTED";
+    return "NOT_MET";
+  }
   if (exitCode === 0) return "PASS";
-  if (
-    gateId === "production.managed_restore" &&
-    providerEvidence?.status === "UNEXECUTED"
-  )
-    return "UNEXECUTED";
   return "NOT_MET";
+}
+
+function isLegacyUnexecutedRestoreEvidence(evidence) {
+  return (
+    evidence !== null &&
+    typeof evidence === "object" &&
+    !Array.isArray(evidence) &&
+    isDeepStrictEqual(Object.keys(evidence).sort(), [
+      "comparison",
+      "missingAuthorities",
+      "provider",
+      "recordedAt",
+      "rpoSeconds",
+      "rtoSeconds",
+      "schemaVersion",
+      "sourceCommit",
+      "status",
+    ]) &&
+    evidence.schemaVersion === 1 &&
+    evidence.status === "UNEXECUTED" &&
+    (evidence.sourceCommit === null ||
+      /^[0-9a-f]{40}$/.test(evidence.sourceCommit)) &&
+    isDeepStrictEqual(evidence.provider, {
+      status: "UNEXECUTED",
+      backupId: null,
+      restoreProjectRef: null,
+    }) &&
+    isDeepStrictEqual(evidence.comparison, {
+      status: "UNEXECUTED",
+      mismatches: [
+        "schema",
+        "database",
+        "storage",
+        "yjs",
+        "approvals",
+        "lineage",
+      ],
+    }) &&
+    evidence.rpoSeconds === null &&
+    evidence.rtoSeconds === null &&
+    Array.isArray(evidence.missingAuthorities) &&
+    evidence.missingAuthorities.length > 0 &&
+    evidence.missingAuthorities.every(
+      (item) => typeof item === "string" && item.length > 0,
+    ) &&
+    typeof evidence.recordedAt === "string" &&
+    new Date(Date.parse(evidence.recordedAt)).toISOString() ===
+      evidence.recordedAt
+  );
+}
+
+export function classifyDrawingP7RestoreEvidence(
+  evidence,
+  { expectedSourceCommit, expectedRequestId } = {},
+) {
+  try {
+    if (isLegacyUnexecutedRestoreEvidence(evidence)) return "UNEXECUTED";
+    const inspected = inspectDrawingP7RestoreEvidence(evidence);
+    if (
+      (inspected.sourceCommit !== null &&
+        inspected.sourceCommit !== expectedSourceCommit) ||
+      (inspected.requestId !== null &&
+        inspected.requestId !== expectedRequestId)
+    )
+      return "NOT_MET";
+    if (inspected.status === "PASS")
+      return inspected.sourceCommit === expectedSourceCommit &&
+        inspected.requestId === expectedRequestId &&
+        typeof expectedSourceCommit === "string" &&
+        typeof expectedRequestId === "string"
+        ? "PASS"
+        : "NOT_MET";
+    return inspected.status === "UNEXECUTED" ? "UNEXECUTED" : "NOT_MET";
+  } catch {
+    return "NOT_MET";
+  }
 }
 
 function suppliedAuthority(environment, names) {
@@ -639,7 +794,13 @@ export function buildReleaseEvidenceFromResults(
   performance,
   restore,
   invocationId = randomUUID(),
+  environment = process.env,
 ) {
+  const { path: restorePath, ...rawRestoreEvidence } = restore;
+  const restoreStatus = classifyDrawingP7RestoreEvidence(rawRestoreEvidence, {
+    expectedSourceCommit: drawingP7ReleaseCommit(),
+    expectedRequestId: environment.P7_RESTORE_REQUEST_ID?.trim() || undefined,
+  });
   const requirements = P7_REQUIREMENTS.map(({ id, scope }) => {
     let status = scope === "production" ? "UNEXECUTED" : "PASS";
     let authority =
@@ -719,9 +880,9 @@ export function buildReleaseEvidenceFromResults(
       id === "retention.managed_backup_restore" ||
       id === "retention.rpo_rto"
     ) {
-      status = restore.status === "PASS" ? "PASS" : "UNEXECUTED";
+      status = restoreStatus;
       authority = "managed Supabase backup isolated restore comparison";
-      receipt = status === "PASS" ? fileReceipt(restore.path) : null;
+      receipt = status === "PASS" ? fileReceipt(restorePath) : null;
     }
     return receipts
       ? { id, scope, status, authority, receipt, receipts }
@@ -941,6 +1102,7 @@ async function main(mode) {
     );
     const exitCode = await executeWithEnvironment(gate.argv, environment);
     let providerEvidence = null;
+    let expectedRestoreIdentity = {};
     if (gate.id === "production.managed_restore") {
       const path = fileURLToPath(
         new URL(
@@ -948,12 +1110,26 @@ async function main(mode) {
           import.meta.url,
         ),
       );
-      if (existsSync(path))
-        providerEvidence = JSON.parse(readFileSync(path, "utf8"));
+      try {
+        if (existsSync(path))
+          providerEvidence = JSON.parse(readFileSync(path, "utf8"));
+      } catch {
+        providerEvidence = null;
+      }
+      expectedRestoreIdentity = {
+        expectedSourceCommit: authority.commit,
+        expectedRequestId:
+          environment.P7_RESTORE_REQUEST_ID?.trim() || undefined,
+      };
     }
     productionResults.push({
       id: gate.id,
-      status: p7ProductionGateStatus(gate.id, exitCode, providerEvidence),
+      status: p7ProductionGateStatus(
+        gate.id,
+        exitCode,
+        providerEvidence,
+        expectedRestoreIdentity,
+      ),
       exitCode,
     });
     writeFileSync(

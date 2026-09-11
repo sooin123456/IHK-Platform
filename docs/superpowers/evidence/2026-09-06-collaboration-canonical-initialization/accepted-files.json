@@ -1,0 +1,44 @@
+[
+  {
+    "path": "platform/supabase/migrations/20260906070918_drawing_collaboration_canonical_initialization.sql",
+    "sha256": "6e7a8e46d5e6e2c535a8ecf8abfcac416e2426d86c39d19258e921fc51dd7795",
+    "bytes": 4969,
+    "baselineSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "platform/collaboration/src/storage.ts",
+    "sha256": "45a0631f8930db085356de53d8b78e86880392509ec3dac94113b1df31a09b9a",
+    "bytes": 23962,
+    "baselineSha256": "d5c37967a28eb668f7e421a378d474b9186f7f1913320bc39ca7a967c4e52d32"
+  },
+  {
+    "path": "platform/collaboration/src/server.ts",
+    "sha256": "cbdfce82b39a0ff633ac5f2c07856bee29d558fd6343fbb6f2cba95dd8a81438",
+    "bytes": 60364,
+    "baselineSha256": "b1c8908502c1461be782fd4f4d883afa5e1dbe0843ccab5cf710d5caaf0e34fe"
+  },
+  {
+    "path": "platform/tests/drawing-collaboration-service.test.mjs",
+    "sha256": "71538ea0f99e696ab18e7ad55b8467c860b7c3396c4df8e2eb3092d0a3d51c15",
+    "bytes": 94926,
+    "baselineSha256": "a191abd6f912e8a0a2ff786ee58aecdf76b4c258bcc9261324351145d8e48995"
+  },
+  {
+    "path": "platform/tests/drawing-collaboration-initialization.test.mjs",
+    "sha256": "36dacb2ea54638e290e81f57b8b92dd6aa7f8bc41000e7599a903ab92b4dc8dc",
+    "bytes": 27500,
+    "baselineSha256": null
+  },
+  {
+    "path": "platform/tests/drawing-workspace-m1-real-database.test.mjs",
+    "sha256": "626145b3fd80dcd9ed5e74469398a8e0c883384287abb9a4d25ceec8edc15379",
+    "bytes": 119810,
+    "baselineSha256": "680deb210123e91b8301b310369b074e79802ba9c42284b8b30588369bff631d"
+  },
+  {
+    "path": "platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs",
+    "sha256": "15915bedb4d009fad529465dc13bef16dfefa3b6a35388f59e7fe3bd020084f2",
+    "bytes": 12067,
+    "baselineSha256": null
+  }
+]

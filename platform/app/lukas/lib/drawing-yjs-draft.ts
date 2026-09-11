@@ -15,6 +15,7 @@ import {
   DrawingCollaborationMetaSchema,
   DrawingCollaborationOperationSchema,
   DrawingCollaborationStatusSchema,
+  drawingCollaborationOperationDigestSource,
   drawingCollaborationWritableCapabilities,
   type DrawingCollaborationMeta,
   type DrawingCollaborationOperation,
@@ -30,8 +31,10 @@ import {
 } from "./drawing-document-store.ts";
 import type { DrawingWorkspaceCapability } from "./drawing-workspace.server.ts";
 import {
+  DrawingHistoryGroupSchema,
   DrawingLayerSchema,
   DrawingObjectSchema,
+  type DrawingStructureAction,
 } from "./drawing-workspace.types.ts";
 
 export type DrawingDraftQuarantine = {
@@ -55,9 +58,32 @@ export type PreparedDrawingDraft = {
   state: DrawingDocumentState;
 };
 
+export type DrawingLocalAcknowledgement = {
+  clientOperationId: string;
+  authoritativeSequence: number;
+  resultVersions: Record<string, number | null>;
+};
+
+export type DrawingCanonicalRecentOutcome = {
+  revisionId: string;
+  clientOperationId: string;
+  actorId: string;
+  sequence: number;
+  resultVersions: Record<string, number | null>;
+  operationSha256: string;
+};
+
+type DrawingAuthoritativeReplacementOptions = {
+  baseOperationSequence?: number;
+  recentOutcomes?: readonly DrawingCanonicalRecentOutcome[];
+};
+
 export type DrawingDraftAdapter = {
   getSnapshot(): DrawingDraftSnapshot;
   operations(): DrawingCollaborationOperation[];
+  operationStatus(
+    clientOperationId: string,
+  ): ReturnType<typeof DrawingCollaborationStatusSchema.parse> | null;
   subscribe(listener: () => void): () => void;
   prepareLocal(command: DrawingCommand): PreparedDrawingDraft;
   preparePersistedLocal(
@@ -67,11 +93,20 @@ export type DrawingDraftAdapter = {
     operation: DrawingRecordedOperation,
   ): PreparedDrawingDraft;
   appendDurableLocal(prepared: PreparedDrawingDraft): boolean;
+  hydrateCanonicalHistory(state: DrawingDocumentState): boolean;
+  recordLocalAcknowledgement(
+    acknowledgement: DrawingLocalAcknowledgement,
+    authority?: "canonical",
+  ): boolean;
+  isOperationCheckpointAcknowledged(
+    clientOperationId: string,
+    checkpoint: number,
+  ): boolean;
   applyServerProjection(update: Uint8Array): boolean;
   replaceAuthoritative(
     state: DrawingDocumentState,
-    options?: { baseOperationSequence?: number },
-  ): void;
+    options?: DrawingAuthoritativeReplacementOptions,
+  ): void | Promise<void>;
   setAuthorization(capability: DrawingWorkspaceCapability): void;
   setFrozen(frozen: boolean): void;
   whenLocalPersistenceSynced(): Promise<void>;
@@ -85,6 +120,7 @@ type DrawingDraftAdapterOptions = DrawingCommandEnvironment & {
   actorId: string;
   authorization: DrawingWorkspaceCapability;
   frozen: boolean;
+  enforceServerFreeze?: boolean;
   baseOperationSequence?: number;
   localPersistenceSynced?: Promise<unknown>;
   localBaseMeta?: DrawingCollaborationMeta;
@@ -160,6 +196,410 @@ function envelopeFor(
   });
 }
 
+const MAX_CANONICAL_DXF_HISTORY_OPERATIONS = 48;
+
+type CanonicalDxfHistory = {
+  actorId: string;
+  revisionId: string;
+  groupId: string;
+  kind: "dxf_import" | "dwg_import";
+  count: number;
+  recoveredOperations: DrawingRecordedOperation[];
+};
+
+function stateGraph(state: DrawingDocumentState) {
+  const {
+    operations: _operations,
+    undoStackByActor: _undo,
+    redoStackByActor: _redo,
+    ...graph
+  } = state;
+  return graph;
+}
+
+function canonicalCheckpointGraph(state: DrawingDocumentState) {
+  const graph = stateGraph(state);
+  if (!graph.structure) return graph;
+  const { tombstones: _tombstones, ...structure } = graph.structure;
+  return { ...graph, structure };
+}
+
+function sameCanonicalCheckpointGraph(
+  checkpoint: DrawingDocumentState,
+  expected: DrawingDocumentState,
+) {
+  const checkpointIncludesTombstones = Boolean(
+    checkpoint.structure && Object.hasOwn(checkpoint.structure, "tombstones"),
+  );
+  return same(
+    checkpointIncludesTombstones
+      ? stateGraph(checkpoint)
+      : canonicalCheckpointGraph(checkpoint),
+    checkpointIncludesTombstones
+      ? stateGraph(expected)
+      : canonicalCheckpointGraph(expected),
+  );
+}
+
+function canonicalDxfGroup(operation: DrawingRecordedOperation) {
+  const forward = DrawingHistoryGroupSchema.safeParse(
+    (operation.forward as { historyGroup?: unknown }).historyGroup,
+  );
+  const inverse = DrawingHistoryGroupSchema.safeParse(
+    (operation.inverse as { historyGroup?: unknown }).historyGroup,
+  );
+  return forward.success && inverse.success && same(forward.data, inverse.data)
+    ? forward.data
+    : null;
+}
+
+const canonicalDxfCollectionForAction = {
+  put_object: "objects",
+  delete_object: "objects",
+  put_source: "sources",
+  delete_source: "sources",
+  put_page: "pages",
+  delete_page: "pages",
+  put_canvas: "canvases",
+  delete_canvas: "canvases",
+  put_layer: "layers",
+  delete_layer: "layers",
+  put_style: "styles",
+  delete_style: "styles",
+  put_block: "blocks",
+  delete_block: "blocks",
+  put_block_instance: "blockInstances",
+  delete_block_instance: "blockInstances",
+  put_property_schema: "propertySchemas",
+  delete_property_schema: "propertySchemas",
+  put_property_value: "propertyValues",
+  delete_property_value: "propertyValues",
+  put_table: "tables",
+  delete_table: "tables",
+} as const satisfies Record<DrawingStructureAction["kind"], string>;
+
+function assertCanonicalDxfHistorySemantics(
+  state: DrawingDocumentState,
+  operations: DrawingRecordedOperation[],
+) {
+  if (!state.structure)
+    throw new DrawingDraftIntegrityError(
+      "Canonical DXF history requires drawing structure state; native DWG history uses the same invariant.",
+    );
+  const createdEntityCollections = new Map<string, string>();
+  const materializedEntities = new Map<
+    string,
+    { version: number; [key: string]: unknown }
+  >();
+  for (const operation of operations) {
+    const forward = (operation.forward as { actions: DrawingStructureAction[] })
+      .actions;
+    const inverse = (operation.inverse as { actions: DrawingStructureAction[] })
+      .actions;
+    const inverseById = new Map<string, DrawingStructureAction>();
+    for (const action of inverse) {
+      const entityId = "entity" in action ? action.entity.id : action.id;
+      if (inverseById.has(entityId))
+        throw new DrawingDraftIntegrityError(
+          "Canonical DXF history inverse is ambiguous; native DWG history uses the same invariant.",
+        );
+      inverseById.set(entityId, action);
+    }
+    if (inverseById.size !== forward.length)
+      throw new DrawingDraftIntegrityError(
+        "Canonical DXF history inverse is incomplete; native DWG history uses the same invariant.",
+      );
+    for (const action of forward) {
+      const entityId = "entity" in action ? action.entity.id : action.id;
+      const collection = canonicalDxfCollectionForAction[action.kind];
+      const createdCollection = createdEntityCollections.get(entityId);
+      const previous = materializedEntities.get(entityId);
+      const inverseAction = inverseById.get(entityId);
+      const resultVersion = operation.resultVersions[entityId];
+      const creates = "entity" in action && action.baseVersion === null;
+      const expectedInverseKind = (
+        "entity" in action
+          ? creates
+            ? action.kind.replace("put_", "delete_")
+            : action.kind
+          : action.kind.replace("delete_", "put_")
+      ) as DrawingStructureAction["kind"];
+      if (
+        (createdCollection !== undefined && createdCollection !== collection) ||
+        (!creates && (!createdCollection || !previous)) ||
+        (creates && previous) ||
+        !inverseAction ||
+        inverseAction.kind !== expectedInverseKind ||
+        canonicalDxfCollectionForAction[inverseAction.kind] !== collection ||
+        ("entity" in action
+          ? creates
+            ? "entity" in inverseAction ||
+              typeof resultVersion !== "number" ||
+              inverseAction.baseVersion !== resultVersion
+            : !previous ||
+              !("entity" in inverseAction) ||
+              typeof resultVersion !== "number" ||
+              action.baseVersion !== previous.version ||
+              inverseAction.baseVersion !== resultVersion ||
+              !same(inverseAction.entity, previous)
+          : !previous ||
+            !("entity" in inverseAction) ||
+            action.baseVersion !== previous.version ||
+            inverseAction.baseVersion !== null ||
+            !same(inverseAction.entity, previous) ||
+            resultVersion !== null)
+      )
+        throw new DrawingDraftIntegrityError(
+          "Canonical DXF history inverse does not match its forward action; native DWG history uses the same invariant.",
+        );
+      if (creates && createdCollection === undefined)
+        createdEntityCollections.set(entityId, collection);
+      if ("entity" in action) {
+        if (typeof resultVersion !== "number")
+          throw new DrawingDraftIntegrityError(
+            "Canonical DXF history result version is invalid; native DWG history uses the same invariant.",
+          );
+        materializedEntities.set(entityId, {
+          ...structuredClone(action.entity),
+          version: resultVersion,
+        });
+      } else materializedEntities.delete(entityId);
+    }
+  }
+
+  let base = structuredClone(state);
+  const baseStructure = base.structure;
+  if (!baseStructure)
+    throw new DrawingDraftIntegrityError(
+      "Canonical DXF history requires drawing structure state; native DWG history uses the same invariant.",
+    );
+  const structure = baseStructure as unknown as Record<
+    string,
+    Record<string, unknown>
+  >;
+  for (const [entityId, collection] of createdEntityCollections) {
+    delete structure[collection][entityId];
+    delete baseStructure.tombstones?.[entityId];
+  }
+  base = preserveCanonicalStructureMaps({
+    ...base,
+    operations: [],
+    undoStackByActor: {},
+    redoStackByActor: {},
+  });
+  let reproduced = base;
+  for (const operation of operations)
+    reproduced = replay(
+      reproduced,
+      envelopeFor(operation),
+      operation.resultVersions,
+    );
+  if (
+    !same(stateGraph(reproduced), stateGraph(state)) ||
+    !same(reproduced.undoStackByActor, state.undoStackByActor) ||
+    !same(reproduced.redoStackByActor, state.redoStackByActor)
+  )
+    throw new DrawingDraftIntegrityError(
+      "Canonical DXF history does not reproduce its drawing state; native DWG history uses the same invariant.",
+    );
+}
+
+function assertCanonicalDxfHistory(
+  state: DrawingDocumentState,
+  actorId: string,
+) {
+  const operations = state.operations;
+  const anchor = operations[0] ? canonicalDxfGroup(operations[0]) : null;
+  if (
+    operations.length < 1 ||
+    operations.length > MAX_CANONICAL_DXF_HISTORY_OPERATIONS ||
+    !anchor ||
+    anchor.index !== 0 ||
+    anchor.count < operations.length ||
+    anchor.count > MAX_CANONICAL_DXF_HISTORY_OPERATIONS ||
+    new Set(operations.map((operation) => operation.clientOperationId)).size !==
+      operations.length
+  )
+    throw new DrawingDraftIntegrityError(
+      "Canonical DXF history operation bounds are invalid; native DWG history uses the same invariant.",
+    );
+  const groupId = anchor.id;
+  for (const [index, operation] of operations.entries()) {
+    const group = canonicalDxfGroup(operation);
+    if (
+      operation.actorId !== actorId ||
+      operation.revisionId !== state.revisionId ||
+      operation.type !== "mutate_structure" ||
+      !operation.undoable ||
+      operation.originalOperationId !== undefined ||
+      operation.historyAction !== undefined ||
+      !group ||
+      group.kind !== anchor.kind ||
+      group.id !== groupId ||
+      group.index !== index ||
+      group.count !== anchor.count
+    )
+      throw new DrawingDraftIntegrityError(
+        "Canonical DXF history is incomplete or inconsistent; native DWG history uses the same invariant.",
+      );
+    envelopeFor(operation);
+  }
+  const operationIds = operations.map(
+    (operation) => operation.clientOperationId,
+  );
+  if (
+    !same(state.undoStackByActor[actorId] ?? [], operationIds) ||
+    Object.entries(state.undoStackByActor).some(
+      ([stackActor, stack]) => stackActor !== actorId && stack.length > 0,
+    ) ||
+    Object.values(state.redoStackByActor).some((stack) => stack.length > 0)
+  )
+    throw new DrawingDraftIntegrityError(
+      "Canonical DXF history stacks are invalid; native DWG history uses the same invariant.",
+    );
+  assertCanonicalDxfHistorySemantics(state, operations);
+  return {
+    actorId,
+    revisionId: state.revisionId,
+    groupId,
+    kind: anchor.kind,
+    count: anchor.count,
+    recoveredOperations: structuredClone(operations),
+  } satisfies CanonicalDxfHistory;
+}
+
+function canonicalDxfHistoryFromState(
+  state: DrawingDocumentState,
+  actorId: string,
+) {
+  const anchor = state.operations[0]
+    ? canonicalDxfGroup(state.operations[0])
+    : null;
+  if (!anchor || anchor.index !== 0) return null;
+  try {
+    return assertCanonicalDxfHistory(state, actorId);
+  } catch {
+    return null;
+  }
+}
+
+function isCanonicalDxfHistoryProgression(
+  state: DrawingDocumentState,
+  history: CanonicalDxfHistory,
+) {
+  const operations = state.operations;
+  const firstHistoryIndex = operations.findIndex(
+    (operation) =>
+      operation.originalOperationId !== undefined ||
+      operation.historyAction !== undefined,
+  );
+  const originalCount =
+    firstHistoryIndex < 0 ? operations.length : firstHistoryIndex;
+  if (
+    state.revisionId !== history.revisionId ||
+    originalCount < history.recoveredOperations.length ||
+    originalCount > history.count ||
+    (firstHistoryIndex >= 0 && originalCount !== history.count) ||
+    new Set(operations.map((operation) => operation.clientOperationId)).size !==
+      operations.length
+  )
+    return false;
+
+  const originals = operations.slice(0, originalCount);
+  for (const [index, operation] of originals.entries()) {
+    const group = canonicalDxfGroup(operation);
+    if (
+      operation.actorId !== history.actorId ||
+      operation.revisionId !== history.revisionId ||
+      operation.type !== "mutate_structure" ||
+      !operation.undoable ||
+      operation.originalOperationId !== undefined ||
+      operation.historyAction !== undefined ||
+      !group ||
+      group.kind !== history.kind ||
+      group.id !== history.groupId ||
+      group.index !== index ||
+      group.count !== history.count ||
+      (index < history.recoveredOperations.length &&
+        !same(operation, history.recoveredOperations[index]))
+    )
+      return false;
+    try {
+      envelopeFor(operation);
+    } catch {
+      return false;
+    }
+  }
+
+  const originalsById = new Map(
+    originals.map((operation, index) => [operation.clientOperationId, index]),
+  );
+  const undo = originals.map((operation) => operation.clientOperationId);
+  const redo: string[] = [];
+  for (const operation of operations.slice(originalCount)) {
+    const originalOperationId = operation.originalOperationId;
+    const originalIndex = originalOperationId
+      ? originalsById.get(originalOperationId)
+      : undefined;
+    const group = canonicalDxfGroup(operation);
+    if (
+      !originalOperationId ||
+      originalIndex === undefined ||
+      operation.actorId !== history.actorId ||
+      operation.revisionId !== history.revisionId ||
+      operation.type !== "mutate_structure" ||
+      !operation.historyAction ||
+      !group ||
+      group.kind !== history.kind ||
+      group.id !== history.groupId ||
+      group.index !== originalIndex ||
+      group.count !== history.count
+    )
+      return false;
+    const from = operation.historyAction === "undo" ? undo : redo;
+    const to = operation.historyAction === "undo" ? redo : undo;
+    if (from.at(-1) !== originalOperationId) return false;
+    from.pop();
+    to.push(originalOperationId);
+    try {
+      envelopeFor(operation);
+    } catch {
+      return false;
+    }
+  }
+
+  return (
+    same(state.undoStackByActor[history.actorId] ?? [], undo) &&
+    same(state.redoStackByActor[history.actorId] ?? [], redo) &&
+    Object.entries(state.undoStackByActor).every(
+      ([actorId, stack]) => actorId === history.actorId || stack.length === 0,
+    ) &&
+    Object.entries(state.redoStackByActor).every(
+      ([actorId, stack]) => actorId === history.actorId || stack.length === 0,
+    )
+  );
+}
+
+function preserveCanonicalDxfHistory(
+  checkpoint: DrawingDocumentState,
+  current: DrawingDocumentState,
+) {
+  let preserved: DrawingDocumentState = {
+    ...structuredClone(checkpoint),
+    operations: structuredClone(current.operations),
+    undoStackByActor: structuredClone(current.undoStackByActor),
+    redoStackByActor: structuredClone(current.redoStackByActor),
+  };
+  if (preserved.structure && current.structure) {
+    const structure = { ...preserved.structure };
+    if (Object.hasOwn(current.structure, "tombstones"))
+      structure.tombstones = structuredClone(current.structure.tombstones);
+    else delete structure.tombstones;
+    preserved = preserveCanonicalStructureMaps({ ...preserved, structure });
+  }
+  return preserved;
+}
+
 function commandFor(operation: DrawingCollaborationOperation): DrawingCommand {
   return {
     ...(operation.forward as Omit<DrawingCommand, "actorId">),
@@ -169,10 +609,74 @@ function commandFor(operation: DrawingCollaborationOperation): DrawingCommand {
 
 class DrawingDraftIntegrityError extends Error {}
 
+const MAX_CANONICAL_RECENT_OUTCOMES = 256;
+
+const canonicalRecentOutcomeKeys = [
+  "actorId",
+  "clientOperationId",
+  "operationSha256",
+  "resultVersions",
+  "revisionId",
+  "sequence",
+] as const;
+
+function validateCanonicalRecentOutcomes(
+  outcomes: readonly DrawingCanonicalRecentOutcome[],
+  revisionId: string,
+  checkpointSequence: number,
+) {
+  if (
+    outcomes.length > MAX_CANONICAL_RECENT_OUTCOMES ||
+    new Set(outcomes.map((outcome) => outcome.clientOperationId)).size !==
+      outcomes.length ||
+    new Set(outcomes.map((outcome) => outcome.sequence)).size !==
+      outcomes.length
+  )
+    throw new DrawingDraftIntegrityError(
+      "Canonical drawing checkpoint outcomes are invalid.",
+    );
+  const validated = [];
+  for (const [index, outcome] of outcomes.entries()) {
+    if (
+      outcome.revisionId !== revisionId ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+        outcome.actorId,
+      ) ||
+      !Number.isSafeInteger(outcome.sequence) ||
+      outcome.sequence < 1 ||
+      outcome.sequence > checkpointSequence ||
+      (index > 0 && outcomes[index - 1].sequence >= outcome.sequence) ||
+      !same(
+        Object.keys(outcome).sort(),
+        [...canonicalRecentOutcomeKeys].sort(),
+      ) ||
+      !/^[0-9a-f]{64}$/.test(outcome.operationSha256)
+    )
+      throw new DrawingDraftIntegrityError(
+        "Canonical drawing checkpoint outcome boundary is invalid.",
+      );
+    let acknowledgement;
+    try {
+      acknowledgement = DrawingCollaborationStatusSchema.parse({
+        operationId: outcome.clientOperationId,
+        status: "acked",
+        authoritativeSequence: outcome.sequence,
+        resultVersions: outcome.resultVersions,
+      });
+    } catch {
+      throw new DrawingDraftIntegrityError(
+        "Canonical drawing checkpoint outcome digest or result is invalid.",
+      );
+    }
+    validated.push({ acknowledgement, outcome });
+  }
+  return validated;
+}
+
 function replay(
   state: DrawingDocumentState,
   operation: DrawingCollaborationOperation,
-  authoritativeResultVersions?: Record<string, number>,
+  authoritativeResultVersions?: Record<string, number | null>,
 ): DrawingDocumentState {
   const applied = applyDrawingCommandForReplay(
     state,
@@ -198,7 +702,7 @@ function replay(
     );
   if (
     authoritativeResultVersions &&
-    !same(applied.operation.realizedVersions, authoritativeResultVersions)
+    !same(applied.operation.resultVersions, authoritativeResultVersions)
   )
     throw new DrawingDraftIntegrityError(
       "Drawing operation result versions are not authoritative.",
@@ -321,7 +825,24 @@ function hasVersionConflict(
 type CollaborationStatusEvidence = {
   status: "pending" | "acked" | "conflicted" | "rejected";
   authoritativeSequence: number | null;
-  resultVersions: Record<string, number>;
+  resultVersions: Record<string, number | null>;
+};
+
+type CollaborationAcknowledgementEvidence = CollaborationStatusEvidence & {
+  operationId: string;
+};
+
+type DeferredCanonicalCheckpoint = {
+  baseState: DrawingDocumentState;
+  baseOperationSequence: number;
+  canonicalHistory: CanonicalDxfHistory | null;
+  checkpoint: DrawingDocumentState;
+  receipts: Array<{
+    acknowledgement: CollaborationAcknowledgementEvidence;
+    outcome: DrawingCanonicalRecentOutcome;
+  }>;
+  installedAcknowledgementIds: string[];
+  missingOperationIds: string[];
 };
 
 function restoreCompactedObjectHistory(
@@ -429,6 +950,33 @@ export function createDrawingDraftAdapter(
   let locallyFrozen = options.frozen;
   let disposed = false;
   let baseOperationSequence = options.baseOperationSequence ?? 0;
+  let canonicalDxfHistory: CanonicalDxfHistory | null = null;
+  const localAcknowledgements = new Map<
+    string,
+    CollaborationAcknowledgementEvidence
+  >();
+  const canonicalLocalAcknowledgementIds = new Set<string>();
+  const checkpointAbsorbsLocalAcknowledgement = (
+    server: CollaborationStatusEvidence,
+    acknowledgement: CollaborationAcknowledgementEvidence,
+    boundary = baseOperationSequence,
+  ) =>
+    server.status === "acked" &&
+    server.authoritativeSequence !== null &&
+    acknowledgement.authoritativeSequence !== null &&
+    server.authoritativeSequence <= boundary &&
+    acknowledgement.authoritativeSequence <= boundary;
+  const acceptsLocalAcknowledgement = (
+    operationId: string,
+    server: CollaborationStatusEvidence,
+    acknowledgement: CollaborationAcknowledgementEvidence,
+  ) =>
+    same(server, acknowledgement) ||
+    (server.status === "pending" &&
+      canonicalLocalAcknowledgementIds.has(operationId)) ||
+    checkpointAbsorbsLocalAcknowledgement(server, acknowledgement);
+  let deferredCanonicalCheckpoint: DeferredCanonicalCheckpoint | null = null;
+  let deferredCanonicalVerification = Promise.resolve();
   const listeners = new Set<() => void>();
   const persistenceSynced = Promise.resolve(
     options.localPersistenceSynced,
@@ -456,14 +1004,51 @@ export function createDrawingDraftAdapter(
     );
     const ledger = readDrawingCollaborationLedger(candidate);
     const rawStatuses = candidate.getMap("operationStatus").toJSON();
+    const deferredAcknowledgements = new Map(
+      deferredCanonicalCheckpoint?.receipts
+        .filter(({ outcome }) =>
+          deferredCanonicalCheckpoint?.missingOperationIds.includes(
+            outcome.clientOperationId,
+          ),
+        )
+        .map(({ acknowledgement }) => [
+          acknowledgement.operationId,
+          acknowledgement,
+        ]) ?? [],
+    );
     const statuses = new Map();
     for (const [operationId, value] of Object.entries(rawStatuses)) {
       const parsed = DrawingCollaborationStatusSchema.parse(value);
-      if (parsed.operationId !== operationId || !ledger.operations[operationId])
+      const deferred = deferredAcknowledgements.get(operationId);
+      if (
+        parsed.operationId !== operationId ||
+        (deferred && !same(parsed, deferred)) ||
+        (!ledger.operations[operationId] && !deferred)
+      )
         throw new Error(
           "Drawing collaboration status is outside its operation ledger.",
         );
       statuses.set(operationId, parsed);
+    }
+    for (const [operationId, acknowledgement] of localAcknowledgements) {
+      if (!ledger.operations[operationId])
+        throw new Error(
+          "Drawing local acknowledgement is outside its operation ledger.",
+        );
+      const existing = statuses.get(operationId);
+      if (
+        existing &&
+        !acceptsLocalAcknowledgement(operationId, existing, acknowledgement)
+      )
+        throw new Error(
+          "Drawing local acknowledgement conflicts with server status.",
+        );
+      if (
+        existing &&
+        checkpointAbsorbsLocalAcknowledgement(existing, acknowledgement)
+      )
+        continue;
+      statuses.set(operationId, acknowledgement);
     }
 
     const acknowledged = ledger.operationOrder
@@ -493,7 +1078,10 @@ export function createDrawingDraftAdapter(
     const pending = ledger.operationOrder
       .filter((operationId) => {
         const current = statuses.get(operationId);
-        return !current || current.status === "pending";
+        return (
+          !deferredAcknowledgements.has(operationId) &&
+          (!current || current.status === "pending")
+        );
       })
       .map((operationId) => ({
         operationId,
@@ -549,7 +1137,9 @@ export function createDrawingDraftAdapter(
       authorization,
       frozen:
         locallyFrozen ||
-        (meta.freezeState !== "active" && meta.freezeState !== "released"),
+        (options.enforceServerFreeze !== false &&
+          meta.freezeState !== "active" &&
+          meta.freezeState !== "released"),
       quarantine: null,
     };
   }
@@ -572,11 +1162,27 @@ export function createDrawingDraftAdapter(
       },
     };
   }
+  if (!snapshot.quarantine)
+    canonicalDxfHistory = canonicalDxfHistoryFromState(
+      snapshot.state,
+      options.actorId,
+    );
 
   const publish = (next: DrawingDraftSnapshot) => {
-    snapshot = next;
+    const nextCanonicalDxfHistory =
+      canonicalDxfHistory || next.quarantine
+        ? canonicalDxfHistory
+        : canonicalDxfHistoryFromState(next.state, options.actorId);
     options.replaceProjection?.(next.state);
-    for (const listener of listeners) listener();
+    canonicalDxfHistory = nextCanonicalDxfHistory;
+    snapshot = next;
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        // A subscriber cannot veto an already committed projection.
+      }
+    }
   };
   const reproject = () => {
     try {
@@ -592,7 +1198,10 @@ export function createDrawingDraftAdapter(
     }
   };
   const afterTransaction = () => {
-    if (!disposed) reproject();
+    if (!disposed) {
+      reproject();
+      scheduleDeferredCanonicalVerification();
+    }
   };
   document.on("afterTransaction", afterTransaction);
 
@@ -615,6 +1224,431 @@ export function createDrawingDraftAdapter(
       throw new Error("Quarantined drawing drafts cannot be edited.");
   };
 
+  const canonicalHistoryAtCheckpoint = (checkpointSequence: number) => {
+    if (!canonicalDxfHistory || checkpointSequence < baseOperationSequence)
+      return null;
+    try {
+      const ledger = readDrawingCollaborationLedger(document);
+      const statuses = new Map<string, CollaborationStatusEvidence>();
+      for (const [operationId, value] of Object.entries(
+        document.getMap("operationStatus").toJSON(),
+      )) {
+        const status = DrawingCollaborationStatusSchema.parse(value);
+        if (
+          status.operationId !== operationId ||
+          !ledger.operations[operationId]
+        )
+          return null;
+        statuses.set(operationId, status);
+      }
+      for (const [operationId, acknowledgement] of localAcknowledgements) {
+        const current = statuses.get(operationId);
+        if (
+          current &&
+          !acceptsLocalAcknowledgement(operationId, current, acknowledgement)
+        )
+          return null;
+        statuses.set(operationId, acknowledgement);
+      }
+      const acknowledged = ledger.operationOrder
+        .map((operationId) => ({
+          operationId,
+          operation: ledger.operations[operationId],
+          status: statuses.get(operationId),
+        }))
+        .filter(
+          (item) =>
+            item.status?.status === "acked" &&
+            item.status.authoritativeSequence !== null &&
+            item.status.authoritativeSequence > baseOperationSequence &&
+            item.status.authoritativeSequence <= checkpointSequence,
+        )
+        .sort(
+          (left, right) =>
+            left.status!.authoritativeSequence! -
+              right.status!.authoritativeSequence! ||
+            left.operationId.localeCompare(right.operationId),
+        );
+      if (
+        new Set(acknowledged.map((item) => item.status!.authoritativeSequence))
+          .size !== acknowledged.length
+      )
+        return null;
+      let boundary = structuredClone(authoritativeState);
+      for (const item of acknowledged)
+        boundary = replay(
+          boundary,
+          item.operation,
+          item.status!.resultVersions,
+        );
+      boundary = preserveCanonicalStructureMaps(boundary);
+      validateState(boundary);
+      return isCanonicalDxfHistoryProgression(boundary, canonicalDxfHistory)
+        ? boundary
+        : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const assertCanonicalOutcomeDigest = async (
+    local: DrawingCollaborationOperation,
+    outcome: DrawingCanonicalRecentOutcome,
+  ) => {
+    if (outcome.actorId !== local.actorId)
+      throw new DrawingDraftIntegrityError(
+        "Canonical drawing checkpoint receipt does not match local history.",
+      );
+    if (!globalThis.crypto?.subtle)
+      throw new DrawingDraftIntegrityError("SHA-256 is unavailable.");
+    const bytes = new TextEncoder().encode(
+      drawingCollaborationOperationDigestSource(local, outcome.actorId),
+    );
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+    const actual = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    if (actual !== outcome.operationSha256)
+      throw new DrawingDraftIntegrityError(
+        "Canonical drawing checkpoint receipt digest does not match local history.",
+      );
+  };
+
+  const verifiedCanonicalCheckpointAcknowledgements = async (
+    outcomes: readonly DrawingCanonicalRecentOutcome[],
+    checkpointSequence: number,
+    checkpoint: DrawingDocumentState,
+    allowLateReceiptRetry = true,
+  ) => {
+    const history = canonicalDxfHistory;
+    const capturedSnapshot = snapshot;
+    const capturedBaseSequence = baseOperationSequence;
+    const capturedMeta = document.getMap("serverMeta").toJSON();
+    const capturedStatuses = document.getMap("operationStatus").toJSON();
+    const capturedLocalAcknowledgements = [...localAcknowledgements];
+    const capturedAuthorization = authorization;
+    const capturedFrozen = locallyFrozen;
+    const validated = validateCanonicalRecentOutcomes(
+      outcomes,
+      authoritativeState.revisionId,
+      checkpointSequence,
+    );
+    const ledger = readDrawingCollaborationLedger(document);
+    const recorded = new Map(
+      snapshot.state.operations.map((operation) => [
+        operation.clientOperationId,
+        operation,
+      ]),
+    );
+    const matched: Array<{
+      acknowledgement: CollaborationAcknowledgementEvidence;
+      local: DrawingCollaborationOperation;
+    }> = [];
+    const unseen: Array<{
+      acknowledgement: CollaborationAcknowledgementEvidence;
+      outcome: DrawingCanonicalRecentOutcome;
+    }> = [];
+    const receipts: DeferredCanonicalCheckpoint["receipts"] = [];
+    const digestInputs: Array<{
+      local: DrawingCollaborationOperation;
+      outcome: DrawingCanonicalRecentOutcome;
+    }> = [];
+    for (const { acknowledgement, outcome } of validated) {
+      const local = ledger.operations[outcome.clientOperationId];
+      if (!local) {
+        if (
+          history &&
+          outcome.actorId === history.actorId &&
+          outcome.sequence > capturedBaseSequence
+        ) {
+          const receipt = { acknowledgement, outcome };
+          unseen.push(receipt);
+          receipts.push(receipt);
+        }
+        continue;
+      }
+      // Older receipts describe operations already compacted into the current
+      // base. They may remain in the bounded Yjs ledger without a recorded
+      // history row and cannot prove this newer checkpoint boundary.
+      if (outcome.sequence <= capturedBaseSequence) {
+        const localStatus = localAcknowledgements.get(
+          outcome.clientOperationId,
+        );
+        const serverValue = document
+          .getMap("operationStatus")
+          .get(outcome.clientOperationId);
+        const serverStatus =
+          serverValue === undefined
+            ? undefined
+            : DrawingCollaborationStatusSchema.parse(serverValue);
+        if (localStatus || serverStatus) {
+          if (
+            (localStatus &&
+              !same(localStatus, acknowledgement) &&
+              !checkpointAbsorbsLocalAcknowledgement(
+                localStatus,
+                acknowledgement,
+                capturedBaseSequence,
+              )) ||
+            (serverStatus &&
+              serverStatus.status !== "pending" &&
+              !same(serverStatus, acknowledgement) &&
+              !checkpointAbsorbsLocalAcknowledgement(
+                serverStatus,
+                acknowledgement,
+                capturedBaseSequence,
+              ))
+          )
+            throw new DrawingDraftIntegrityError(
+              "Canonical drawing checkpoint acknowledgement conflicts with local state.",
+            );
+        }
+        digestInputs.push({ local, outcome });
+        continue;
+      }
+      if (!history) {
+        digestInputs.push({ local, outcome });
+        continue;
+      }
+      const localRecorded = recorded.get(outcome.clientOperationId);
+      if (
+        !localRecorded ||
+        localRecorded.actorId !== local.actorId ||
+        !same(localRecorded.resultVersions, outcome.resultVersions)
+      )
+        throw new DrawingDraftIntegrityError(
+          "Canonical drawing checkpoint receipt does not match local history.",
+        );
+      digestInputs.push({ local, outcome });
+      matched.push({ acknowledgement, local });
+      receipts.push({ acknowledgement, outcome });
+    }
+    await Promise.all(
+      digestInputs.map(({ local, outcome }) =>
+        assertCanonicalOutcomeDigest(local, outcome),
+      ),
+    );
+    if (
+      disposed ||
+      canonicalDxfHistory !== history ||
+      baseOperationSequence !== capturedBaseSequence
+    )
+      throw new DrawingDraftIntegrityError(
+        "Canonical drawing checkpoint verification became stale.",
+      );
+    if (snapshot !== capturedSnapshot) {
+      const missingIds = new Set(
+        unseen.map(({ outcome }) => outcome.clientOperationId),
+      );
+      const nextLedger = readDrawingCollaborationLedger(document);
+      const nextStatuses = document.getMap("operationStatus").toJSON();
+      const expectedAcknowledgements = new Map(
+        unseen.map(({ acknowledgement }) => [
+          acknowledgement.operationId,
+          acknowledgement,
+        ]),
+      );
+      const exactLateReceiptArrival =
+        missingIds.size > 0 &&
+        [...missingIds].every((operationId) =>
+          Boolean(nextLedger.operations[operationId]),
+        ) &&
+        nextLedger.operationOrder.length ===
+          ledger.operationOrder.length + missingIds.size &&
+        same(
+          nextLedger.operationOrder.filter(
+            (operationId) => !missingIds.has(operationId),
+          ),
+          ledger.operationOrder,
+        ) &&
+        ledger.operationOrder.every((operationId) =>
+          same(
+            nextLedger.operations[operationId],
+            ledger.operations[operationId],
+          ),
+        ) &&
+        Object.entries(capturedStatuses).every(([operationId, status]) =>
+          same(nextStatuses[operationId], status),
+        ) &&
+        Object.entries(nextStatuses).every(
+          ([operationId, status]) =>
+            Object.hasOwn(capturedStatuses, operationId) ||
+            same(expectedAcknowledgements.get(operationId), status),
+        ) &&
+        same(document.getMap("serverMeta").toJSON(), capturedMeta) &&
+        same([...localAcknowledgements], capturedLocalAcknowledgements) &&
+        authorization === capturedAuthorization &&
+        locallyFrozen === capturedFrozen;
+      if (history && exactLateReceiptArrival && allowLateReceiptRetry)
+        return verifiedCanonicalCheckpointAcknowledgements(
+          outcomes,
+          checkpointSequence,
+          checkpoint,
+          false,
+        );
+      throw new DrawingDraftIntegrityError(
+        "Canonical drawing checkpoint verification became stale.",
+      );
+    }
+    if (!history) return { acknowledgements: [], deferredCheckpoint: null };
+    if (unseen.length === 0) {
+      let receiptBoundary = structuredClone(authoritativeState);
+      for (const { acknowledgement, local } of matched)
+        receiptBoundary = replay(
+          receiptBoundary,
+          local,
+          acknowledgement.resultVersions,
+        );
+      receiptBoundary = preserveCanonicalStructureMaps(receiptBoundary);
+      validateState(receiptBoundary);
+      if (!sameCanonicalCheckpointGraph(checkpoint, receiptBoundary))
+        throw new DrawingDraftIntegrityError(
+          "Canonical drawing checkpoint does not match its exact receipts.",
+        );
+    }
+    return {
+      acknowledgements: matched.flatMap(({ acknowledgement, local }) =>
+        local.actorId === history.actorId &&
+        acknowledgement.authoritativeSequence! > capturedBaseSequence
+          ? [acknowledgement]
+          : [],
+      ),
+      deferredCheckpoint:
+        unseen.length === 0
+          ? null
+          : {
+              baseState: structuredClone(authoritativeState),
+              baseOperationSequence: capturedBaseSequence,
+              canonicalHistory: structuredClone(history),
+              checkpoint: structuredClone(checkpoint),
+              receipts: structuredClone(receipts),
+              installedAcknowledgementIds: [],
+              missingOperationIds: unseen.map(
+                ({ outcome }) => outcome.clientOperationId,
+              ),
+            },
+    };
+  };
+
+  function scheduleDeferredCanonicalVerification() {
+    deferredCanonicalVerification = deferredCanonicalVerification
+      .then(async () => {
+        const proof = deferredCanonicalCheckpoint;
+        if (!proof || disposed) return;
+        const ledger = readDrawingCollaborationLedger(document);
+        const resolved = proof.receipts.map(({ acknowledgement, outcome }) => ({
+          acknowledgement,
+          outcome,
+          operation: ledger.operations[outcome.clientOperationId],
+        }));
+        if (resolved.some(({ operation }) => !operation)) return;
+        await Promise.all(
+          resolved.map(({ operation, outcome }) =>
+            assertCanonicalOutcomeDigest(operation!, outcome),
+          ),
+        );
+        if (disposed || deferredCanonicalCheckpoint !== proof) return;
+        const currentLedger = readDrawingCollaborationLedger(document);
+        if (
+          resolved.some(
+            ({ operation, outcome }) =>
+              !same(
+                currentLedger.operations[outcome.clientOperationId],
+                operation,
+              ),
+          )
+        )
+          throw new DrawingDraftIntegrityError(
+            "Deferred drawing checkpoint receipt changed during verification.",
+          );
+        let boundary = structuredClone(proof.baseState);
+        for (const { acknowledgement, operation } of resolved)
+          boundary = replay(
+            boundary,
+            operation!,
+            acknowledgement.resultVersions,
+          );
+        boundary = preserveCanonicalStructureMaps(boundary);
+        validateState(boundary);
+        if (!sameCanonicalCheckpointGraph(proof.checkpoint, boundary))
+          throw new DrawingDraftIntegrityError(
+            "Canonical drawing checkpoint does not match its deferred receipts.",
+          );
+
+        const insertedAcknowledgements: string[] = [];
+        for (const operationId of proof.missingOperationIds) {
+          const acknowledgement = proof.receipts.find(
+            (receipt) => receipt.outcome.clientOperationId === operationId,
+          )!.acknowledgement;
+          const current = localAcknowledgements.get(operationId);
+          const serverValue = document
+            .getMap("operationStatus")
+            .get(operationId);
+          const server =
+            serverValue === undefined
+              ? undefined
+              : DrawingCollaborationStatusSchema.parse(serverValue);
+          if (
+            (current && !same(current, acknowledgement)) ||
+            (server &&
+              server.status !== "pending" &&
+              !same(server, acknowledgement))
+          )
+            throw new DrawingDraftIntegrityError(
+              "Canonical drawing checkpoint acknowledgement conflicts with local state.",
+            );
+          if (!current && (!server || server.status === "pending")) {
+            localAcknowledgements.set(operationId, acknowledgement);
+            canonicalLocalAcknowledgementIds.add(operationId);
+            insertedAcknowledgements.push(operationId);
+          }
+        }
+        deferredCanonicalCheckpoint = null;
+        try {
+          publish(project(document));
+        } catch (error) {
+          deferredCanonicalCheckpoint = proof;
+          for (const operationId of insertedAcknowledgements) {
+            localAcknowledgements.delete(operationId);
+            canonicalLocalAcknowledgementIds.delete(operationId);
+          }
+          throw error;
+        }
+      })
+      .catch((error) => {
+        if (disposed) return;
+        const proof = deferredCanonicalCheckpoint;
+        let recovered = snapshot;
+        if (proof) {
+          authoritativeState = proof.baseState;
+          baseOperationSequence = proof.baseOperationSequence;
+          canonicalDxfHistory = proof.canonicalHistory;
+          for (const operationId of proof.installedAcknowledgementIds) {
+            localAcknowledgements.delete(operationId);
+            canonicalLocalAcknowledgementIds.delete(operationId);
+          }
+          deferredCanonicalCheckpoint = null;
+          try {
+            recovered = project(document);
+          } catch {
+            // The quarantine below remains fail-closed if the received op is bad.
+          }
+        }
+        const quarantined = {
+          ...recovered,
+          quarantine: {
+            message: errorMessage(error),
+            occurredAt: new Date().toISOString(),
+          },
+        };
+        try {
+          publish(quarantined);
+        } catch {
+          snapshot = quarantined;
+        }
+      });
+  }
+
   return {
     getSnapshot: () => snapshot,
     operations: () => {
@@ -623,6 +1657,32 @@ export function createDrawingDraftAdapter(
       return ledger.operationOrder.map((id) =>
         structuredClone(ledger.operations[id]),
       );
+    },
+    operationStatus(clientOperationId) {
+      if (disposed) return null;
+      const local = localAcknowledgements.get(clientOperationId);
+      const serverValue = document
+        .getMap("operationStatus")
+        .get(clientOperationId);
+      const server =
+        serverValue === undefined
+          ? null
+          : DrawingCollaborationStatusSchema.parse(serverValue);
+      if (
+        local &&
+        server &&
+        !acceptsLocalAcknowledgement(clientOperationId, server, local)
+      )
+        throw new DrawingDraftIntegrityError(
+          "Drawing local acknowledgement conflicts with server status.",
+        );
+      if (
+        local &&
+        server &&
+        checkpointAbsorbsLocalAcknowledgement(server, local)
+      )
+        return structuredClone(server);
+      return structuredClone(local ?? server);
     },
     subscribe(listener) {
       if (disposed) return () => undefined;
@@ -666,6 +1726,120 @@ export function createDrawingDraftAdapter(
       });
       return true;
     },
+    hydrateCanonicalHistory(input) {
+      assertWritable(options.actorId);
+      if (
+        snapshot.pendingOperationIds.length > 0 ||
+        snapshot.conflictOperationIds.length > 0 ||
+        snapshot.rejectedOperationIds.length > 0 ||
+        snapshot.provisionalConflictOperationIds.length > 0 ||
+        snapshot.state.operations.length > 0 ||
+        Object.values(snapshot.state.undoStackByActor).some(
+          (stack) => stack.length > 0,
+        ) ||
+        Object.values(snapshot.state.redoStackByActor).some(
+          (stack) => stack.length > 0,
+        )
+      )
+        throw new DrawingDraftIntegrityError(
+          "Canonical DXF history requires a clean compacted draft; native DWG history uses the same invariant.",
+        );
+      const candidate = structuredClone(input);
+      validateState(candidate);
+      const recoveredHistory = assertCanonicalDxfHistory(
+        candidate,
+        options.actorId,
+      );
+      if (
+        candidate.revisionId !== authoritativeState.revisionId ||
+        !same(stateGraph(candidate), stateGraph(snapshot.state))
+      )
+        throw new DrawingDraftIntegrityError(
+          "Canonical DXF history does not match the current drawing graph; native DWG history uses the same invariant.",
+        );
+
+      const previous = authoritativeState;
+      authoritativeState = candidate;
+      reproject();
+      if (snapshot.quarantine || !same(snapshot.state, candidate)) {
+        authoritativeState = previous;
+        reproject();
+        throw new DrawingDraftIntegrityError(
+          "Canonical DXF history could not be installed exactly; native DWG history uses the same invariant.",
+        );
+      }
+      canonicalDxfHistory = recoveredHistory;
+      return true;
+    },
+    recordLocalAcknowledgement(input, authority) {
+      if (disposed) throw new Error("Drawing draft adapter is disposed.");
+      const acknowledgement = DrawingCollaborationStatusSchema.parse({
+        operationId: input.clientOperationId,
+        status: "acked",
+        authoritativeSequence: input.authoritativeSequence,
+        resultVersions: input.resultVersions,
+      });
+      const ledger = readDrawingCollaborationLedger(document);
+      const operation = ledger.operations[acknowledgement.operationId];
+      if (!operation || operation.actorId !== options.actorId)
+        throw new Error(
+          "Drawing local acknowledgement is outside the local operation ledger.",
+        );
+      const current = localAcknowledgements.get(acknowledgement.operationId);
+      if (current) {
+        if (!same(current, acknowledgement))
+          throw new Error("Drawing local acknowledgement is immutable.");
+        if (authority === "canonical")
+          canonicalLocalAcknowledgementIds.add(acknowledgement.operationId);
+        return false;
+      }
+      const serverStatus = document
+        .getMap("operationStatus")
+        .get(acknowledgement.operationId);
+      if (serverStatus !== undefined) {
+        const parsed = DrawingCollaborationStatusSchema.parse(serverStatus);
+        const checkpointAbsorbsMismatch =
+          authority === "canonical" &&
+          checkpointAbsorbsLocalAcknowledgement(parsed, acknowledgement);
+        if (
+          !same(parsed, acknowledgement) &&
+          (authority !== "canonical" || parsed.status !== "pending") &&
+          !checkpointAbsorbsMismatch
+        )
+          throw new Error(
+            "Drawing local acknowledgement conflicts with server status.",
+          );
+        if (same(parsed, acknowledgement) || checkpointAbsorbsMismatch)
+          return false;
+      }
+      localAcknowledgements.set(acknowledgement.operationId, acknowledgement);
+      if (authority === "canonical")
+        canonicalLocalAcknowledgementIds.add(acknowledgement.operationId);
+      reproject();
+      return true;
+    },
+    isOperationCheckpointAcknowledged(clientOperationId, checkpoint) {
+      if (disposed || !Number.isInteger(checkpoint) || checkpoint < 0)
+        return false;
+      const ledger = readDrawingCollaborationLedger(document);
+      if (!ledger.operations[clientOperationId]) return false;
+      const local = localAcknowledgements.get(clientOperationId);
+      if (local)
+        return (
+          local.status === "acked" &&
+          local.authoritativeSequence !== null &&
+          local.authoritativeSequence <= checkpoint
+        );
+      const parsed = DrawingCollaborationStatusSchema.safeParse(
+        document.getMap("operationStatus").get(clientOperationId),
+      );
+      return (
+        parsed.success &&
+        parsed.data.status === "acked" &&
+        parsed.data.authoritativeSequence !== null &&
+        parsed.data.authoritativeSequence <= checkpoint
+      );
+    },
     applyServerProjection(update) {
       if (disposed) return false;
       const candidate = cloneDocument(document);
@@ -689,15 +1863,130 @@ export function createDrawingDraftAdapter(
     },
     replaceAuthoritative(state, next = {}) {
       if (disposed) return;
+      if (deferredCanonicalCheckpoint)
+        throw new DrawingDraftIntegrityError(
+          "A canonical drawing checkpoint receipt is still pending verification.",
+        );
       if (state.revisionId !== authoritativeState.revisionId)
         throw new Error(
           "Authoritative drawing revision cannot change in-place.",
         );
-      authoritativeState = structuredClone(state);
-      validateState(authoritativeState);
-      if (next.baseOperationSequence !== undefined)
-        baseOperationSequence = next.baseOperationSequence;
-      reproject();
+      const checkpoint = structuredClone(state);
+      validateState(checkpoint);
+      const checkpointSequence = next.baseOperationSequence;
+      if (
+        checkpointSequence !== undefined &&
+        (!Number.isSafeInteger(checkpointSequence) ||
+          checkpointSequence < baseOperationSequence)
+      )
+        throw new DrawingDraftIntegrityError(
+          "Authoritative drawing checkpoint sequence regressed.",
+        );
+      const install = (
+        acknowledgements: CollaborationAcknowledgementEvidence[] = [],
+        deferredCheckpoint: DeferredCanonicalCheckpoint | null = null,
+      ) => {
+        if (deferredCanonicalCheckpoint)
+          throw new DrawingDraftIntegrityError(
+            "A canonical drawing checkpoint receipt is still pending verification.",
+          );
+        const insertableAcknowledgements: CollaborationAcknowledgementEvidence[] =
+          [];
+        for (const acknowledgement of acknowledgements) {
+          const operationId = acknowledgement.operationId;
+          const current = localAcknowledgements.get(operationId);
+          const serverValue = document
+            .getMap("operationStatus")
+            .get(operationId);
+          const server =
+            serverValue === undefined
+              ? undefined
+              : DrawingCollaborationStatusSchema.parse(serverValue);
+          if (
+            (current && !same(current, acknowledgement)) ||
+            (server &&
+              server.status !== "pending" &&
+              !same(server, acknowledgement))
+          )
+            throw new DrawingDraftIntegrityError(
+              "Canonical drawing checkpoint acknowledgement conflicts with local state.",
+            );
+          if (!current && (!server || server.status === "pending")) {
+            insertableAcknowledgements.push(acknowledgement);
+          }
+        }
+        for (const acknowledgement of insertableAcknowledgements) {
+          localAcknowledgements.set(
+            acknowledgement.operationId,
+            acknowledgement,
+          );
+          canonicalLocalAcknowledgementIds.add(acknowledgement.operationId);
+        }
+        const insertedAcknowledgements = insertableAcknowledgements.map(
+          (acknowledgement) => acknowledgement.operationId,
+        );
+        const checkpointHistory =
+          checkpointSequence === undefined ||
+          snapshot.quarantine !== null ||
+          snapshot.conflictOperationIds.length > 0 ||
+          snapshot.rejectedOperationIds.length > 0 ||
+          snapshot.provisionalConflictOperationIds.length > 0
+            ? null
+            : canonicalHistoryAtCheckpoint(checkpointSequence);
+        const canPreserveHistory =
+          canonicalDxfHistory !== null &&
+          checkpointHistory !== null &&
+          isCanonicalDxfHistoryProgression(
+            snapshot.state,
+            canonicalDxfHistory,
+          ) &&
+          sameCanonicalCheckpointGraph(checkpoint, checkpointHistory);
+        const previousAuthoritativeState = authoritativeState;
+        const previousCanonicalDxfHistory = canonicalDxfHistory;
+        const previousBaseOperationSequence = baseOperationSequence;
+        const previousDeferredCanonicalCheckpoint = deferredCanonicalCheckpoint;
+        authoritativeState = canPreserveHistory
+          ? preserveCanonicalDxfHistory(checkpoint, checkpointHistory)
+          : checkpoint;
+        if (!canPreserveHistory) canonicalDxfHistory = null;
+        if (checkpointSequence !== undefined)
+          baseOperationSequence = checkpointSequence;
+        if (deferredCheckpoint)
+          deferredCanonicalCheckpoint = {
+            ...deferredCheckpoint,
+            baseState: previousAuthoritativeState,
+            baseOperationSequence: previousBaseOperationSequence,
+            canonicalHistory: previousCanonicalDxfHistory
+              ? structuredClone(previousCanonicalDxfHistory)
+              : null,
+            installedAcknowledgementIds: insertedAcknowledgements,
+          };
+        try {
+          publish(project(document));
+        } catch (error) {
+          authoritativeState = previousAuthoritativeState;
+          canonicalDxfHistory = previousCanonicalDxfHistory;
+          baseOperationSequence = previousBaseOperationSequence;
+          deferredCanonicalCheckpoint = previousDeferredCanonicalCheckpoint;
+          for (const operationId of insertedAcknowledgements) {
+            localAcknowledgements.delete(operationId);
+            canonicalLocalAcknowledgementIds.delete(operationId);
+          }
+          throw new DrawingDraftIntegrityError(errorMessage(error));
+        }
+        if (deferredCheckpoint) scheduleDeferredCanonicalVerification();
+      };
+      if (next.recentOutcomes === undefined) {
+        install();
+        return;
+      }
+      return verifiedCanonicalCheckpointAcknowledgements(
+        next.recentOutcomes,
+        checkpointSequence ?? baseOperationSequence,
+        checkpoint,
+      ).then(({ acknowledgements, deferredCheckpoint }) => {
+        install(acknowledgements, deferredCheckpoint);
+      });
     },
     setAuthorization(capability) {
       if (disposed || capability === authorization) return;
@@ -714,6 +2003,9 @@ export function createDrawingDraftAdapter(
       if (disposed) return;
       disposed = true;
       document.off("afterTransaction", afterTransaction);
+      localAcknowledgements.clear();
+      canonicalLocalAcknowledgementIds.clear();
+      deferredCanonicalCheckpoint = null;
       listeners.clear();
     },
   };

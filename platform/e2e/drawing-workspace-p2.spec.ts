@@ -109,14 +109,29 @@ async function runDownload(page: Page, format: "PNG" | "SVG" | "PDF") {
   await page.getByRole("button", { name: "내보내기" }).click();
   await page.getByLabel(format, { exact: true }).check();
   const started = performance.now();
-  const [download] = await Promise.all([
+  const [download, auditRequest] = await Promise.all([
     page.waitForEvent("download"),
+    page.waitForRequest(
+      (request) =>
+        request.method() === "POST" && request.url().endsWith("/export"),
+    ),
     page.getByRole("button", { name: "다운로드", exact: true }).click(),
   ]);
   const bytes = await downloadBytes(download);
   const durationMs = performance.now() - started;
+  const requestId = auditRequest
+    .postData()
+    ?.match(/name="request_id"\r\n\r\n([0-9a-f-]{36})/i)?.[1];
+  expect(requestId).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
   await page.getByRole("button", { name: "닫기", exact: true }).click();
-  return { bytes, durationMs, filename: download.suggestedFilename() };
+  return {
+    bytes,
+    durationMs,
+    filename: download.suggestedFilename(),
+    requestId: requestId!,
+  };
 }
 
 test.describe.serial("1HK drawing workspace P2 production release", () => {
@@ -1138,6 +1153,41 @@ test.describe.serial("1HK drawing workspace P2 production release", () => {
     });
     expect(parsedPdf.getTitle()).toBeTruthy();
     expect(parsedPdf.getSubject()).toBe("Canonical drawing workspace export");
+    const owner = await authenticateApiClient(fixture, fixture.owner);
+    const revision = await owner
+      .from("lukas_drawing_revisions")
+      .select("id,document_id,version")
+      .eq("id", fixture.blankWorkspace.revisionId)
+      .single();
+    if (revision.error) throw revision.error;
+    const receipts = await owner
+      .from("lukas_qto_export_events")
+      .select(
+        "request_id,artifact_type,artifact_sha256,artifact_byte_size,workspace_id,revision_id,revision_version,operation_checkpoint,checkpoint_sha256",
+      )
+      .in("request_id", [svg.requestId, png.requestId, pdf.requestId]);
+    if (receipts.error) throw receipts.error;
+    expect(receipts.data).toHaveLength(3);
+    const receiptByRequest = new Map(
+      receipts.data.map((receipt) => [receipt.request_id, receipt]),
+    );
+    for (const [downloaded, artifactType] of [
+      [svg, "drawing_svg"],
+      [png, "drawing_png"],
+      [pdf, "drawing_pdf"],
+    ] as const) {
+      const receipt = receiptByRequest.get(downloaded.requestId);
+      expect(receipt?.artifact_type).toBe(artifactType);
+      expect(receipt?.artifact_sha256).toBe(
+        createHash("sha256").update(downloaded.bytes).digest("hex"),
+      );
+      expect(receipt?.artifact_byte_size).toBe(downloaded.bytes.byteLength);
+      expect(receipt?.workspace_id).toBe(fixture.blankWorkspace.documentId);
+      expect(receipt?.revision_id).toBe(fixture.blankWorkspace.revisionId);
+      expect(receipt?.revision_version).toBe(revision.data.version);
+      expect(Number(receipt?.operation_checkpoint)).toBeGreaterThanOrEqual(0);
+      expect(receipt?.checkpoint_sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
     const durations = {
       svgMs: svg.durationMs,
       pngMs: png.durationMs,

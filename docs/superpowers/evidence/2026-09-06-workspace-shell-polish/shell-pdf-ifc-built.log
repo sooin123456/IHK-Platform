@@ -1,0 +1,91 @@
+
+Running 27 tests using 1 worker
+
+(node:40493) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:169:1 › manual P5 PDF preview serves current and opt-in predecessor bytes without interception
+[2/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:200:1 › active PDF page compares only its exact predecessor with transient non-listening markers and Viewer denial
+[3/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:413:1 › a non-current PDF mode queues one fresh capability while cancellation is pending
+[4/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:529:1 › a failed PDF capability settles until a new user selection retries
+[5/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:598:1 › disabling PDF compare cancels pending predecessor work and clears transient resources
+[6/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:636:1 › mounted PDF inspector uses operation commands for exact link and unlink
+  1) [chromium] › e2e/drawing-workspace-p5.spec.ts:636:1 › mounted PDF inspector uses operation commands for exact link and unlink 
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator:  getByRole('tab', { name: '결과', exact: true })
+    Expected: "true"
+    Received: "false"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveAttribute" with timeout 5000ms
+      - waiting for getByRole('tab', { name: '결과', exact: true })
+        14 × locator resolved to <button role="tab" tabindex="-1" type="button" aria-selected="false" id="drawing-estimate-result-tab" aria-controls="drawing-estimate-result-panel" class="min-h-9 rounded px-3 font-bold text-white aria-selected:bg-indigo-500">결과</button>
+           - unexpected value "false"
+
+
+      663 |   await expect(
+      664 |     page.getByRole("tab", { name: "결과", exact: true }),
+    > 665 |   ).toHaveAttribute("aria-selected", "true");
+          |     ^
+      666 |   const objectTab = page.getByRole("tab", { name: "객체", exact: true });
+      667 |   await objectTab.click();
+      668 |   await expect(objectTab).toHaveAttribute("aria-selected", "true");
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-p5.spec.ts:665:5
+
+    Error Context: test-results/drawing-workspace-p5-mount-7d580-s-for-exact-link-and-unlink-chromium/error-context.md
+
+
+[7/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:682:1 › mounted IFC viewer stays loaded across 2D, 3D, and split modes and retries cached GLB without refetch
+[8/27] [chromium] › e2e/drawing-workspace-p5.spec.ts:773:1 › cold split paints the fitted IFC model without a manual fit
+(node:40525) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[9/27] [chromium] › e2e/drawing-workspace-p6.spec.ts:26:1 › P6 preview smoke keeps exact 10k/2k immutable evidence and split focus
+[10/27] [chromium] › e2e/drawing-workspace-p6.spec.ts:135:3 › local mounted server-action authority is configured
+  2) [chromium] › e2e/drawing-workspace-p6.spec.ts:135:3 › local mounted server-action authority is configured 
+
+    Error: P6 local mounted server-action gate is UNEXECUTED: P6_LOCAL_SUPABASE_URL, P6_LOCAL_SUPABASE_ANON_KEY, P6_LOCAL_SUPABASE_SERVICE_ROLE_KEY, P6_REAL_POSTGRES_DATABASE_URL, P6_LOCAL_MAKER_EMAIL, P6_LOCAL_APPROVER_EMAIL, P6_LOCAL_ATTACKER_EMAIL, P6_LOCAL_VIEWER_EMAIL, P6_LOCAL_PROJECT_ID, P6_LOCAL_DRAWING_REVISION_ID, P6_LOCAL_BOQ_VERSION_ID, P6_LOCAL_MATERIAL_PLAN_ID, P6_LOCAL_RESULT_SHA256, P6_LOCAL_MANIFEST_SHA256 are required
+
+      134 | } else {
+      135 |   test("local mounted server-action authority is configured", () => {
+    > 136 |     throw new Error(
+          |           ^
+      137 |       `P6 local mounted server-action gate is UNEXECUTED: ${localAuthorityNames.join(", ")} are required`,
+      138 |     );
+      139 |   });
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-p6.spec.ts:136:11
+
+    Error Context: test-results/drawing-workspace-p6-local-5ab3b-ion-authority-is-configured-chromium/error-context.md
+
+
+(node:40534) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[11/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:55:1 › compact desktop keeps the top bar single-row without hiding primary actions
+[12/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:113:1 › desktop split preview keeps every dock keyboard recoverable
+[13/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:258:1 › tablet keeps one drawer beside a mounted canvas and restores canvas focus when it closes
+[14/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:374:1 › tablet entry keeps an awareness inspector exclusive with the tools drawer
+[15/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:393:1 › tablet toolbar respects inline safe areas, scrolls overflow, and keeps its menu on-screen
+[16/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:448:1 › local preview keeps its realtime indicator connected without a Supabase request
+[17/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:478:1 › distinct Awareness collaborators render object and block collaboration safely
+[18/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:574:1 › collaboration initialization retry cleans partial resources and restores editing
+[19/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:612:1 › transactional read-only bootstrap blocks stale draft editing before initialization
+[20/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:624:1 › review freeze immediately remounts read-only and a failed transition safely releases it
+[21/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:676:1 › preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes
+[22/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:715:1 › user replacement never borrows the previous room's connected status while admission is pending
+[23/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:753:1 › local preview click selects the Style tab and reveals its panel
+[24/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:779:1 › local preview Arrow, Home, and End keys select and focus their target tabs
+[25/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:820:1 › hydrated export dialog explains background availability and cancels one gated run
+[26/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:854:1 › 1280px structure panel keeps disabled explanations readable below controls
+[27/27] [chromium] › e2e/drawing-workspace-shell.spec.ts:895:1 › architectural object tools remain accessible without page overflow on desktop and tablet
+  2 failed
+    [chromium] › e2e/drawing-workspace-p5.spec.ts:636:1 › mounted PDF inspector uses operation commands for exact link and unlink 
+    [chromium] › e2e/drawing-workspace-p6.spec.ts:135:3 › local mounted server-action authority is configured 
+  2 did not run
+  23 passed (40.3s)

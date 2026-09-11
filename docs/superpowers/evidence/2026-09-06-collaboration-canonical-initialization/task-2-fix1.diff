@@ -1,0 +1,319 @@
+# Exact dirty-worktree delta; HEAD is unchanged, no commits
+
+## platform/collaboration/src/server.ts
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline-task2-fix1/platform/collaboration/src/server.ts b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/collaboration/src/server.ts
+index 74f9fff..6b60a1a 100644
+--- a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline-task2-fix1/platform/collaboration/src/server.ts
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/collaboration/src/server.ts
+@@ -1032,50 +1032,51 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
+         if (
+           attempt === 2 ||
+           !error ||
+           typeof error !== "object" ||
+           !("code" in error) ||
+           error.code !== "P3S04"
+         )
+           throw error;
+       } finally {
+         candidate.destroy();
+       }
+     }
+     throw new Error(
+       "Drawing collaboration canonical initialization exhausted.",
+     );
+   }
+ 
+   function reconciliationRetry() {
+     return Object.assign(
+       new Error(
+         "Drawing collaboration reconciliation is not durable; retry admission.",
+       ),
+       {
+         code: "DRAWING_RECONCILIATION_RETRY",
+         retryable: true,
++        reason: "drawing-reconciling",
+       },
+     );
+   }
+ 
+   async function loadDurableAdmission(
+     scope: DrawingStorageScope,
+     roomName: string,
+   ) {
+     for (let attempt = 0; attempt < 3; attempt += 1) {
+       const document = await loadCanonicalDocument(scope, false);
+       try {
+         const before = Y.encodeStateAsUpdate(document);
+         await reconcileLoadedDocument(document, roomName);
+         validateLedgerWithoutAppend(document, roomName);
+         const reconciled = Y.encodeStateAsUpdate(document);
+         let stored = await dependencies.storage.load(scope);
+         if (!stored) throw reconciliationRetry();
+         let durable = documentFromStored(stored, scope);
+         try {
+           if (same(reconciled, Y.encodeStateAsUpdate(durable)))
+             return reconciled;
+           // Concurrent durable movement requires reconciliation from its new origin.
+           if (!same(before, Y.encodeStateAsUpdate(durable))) continue;
+           const meta = DrawingCollaborationMetaSchema.parse(
+             document.getMap("serverMeta").toJSON(),
+@@ -1153,61 +1154,67 @@ export function createDrawingCollaborationServer(dependencies: Dependencies) {
+         connections.delete(payload.connection);
+       });
+     },
+     beforeSync(payload) {
+       return hooks.beforeSync({
+         context: payload.context,
+         document: payload.document,
+         connection: payload.connection,
+         type: payload.type,
+         payload: payload.payload,
+       });
+     },
+     beforeHandleAwareness(payload) {
+       if (!payload.context)
+         throw new Error("Authenticated Awareness context is required.");
+       return hooks.beforeAwareness({
+         context: payload.context,
+         states: payload.states,
+         connection: payload.connection,
+         awareness: payload.awareness,
+         origin: payload.transactionOrigin,
+         document: payload.document,
+       });
+     },
+     async onLoadDocument(payload) {
+-      const state = await loadDurableAdmission(
+-        payload.context,
+-        payload.documentName,
+-      );
+-      Y.applyUpdate(
+-        payload.document,
+-        state,
+-        DRAWING_COLLABORATION_SERVER_ORIGIN,
+-      );
+-      ensureDrawingCollections(payload.document);
+-      return payload.document;
++      try {
++        const state = await loadDurableAdmission(
++          payload.context,
++          payload.documentName,
++        );
++        Y.applyUpdate(
++          payload.document,
++          state,
++          DRAWING_COLLABORATION_SERVER_ORIGIN,
++        );
++        ensureDrawingCollections(payload.document);
++        return payload.document;
++      } catch (error) {
++        // Hocuspocus cannot unload a payload that has not entered its room map.
++        payload.document.destroy();
++        throw error;
++      }
+     },
+     async onStoreDocument(payload) {
+       if (
+         payload.lastTransactionOrigin === DRAWING_COLLABORATION_SERVER_ORIGIN
+       ) {
+         let meta = DrawingCollaborationMetaSchema.parse(
+           payload.document.getMap("serverMeta").toJSON(),
+         );
+         if (["freezing", "frozen"].includes(meta.freezeState)) {
+           let sharedError: unknown = null;
+           const shared = meta.freezeRequestId
+             ? freezeCoordinator?.shareOwner({
+                 roomName: payload.documentName,
+                 requestId: meta.freezeRequestId,
+               })
+             : null;
+           if (shared)
+             try {
+               await shared;
+             } catch (error) {
+               sharedError = error;
+             }
+           meta = DrawingCollaborationMetaSchema.parse(
+             payload.document.getMap("serverMeta").toJSON(),
+           );
+
+## platform/tests/drawing-collaboration-initialization.test.mjs
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline-task2-fix1/platform/tests/drawing-collaboration-initialization.test.mjs b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs
+index 9df64ed..d6e6d51 100644
+--- a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline-task2-fix1/platform/tests/drawing-collaboration-initialization.test.mjs
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs
+@@ -697,50 +697,174 @@ test("admission reloads concurrent durable movement and fails retryably after th
+       },
+     });
+     const runtime = runtimeFor(f.storage);
+     const loading = admit(runtime);
+     try {
+       if (keepMoving) {
+         await assert.rejects(loading.promise, {
+           code: "DRAWING_RECONCILIATION_RETRY",
+           retryable: true,
+         });
+         assert.equal(loads, 6);
+         assert.equal(loading.document.share.size, 0);
+       } else {
+         await loading.promise;
+         assert.deepEqual(bytes(loading.document), bytes(origins[1]));
+       }
+       assert.equal(f.calls.stores, 0);
+     } finally {
+       origins.forEach((doc) => doc.destroy());
+       loading.document.destroy();
+       await runtime.stop();
+     }
+   }
+ });
+ 
++test("real WebSocket reports drawing-reconciling and explicit token retry adopts the same durable winner", async () => {
++  class OriginWebSocket extends CrossWebSocket {
++    constructor(url) {
++      super(url, [], { origin: "https://app.example.com" });
++    }
++  }
++  let foreignLease = true;
++  const ownerToken = randomUUID();
++  const ownerRequestId = randomUUID();
++  const f = fixture({
++    freeze: {
++      readFreeze: async () => ({
++        state: "active",
++        requestId: null,
++        revisionStatus: "draft",
++        ownerToken: foreignLease ? ownerToken : null,
++        ownerRequestId: foreignLease ? ownerRequestId : null,
++        leaseExpiresAtMs: foreignLease ? Date.now() + 60_000 : null,
++      }),
++    },
++  });
++  const runtime = runtimeFor(f.storage);
++  let refusedDocument;
++  runtime.hocuspocus.configuration.extensions.unshift({
++    onLoadDocument: ({ document }) => {
++      refusedDocument ??= document;
++    },
++  });
++  const server = await runtime.start();
++  const client = new Y.Doc();
++  const denied = deferred();
++  const admission = deferred();
++  const synced = deferred();
++  let timeout;
++  const deadline = new Promise((_, reject) => {
++    timeout = setTimeout(
++      () => reject(new Error("explicit token retry timed out")),
++      3000,
++    );
++  });
++  let provider;
++  try {
++    provider = new HocuspocusProvider({
++      url: server.webSocketURL,
++      name: roomName,
++      document: client,
++      token: "test-token",
++      WebSocketPolyfill: OriginWebSocket,
++      onAuthenticationFailed: ({ reason }) => denied.resolve(reason),
++      onStateless: ({ payload }) => {
++        if (JSON.parse(payload).type === "1hk-collaboration-admission")
++          admission.resolve();
++      },
++      onSynced: () => synced.resolve(),
++    });
++    const reason = await Promise.race([denied.promise, deadline]);
++    assert.equal(reason, "drawing-reconciling");
++    assert.equal(refusedDocument.share.size, 0);
++    assert.equal(refusedDocument.isDestroyed, true);
++    assert.equal(client.share.size, 0);
++    assert.equal(runtime.hocuspocus.documents.has(roomName), false);
++    assert.equal(provider.isAuthenticated, false);
++    assert.equal(provider.isSynced, false);
++    assert.equal(f.calls.userInitializations, 1);
++    assert.equal(f.calls.stores, 0);
++    const winner = f.persisted;
++    assert.ok(
++      winner,
++      "refused admission must retain the canonical initial row",
++    );
++
++    foreignLease = false;
++    await provider.sendToken();
++    await Promise.race([admission.promise, deadline]);
++    assert.equal(provider.isAuthenticated, true);
++    const admitted = runtime.hocuspocus.documents.get(roomName);
++    assert.ok(admitted);
++    assert.deepEqual(bytes(admitted), winner.yjsState);
++    // sendToken retries admission; the provider's separate sync step requests state.
++    provider.startSync();
++    await Promise.race([synced.promise, deadline]);
++    assert.equal(provider.isSynced, true);
++    assert.deepEqual(bytes(client), winner.yjsState);
++    assert.deepEqual(f.persisted, winner);
++    assert.equal(f.calls.userInitializations, 1);
++    assert.equal(f.calls.stores, 0);
++  } finally {
++    clearTimeout(timeout);
++    provider?.destroy();
++    client.destroy();
++    refusedDocument?.destroy();
++    await runtime.stop();
++  }
++});
++
++test("failed Hocuspocus initial admission destroys its unregistered payload", async () => {
++  const f = fixture({ initializeState: undefined });
++  const runtime = runtimeFor(f.storage);
++  let refusedDocument;
++  runtime.hocuspocus.configuration.extensions.unshift({
++    onLoadDocument: ({ document }) => {
++      refusedDocument = document;
++    },
++  });
++  try {
++    await assert.rejects(
++      runtime.hocuspocus.createDocument(
++        roomName,
++        new Request("http://localhost"),
++        "refused-initial-payload",
++        { readOnly: false, isAuthenticated: true },
++        scope,
++      ),
++      /initialization is unavailable/,
++    );
++    assert.equal(refusedDocument.share.size, 0);
++    assert.equal(refusedDocument.isDestroyed, true);
++    assert.equal(runtime.hocuspocus.documents.has(roomName), false);
++  } finally {
++    refusedDocument?.destroy();
++    await runtime.stop();
++  }
++});
++
+ test("real WebSocket untouched room is durable before sync and replays its exact cached state after restart", async () => {
+   class OriginWebSocket extends CrossWebSocket {
+     constructor(url) {
+       super(url, [], { origin: "https://app.example.com" });
+     }
+   }
+   const f = fixture();
+   const cached = new Y.Doc();
+   const runtime = runtimeFor(f.storage);
+   const firstServer = await runtime.start();
+   let provider;
+   let restarted;
+   const connect = async (url, document) => {
+     await new Promise((resolve, reject) => {
+       const timeout = setTimeout(
+         () => reject(new Error("canonical socket sync timed out")),
+         3000,
+       );
+       provider = new HocuspocusProvider({
+         url,
+         name: roomName,
+         document,
+         token: "test-token",
+         WebSocketPolyfill: OriginWebSocket,
+         onSynced: () => {

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1hk-native-dwg-geometry-resave-integration/1",
+  "qualification": "experimental-unqualified",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "source": {
+    "sha256": "45cd7a2ff02b319612b5983a5a6a7d4955340ae128b164d637a29fbe0d91a3b5",
+    "originalBytesPreserved": true
+  },
+  "wrapped": {
+    "requestSha256": "932a43227642fec0f1b994e858cd8327fedb7f49f397bb315add9b167bedce74",
+    "editedDwgSha256": "2651bb26ca23a3cb548deec526b363f67deb127262ea5c8f4dcd5d059fab3f9d",
+    "editedHandles": [
+      "4A",
+      "4B",
+      "4C",
+      "4D",
+      "4E"
+    ]
+  },
+  "fullTurn": {
+    "requestSha256": "dd2ded23f408f473f7b4eb4f60246864b0d0fc08b76a38df7b003cf12c3082ed",
+    "editedDwgSha256": "8d7a9eed4021f61080ababd5274a5d2224252c2a4fbab9c110a04560a21ed9e4",
+    "editedHandles": [
+      "4C"
+    ]
+  },
+  "nonzeroFullTurn": {
+    "requestSha256": "75482bfe276235808ede9a1c1a61317eacf334996b8360f550bedd1ae52edc12",
+    "editedDwgSha256": "d66733fd1361efc58f5a6d4b8a9a05a0ca3046f759f5195def16657ccd961bd6",
+    "editedHandles": [
+      "4C"
+    ]
+  },
+  "boundary": "Same-engine local synthetic roundtrip only; Auth, database, storage, worker, browser delivery, independent CAD acceptance, and customer files were not exercised."
+}

@@ -6,6 +6,14 @@ const migrationUrl = new URL(
   "../supabase/migrations/20260901000000_drawing_retention_purge_child_guards.sql",
   import.meta.url,
 );
+const revisionRepairMigrationUrl = new URL(
+  "../supabase/migrations/20260902000000_drawing_revision_decision_entrypoint.sql",
+  import.meta.url,
+);
+const documentRepairMigrationUrl = new URL(
+  "../supabase/migrations/20260902001000_drawing_document_retention_purge_guard.sql",
+  import.meta.url,
+);
 
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -102,4 +110,31 @@ test("binding purge guard rejects every weakened conjunction mutation", async ()
   ];
   for (const weakened of mutations)
     assert.throws(() => assertBindingGuard(weakened));
+});
+
+test("trusted project purge can cascade through approved revisions and documents", async () => {
+  const [revisionSql, documentSql] = await Promise.all([
+    readFile(revisionRepairMigrationUrl, "utf8"),
+    readFile(documentRepairMigrationUrl, "utf8"),
+  ]);
+  const revision = functionDefinition(
+    revisionSql,
+    "lukas_drawing_revision_guard",
+  );
+  const document = functionDefinition(
+    documentSql,
+    "lukas_drawing_document_guard",
+  );
+  assertExactPurgeBypass(revision);
+  assertExactPurgeBypass(document);
+  assert.ok(
+    revision.indexOf("app.lukas_retention_purge_project") <
+      revision.indexOf("Approved drawing revision is immutable"),
+  );
+  assert.ok(
+    document.indexOf("app.lukas_retention_purge_project") <
+      document.indexOf("Drawing document with a non-draft revision is immutable"),
+  );
+  assert.match(document, /Drawing document creation identity is immutable/i);
+  assert.match(document, /Drawing source must be an immutable PDF or IFC/i);
 });

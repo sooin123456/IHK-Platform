@@ -22,6 +22,9 @@ export default [
     "/workspace-preview/drawing-workspace/operation",
     "lukas/screens/local-drawing-workspace-operation.ts",
   ),
+  route("/workspace-preview", "lukas/screens/workspace-preview.tsx"),
+  route("/workspace-preview/flow", "lukas/screens/workflow-prototype.tsx"),
+  route("/share/:token/drawing", "lukas/screens/shared-drawing.tsx"),
   route("/__p5-current.pdf", "lukas/screens/local-drawing-pdf-current.ts"),
   route("/__p5-previous.pdf", "lukas/screens/local-drawing-pdf-preview.ts"),
   route(
@@ -38,7 +41,6 @@ export default [
     route("/news", "features/blog/screens/posts.tsx"),
     route("/news/:slug", "features/blog/screens/post.tsx"),
     route("/share/:token", "lukas/screens/shared-project.tsx"),
-    route("/workspace-preview", "lukas/screens/workspace-preview.tsx"),
     layout("core/layouts/public.layout.tsx", [
       route("/login", "features/auth/screens/login-redirect.tsx"),
       route("/join", "features/auth/screens/join.tsx"),
@@ -78,6 +80,10 @@ export default [
         "lukas/screens/project-file-download.ts",
       ),
       route(
+        "/projects/:projectId/files/finalize-upload",
+        "lukas/screens/project-upload-finalize.ts",
+      ),
+      route(
         "/projects/:projectId/drawings",
         "lukas/screens/project-drawings.tsx",
       ),
@@ -89,6 +95,10 @@ export default [
         "/projects/:projectId/workspaces/new",
         "lukas/screens/drawing-workspace-new.tsx",
         { id: "drawing-workspace-new" },
+      ),
+      route(
+        "/projects/:projectId/drawing-native-assets",
+        "lukas/screens/drawing-native-assets.ts",
       ),
       route(
         "/projects/:projectId/workspaces/:workspaceId",
@@ -106,6 +116,34 @@ export default [
         { id: "drawing-workspace-export" },
       ),
       route(
+        "/projects/:projectId/workspaces/:workspaceId/native-dwg-resave",
+        "lukas/screens/drawing-native-dwg-resave.ts",
+      ),
+      route(
+        "/projects/:projectId/workspaces/:workspaceId/native-dwg-resave/:jobId/download/:kind",
+        "lukas/screens/drawing-native-dwg-resave-download.ts",
+      ),
+      route(
+        "/projects/:projectId/workspaces/:workspaceId/native-dwg",
+        "lukas/screens/drawing-native-dwg-export.ts",
+        { id: "drawing-native-dwg-export" },
+      ),
+      route(
+        "/projects/:projectId/workspaces/:workspaceId/native-dwg/:jobId/download/:kind",
+        "lukas/screens/drawing-native-dwg-download.ts",
+        { id: "drawing-native-dwg-download" },
+      ),
+      route(
+        "/projects/:projectId/workspaces/:workspaceId/measurement-evidence",
+        "lukas/screens/drawing-workspace-measurement-evidence.ts",
+        { id: "drawing-workspace-measurement-evidence" },
+      ),
+      route(
+        "/projects/:projectId/workspaces/:workspaceId/quantity-lineage",
+        "lukas/screens/drawing-workspace-quantity-lineage.ts",
+        { id: "drawing-workspace-quantity-lineage" },
+      ),
+      route(
         "/projects/:projectId/drawings/:fileId/workspace",
         "lukas/screens/drawing-workspace-legacy.tsx",
         { id: "legacy-drawing-workspace" },
@@ -116,6 +154,10 @@ export default [
         "lukas/screens/project-quantities.tsx",
       ),
       route("/projects/:projectId/boq", "lukas/screens/verified-boq.tsx"),
+      route(
+        "/projects/:projectId/boq/export/:format",
+        "lukas/screens/verified-boq-export.ts",
+      ),
       route(
         "/projects/:projectId/reviews",
         "lukas/screens/project-reviews.tsx",

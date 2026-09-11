@@ -20,6 +20,16 @@ export function renderDisposableSupabaseConfig(input: {
   repositoryConfig: string;
 }): string;
 
+export function createDisposableProject(
+  root: string,
+  projectId: string,
+  portBase: number,
+): void;
+
+export function createDisposableRoot(): string;
+
+export function disposableSupabaseStartArgs(root: string): string[];
+
 export function parseSupabaseStatus(raw: string): {
   anonKey: string;
   databaseUrl: string;

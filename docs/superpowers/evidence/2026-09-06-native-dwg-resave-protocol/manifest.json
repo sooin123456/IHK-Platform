@@ -1,0 +1,777 @@
+{
+  "schemaVersion": "1hk-local-implementation-evidence/1",
+  "qualification": "experimental-unqualified",
+  "persistenceAuthority": "not-issued",
+  "files": [
+    {
+      "path": "task-1-report.md",
+      "byteSize": 15926,
+      "sha256": "2afd8d700638121fbc3cd74a39f17a0a6fd40e17fcfa57dc925d3fd2391bd832"
+    },
+    {
+      "path": "task-1-review.md",
+      "byteSize": 5594,
+      "sha256": "9a22bfb617165e3c86b0fb4c12e67bd3521f504412272540fcc9a9a0cb080c5a"
+    },
+    {
+      "path": "native/build-green.log",
+      "byteSize": 333,
+      "sha256": "b358fa2cff636ae98f474e1bede6b7587e0c5c26aac9f9a0a7ff284bfcde1b3f"
+    },
+    {
+      "path": "native/self-test-green.log",
+      "byteSize": 10238,
+      "sha256": "fba183a0632aaaddd6f59619896407344b680501e4da86c2af99dadcf65e7ba2"
+    },
+    {
+      "path": "native/viewport-red.log",
+      "byteSize": 10178,
+      "sha256": "275c215612fd322a597beef8daf9650a4fc69203933de68813d3b9264615ed07"
+    },
+    {
+      "path": "native/supplemental-red.log",
+      "byteSize": 10284,
+      "sha256": "37bb6e33fe7c37496a2c5b73d6b1cbe994a3e129d0213b82c4bf39fb0a5ea829"
+    },
+    {
+      "path": "native/geometry-integration-green.log",
+      "byteSize": 266,
+      "sha256": "290bd099d4d0a62c7bedd3788ffc1ba199153a14a2833d3e813cde74de45fe6f"
+    },
+    {
+      "path": "native/framed-evidence-green.log",
+      "byteSize": 1640,
+      "sha256": "8120b46eee016f53d1fc8b7c62e38489ca96198b0b0c14dd6b18d963a2f98432"
+    },
+    {
+      "path": "native/capture-framed-evidence.mjs",
+      "byteSize": 3341,
+      "sha256": "6c2a8414fe4346998af8f2f168780e06d4117f42a96a6a50b6b6092f960db456"
+    },
+    {
+      "path": "native/geometry-integration/full-turn-edit-request.json",
+      "byteSize": 283,
+      "sha256": "e4c5f1f2d9794a5fc755f1a1e7ae8ad516a3a30413df800d027eec9e9c0cf468"
+    },
+    {
+      "path": "native/geometry-integration/full-turn-qualification/edit-request.json",
+      "byteSize": 283,
+      "sha256": "e4c5f1f2d9794a5fc755f1a1e7ae8ad516a3a30413df800d027eec9e9c0cf468"
+    },
+    {
+      "path": "native/geometry-integration/full-turn-qualification/edited-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "9e6538c5c83265d0e7567e36fd59a258b2f3cc42c0c2d18c5431294b41de33a8"
+    },
+    {
+      "path": "native/geometry-integration/full-turn-qualification/input-working-copy.dwg",
+      "byteSize": 10987,
+      "sha256": "af173b15443624dcf7da13342e632326abc55a9a7ce2bd5fbd1acb06437334a9"
+    },
+    {
+      "path": "native/geometry-integration/full-turn-qualification/no-edit-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "0c4de0b349f2ea8d626dbce9c8b46cbaef4f5fa6cf64c83b4d5cc4ae9d058c44"
+    },
+    {
+      "path": "native/geometry-integration/full-turn-qualification/qualification-report.json",
+      "byteSize": 18768,
+      "sha256": "a05770296cfaf55af47efb5f71f930928ec015bfa2d81db5238360a4d7053096"
+    },
+    {
+      "path": "native/geometry-integration/full-turn-readback/native-import.json",
+      "byteSize": 1457,
+      "sha256": "9b808bd963dd6e439fbd5944e68058af2e9d8659b1b76942db21fbb94133dddc"
+    },
+    {
+      "path": "native/geometry-integration/generated-fixture/synthetic-input.dwg",
+      "byteSize": 10987,
+      "sha256": "af173b15443624dcf7da13342e632326abc55a9a7ce2bd5fbd1acb06437334a9"
+    },
+    {
+      "path": "native/geometry-integration/integration-summary.json",
+      "byteSize": 1315,
+      "sha256": "86a24347618163950e607aa6e3e6a86ced2de3e2fa50790d75aea6b70be925ad"
+    },
+    {
+      "path": "native/geometry-integration/nonzero-full-turn-edit-request.json",
+      "byteSize": 300,
+      "sha256": "c50279419c10109feb756b4e582421b23f27a2af5a56f181a5992598332163e2"
+    },
+    {
+      "path": "native/geometry-integration/nonzero-full-turn-qualification/edit-request.json",
+      "byteSize": 300,
+      "sha256": "c50279419c10109feb756b4e582421b23f27a2af5a56f181a5992598332163e2"
+    },
+    {
+      "path": "native/geometry-integration/nonzero-full-turn-qualification/edited-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "6e10787dee38a16408eb9824421b4f10f6400395936f52a2fb9b9d86a00f34f0"
+    },
+    {
+      "path": "native/geometry-integration/nonzero-full-turn-qualification/input-working-copy.dwg",
+      "byteSize": 10987,
+      "sha256": "af173b15443624dcf7da13342e632326abc55a9a7ce2bd5fbd1acb06437334a9"
+    },
+    {
+      "path": "native/geometry-integration/nonzero-full-turn-qualification/no-edit-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "16c9a5ec68cb7afcbbf985dfa85e68e77b6a51a2316681f729be96d5f5ad2aed"
+    },
+    {
+      "path": "native/geometry-integration/nonzero-full-turn-qualification/qualification-report.json",
+      "byteSize": 18801,
+      "sha256": "41f438c72a4eaec0380eabd9637b54bd152d761576fb74a67b1687e55d93b8da"
+    },
+    {
+      "path": "native/geometry-integration/nonzero-full-turn-readback/native-import.json",
+      "byteSize": 1474,
+      "sha256": "2e9988663dbf54f7162b1d339ce7b1184bb51f81f6ed890fbf25c6cad5bb728b"
+    },
+    {
+      "path": "native/geometry-integration/source-read/native-import.json",
+      "byteSize": 1446,
+      "sha256": "a7fb72d34bf95ec96870284a445211286251f42507427a4d10e544ba555fde7b"
+    },
+    {
+      "path": "native/geometry-integration/wrapped-edit-request.json",
+      "byteSize": 613,
+      "sha256": "0a825cd8406de65f37f1dc341e7eb428b4cae65c5705219b6cd4e08e794a2995"
+    },
+    {
+      "path": "native/geometry-integration/wrapped-qualification/edit-request.json",
+      "byteSize": 613,
+      "sha256": "0a825cd8406de65f37f1dc341e7eb428b4cae65c5705219b6cd4e08e794a2995"
+    },
+    {
+      "path": "native/geometry-integration/wrapped-qualification/edited-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "0d1220bc1e615518a177a6ba2eadd4018d309e31047b5022a1798f1371aa9d05"
+    },
+    {
+      "path": "native/geometry-integration/wrapped-qualification/input-working-copy.dwg",
+      "byteSize": 10987,
+      "sha256": "af173b15443624dcf7da13342e632326abc55a9a7ce2bd5fbd1acb06437334a9"
+    },
+    {
+      "path": "native/geometry-integration/wrapped-qualification/no-edit-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "11222483546e2c6d866618fdf1761fe9e43aee0eb896d7c98ce27b984aaa9ee5"
+    },
+    {
+      "path": "native/geometry-integration/wrapped-qualification/qualification-report.json",
+      "byteSize": 18894,
+      "sha256": "0a3f7eff170327be78cde5d8d3c164c86e6e430a9494eceb46d9be36b8cd4074"
+    },
+    {
+      "path": "native/geometry-integration/wrapped-readback/native-import.json",
+      "byteSize": 1490,
+      "sha256": "6f162eebeede75f499dd7af5f8f7d9d54679a1f5d838c50bb685fbc144f20129"
+    },
+    {
+      "path": "native/framed-integration/full-turn.dwg",
+      "byteSize": 11019,
+      "sha256": "d0e3d2d1769cc5859c1f028b50e518d933ff025e196b643dbab8c5662d4a3d8b"
+    },
+    {
+      "path": "native/framed-integration/full-turn.input.frame",
+      "byteSize": 11286,
+      "sha256": "d40aa4f12088cbade6457c1de72549adf2dfa557226962ab82ed000f234fc960"
+    },
+    {
+      "path": "native/framed-integration/full-turn.output.frame",
+      "byteSize": 11839,
+      "sha256": "2458c01c369e5e0a64e5058f4d0f91b4d3870aac0385af6e04c95b2100aa377e"
+    },
+    {
+      "path": "native/framed-integration/full-turn.readback.json",
+      "byteSize": 1457,
+      "sha256": "0f01105dd96a8a596a5687459f92375bcd1d0659510ba5f0b70c4045dd42de5c"
+    },
+    {
+      "path": "native/framed-integration/full-turn.report.json",
+      "byteSize": 804,
+      "sha256": "61f2995c6b1b2a011bc65c39187c1f88ae4023679fe1d872b501c9402cfad296"
+    },
+    {
+      "path": "native/framed-integration/nonzero-full-turn.dwg",
+      "byteSize": 11019,
+      "sha256": "c14b5ed066ec838c9476b3b9fb4cccf2d9901e3bd606ab3eaa5ad3270b53f9fd"
+    },
+    {
+      "path": "native/framed-integration/nonzero-full-turn.input.frame",
+      "byteSize": 11303,
+      "sha256": "8189d5d33e28de594780370ae9464de027e5ff699d71f005ff825d3a307f9688"
+    },
+    {
+      "path": "native/framed-integration/nonzero-full-turn.output.frame",
+      "byteSize": 11839,
+      "sha256": "e2dcb9519f4862db309dee03583596aa855ec982f9ebd79566005ed7d26bf1a6"
+    },
+    {
+      "path": "native/framed-integration/nonzero-full-turn.readback.json",
+      "byteSize": 1474,
+      "sha256": "2f54fa900c43a2fad1e677daaa8ca39aa6139e30449020f7afe7d2c94e938509"
+    },
+    {
+      "path": "native/framed-integration/nonzero-full-turn.report.json",
+      "byteSize": 804,
+      "sha256": "6a4a83a31145f7afaf948c04fb3d790112e4bc8a84b7de0a76fbfaf866416ab8"
+    },
+    {
+      "path": "native/framed-integration/summary.json",
+      "byteSize": 1639,
+      "sha256": "72c0047a5c87fcd8e5632611989e075b6d54553361ad54ad87f2ca2175d8bba4"
+    },
+    {
+      "path": "native/framed-integration/wrapped.dwg",
+      "byteSize": 11019,
+      "sha256": "49068eb71b5b08a0966340ee6a1b0b3c76802eb1860e45b045e6349a467821e9"
+    },
+    {
+      "path": "native/framed-integration/wrapped.input.frame",
+      "byteSize": 11616,
+      "sha256": "bc167c81f1e538ef01e6aed23e765f0b476801880e9b048ae8467f261a12fadc"
+    },
+    {
+      "path": "native/framed-integration/wrapped.output.frame",
+      "byteSize": 11859,
+      "sha256": "dbeba49db2f0c1d16c9e984973310e02bc0b4b6c8a3b9695167c78ed0baa01a0"
+    },
+    {
+      "path": "native/framed-integration/wrapped.readback.json",
+      "byteSize": 1490,
+      "sha256": "b2e154ad2dcdf203b88781e8b125d93967bcb3d56b04d8aa8b7c405b747c7382"
+    },
+    {
+      "path": "native/framed-integration/wrapped.report.json",
+      "byteSize": 824,
+      "sha256": "ff6370a66e9c38e79f1885b8bcfc8aa190e70903b447f12079ca59be9fa21dcf"
+    },
+    {
+      "path": "r2-end-state-audit.md",
+      "byteSize": 10771,
+      "sha256": "f409c0aa884acdbcb182df916fa0641de09c496735afdad6b080b2f6fdbaa213"
+    },
+    {
+      "path": "diagnose-bootstrap-replay.mjs",
+      "byteSize": 2605,
+      "sha256": "1e24f45545f5dc200ebb25d4bcd2d095e95cf1ae7a5736c760756eefe643a3ef"
+    },
+    {
+      "path": "collaboration-bootstrap-contract.md",
+      "byteSize": 14889,
+      "sha256": "faf0202e32a00b853ae64de7fe1d7f0f7b972fe09ae6d134da3be40c57a792bc"
+    },
+    {
+      "path": "task-2-report.md",
+      "byteSize": 15967,
+      "sha256": "9c6f2cb6af94da7e79e72c7d454891c6c1937b79abd701f5a3da2a7510c885d0"
+    },
+    {
+      "path": "task-2-review.md",
+      "byteSize": 5203,
+      "sha256": "e35b7f71c566ceb02458558cf68232a373f758170693dad0f768fa4c65a6f80a"
+    },
+    {
+      "path": "final-review.md",
+      "byteSize": 11241,
+      "sha256": "dc21251537a7c2d5fdafd3ff3b8ac3f958bd01b2065576009b49deaea7cef08d"
+    },
+    {
+      "path": "host/protocol-red.log",
+      "byteSize": 6059,
+      "sha256": "015d43aba457e71f227d1df1b15ff209ff27310e038027e370e0f1cb7632a2a6"
+    },
+    {
+      "path": "host/sandbox-red.log",
+      "byteSize": 18084,
+      "sha256": "20553464b962263afcb68bdbded882ed40078f358a281b226dfc3dd54edb446d"
+    },
+    {
+      "path": "host/regressions-green.log",
+      "byteSize": 770,
+      "sha256": "01f18b21e269443452b61ef602a1a46ccae52b68563be8454aed012e43624dca"
+    },
+    {
+      "path": "host/typecheck-green.log",
+      "byteSize": 69,
+      "sha256": "bb61d3ecf6adf45be1bf26f578e238ac20089cbbaa0b9ee6e3e5df4cb21c959a"
+    },
+    {
+      "path": "host/integration-prerequisite-red.log",
+      "byteSize": 4589,
+      "sha256": "7311c57ac36c78ab3e4f69084cf5ab00278f265bce48b8039192a57a46af07bb"
+    },
+    {
+      "path": "docker/resaver-green.log",
+      "byteSize": 1147,
+      "sha256": "1cf80d4b181ad033807fcf075478cdd8a633404e33541ded8ac6ec77c0039de0"
+    },
+    {
+      "path": "docker/reader-green.log",
+      "byteSize": 1230,
+      "sha256": "a03ddc7c180e47051c1f6c6d95fc870dfad0d78a9833d37e0582e86c044f6701"
+    },
+    {
+      "path": "docker/image-build.log",
+      "byteSize": 2563,
+      "sha256": "231ce107a57e238505f033a78740db55ebb4ccccaf42099d6730332f73c280fd"
+    },
+    {
+      "path": "docker/image-provenance.json",
+      "byteSize": 1048,
+      "sha256": "cce20a9d1fe4ef4f585d2ae5032c6b7422836ca71a7698a885c88dd066338380"
+    },
+    {
+      "path": "docker/image-build-files.json",
+      "byteSize": 5572,
+      "sha256": "02c7eb098adec8c1989416bc1b4f8aa1b943f11cdd22230315c0b13d9742353d"
+    },
+    {
+      "path": "docker/first-actual/abort-before.json",
+      "byteSize": 7182,
+      "sha256": "5f0ddd90f4c3e39ee50b52999d63ad9ddd47563fa32efe56802eb0c358cd819b"
+    },
+    {
+      "path": "docker/first-actual/abort-calls.jsonl",
+      "byteSize": 2332,
+      "sha256": "f1e48622a890e27b9824088d4afb5baefb9d43f0af70d065696e55548dcf2c83"
+    },
+    {
+      "path": "docker/first-actual/abort-docker",
+      "byteSize": 1605,
+      "sha256": "8f0a5393cf4225c49b32684f0c33eb91c56f81ff3dbf61c899678d2615f4027e"
+    },
+    {
+      "path": "docker/first-actual/abort-running",
+      "byteSize": 64,
+      "sha256": "ca6a465b9c9e05345481d74f54cbcc0b6bf674d11379df0213d6445ca879bc1a"
+    },
+    {
+      "path": "docker/first-actual/cgroup-probe.txt",
+      "byteSize": 5249,
+      "sha256": "344f744ae10245557848376bf11dd4248c59cb9217de44241c97e0f9a1fd3a58"
+    },
+    {
+      "path": "docker/first-actual/cgroup-receipt.json",
+      "byteSize": 6010,
+      "sha256": "b62296d9808b56e3748baaebe029447f145e28e6ae1ef90a52d38019e1b47cb1"
+    },
+    {
+      "path": "docker/first-actual/deadline-before.json",
+      "byteSize": 7180,
+      "sha256": "a8f95a6b25c6c422081db9262ab15dff584123249549a52e328a7ef24a4b0492"
+    },
+    {
+      "path": "docker/first-actual/deadline-calls.jsonl",
+      "byteSize": 2331,
+      "sha256": "887b85718d13ffbfcabb099f7ecf9e72f40ea449d647eac48d5fc79e8f56503f"
+    },
+    {
+      "path": "docker/first-actual/deadline-docker",
+      "byteSize": 1617,
+      "sha256": "60b38850f06960e8b6cc30a66e164313260c1c8b3ec8cac57340a294229feeca"
+    },
+    {
+      "path": "docker/first-actual/deadline-running",
+      "byteSize": 64,
+      "sha256": "dc3a690a5c0ea014c428c3943499e41bf0769f7427039c3294a7859d658c3a4c"
+    },
+    {
+      "path": "docker/first-actual/image.json",
+      "byteSize": 2140,
+      "sha256": "fac18f8f44e30e8f5209366d0ca383beed30b6fc9f0bd6f01efe6e01c29d7cce"
+    },
+    {
+      "path": "docker/first-actual/invalid-after.json",
+      "byteSize": 7577,
+      "sha256": "fc2cbbab188c8ef9dc08e45d6c1273ea7309339832581ade66d0e32ca34890e5"
+    },
+    {
+      "path": "docker/first-actual/invalid-before.json",
+      "byteSize": 7182,
+      "sha256": "83feb5b750ea738e1036d2523f8448a95ad2727f4e2cf51e517512503d0b9279"
+    },
+    {
+      "path": "docker/first-actual/invalid-calls.jsonl",
+      "byteSize": 2332,
+      "sha256": "7401108fec9b8c910100b8669b842721d1f9a966ac6b562cb77bd92263c7d754"
+    },
+    {
+      "path": "docker/first-actual/invalid-docker",
+      "byteSize": 1615,
+      "sha256": "f7000ca7d337c11e360c64ce026ec1b27038bdaf0881b9fbb999049813818484"
+    },
+    {
+      "path": "docker/first-actual/mismatch-docker",
+      "byteSize": 1619,
+      "sha256": "4f35b0901e9701094b7c63591538ac87a5b1f33704cdcef64645596da8268add"
+    },
+    {
+      "path": "docker/first-actual/report.json",
+      "byteSize": 824,
+      "sha256": "7140063642e650bba2f7bd12197b31cb5aa480af3b9f99dfeba3494c14659643"
+    },
+    {
+      "path": "docker/first-actual/request.json",
+      "byteSize": 613,
+      "sha256": "b5bdbcdfba6754fa7ebdfd41cf2e829c220a6059cc4cac104278c44da48caeab"
+    },
+    {
+      "path": "docker/first-actual/resaved-inventory/input-working-copy.dwg",
+      "byteSize": 11019,
+      "sha256": "0b4efe038e95b3fe8ee9e96f3d2f332e75bd7ae4265c4caa4ad340983cbf5616"
+    },
+    {
+      "path": "docker/first-actual/resaved-inventory/no-edit-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "b0d619ef95012abb1533050b60a584493d6412d2e72e1347efe6e7d290894119"
+    },
+    {
+      "path": "docker/first-actual/resaved-inventory/qualification-report.json",
+      "byteSize": 12468,
+      "sha256": "acff178695871e3903713328ce6a259905abdba61a124b931595c3f7ce872fc7"
+    },
+    {
+      "path": "docker/first-actual/resaved.dwg",
+      "byteSize": 11019,
+      "sha256": "0b4efe038e95b3fe8ee9e96f3d2f332e75bd7ae4265c4caa4ad340983cbf5616"
+    },
+    {
+      "path": "docker/first-actual/source/synthetic-input.dwg",
+      "byteSize": 10987,
+      "sha256": "8d9ae187d7a046735149ce1dd2e362720bb0fb3c80b060c9d8ea31f0e697fcc1"
+    },
+    {
+      "path": "docker/first-actual/source-inventory/input-working-copy.dwg",
+      "byteSize": 10987,
+      "sha256": "8d9ae187d7a046735149ce1dd2e362720bb0fb3c80b060c9d8ea31f0e697fcc1"
+    },
+    {
+      "path": "docker/first-actual/source-inventory/no-edit-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "3ea8e325d74cfe17685baee083e6378caa088b772739714a328891388b3d2668"
+    },
+    {
+      "path": "docker/first-actual/source-inventory/qualification-report.json",
+      "byteSize": 12392,
+      "sha256": "22c7855ad4828ebe549c2d25eebb1fa3d10a1804e45126984674747968b9756e"
+    },
+    {
+      "path": "docker/first-actual/success-after.json",
+      "byteSize": 7580,
+      "sha256": "e98ed98b1533cbbf99ea4660df558f390fdd4e4aab9244455d62afac94e7c1d4"
+    },
+    {
+      "path": "docker/first-actual/success-before.json",
+      "byteSize": 7184,
+      "sha256": "d3628b49aa7976a746d60afe484dd155697e7ffdc5dbfba6be70f2845df8a02a"
+    },
+    {
+      "path": "docker/first-actual/success-calls.jsonl",
+      "byteSize": 2577,
+      "sha256": "304aa889fc7c4463189af0605113d28f807b0e20e45a309a676a86848f844262"
+    },
+    {
+      "path": "docker/first-actual/success-docker",
+      "byteSize": 1615,
+      "sha256": "703c77b721afce8a848a8e70d3d3c694eab637016bc879533d43c46939adcf32"
+    },
+    {
+      "path": "docker/first-actual/summary.json",
+      "byteSize": 700,
+      "sha256": "3ced5392879537c7a8318c0c6fdc1cf0bc2a64c5037a6516c7acb5f0be414ce3"
+    },
+    {
+      "path": "controller/first-wrong-tmpdir-regressions.log",
+      "byteSize": 60973,
+      "sha256": "cbd035a9e093873c9104069d1485edac5b3ff03ed0d21a1e15f4495e1ffc64df"
+    },
+    {
+      "path": "controller/regressions.log",
+      "byteSize": 12763,
+      "sha256": "95f9f837245052cde49843e6b9a4ab0869ab5ff022d1a274c6bdb9ea466e71ed"
+    },
+    {
+      "path": "controller/typecheck.log",
+      "byteSize": 58,
+      "sha256": "30d632d155b5c6ee81c5f42da6918bff2b555f9a92a22715a6f795cdf95d1ec1"
+    },
+    {
+      "path": "controller/actual-resave.log",
+      "byteSize": 1147,
+      "sha256": "9763d7ba5cc4a48cd68443e10c7584278cfce75974b27c923ee6981e76790598"
+    },
+    {
+      "path": "controller/actual-reader.log",
+      "byteSize": 1231,
+      "sha256": "4fd0968e66f667ec230516da53fa4ae8133dbf32da4a60a6ea3fc075d14633a7"
+    },
+    {
+      "path": "controller/verification.json",
+      "byteSize": 4619,
+      "sha256": "b2d7c8daed8160d7609d98231960597126d61b5eb4a1f206de12b40354d1f836"
+    },
+    {
+      "path": "controller/actual/abort-before.json",
+      "byteSize": 7182,
+      "sha256": "f6f0f13525c9f77e27b9b80a90b8759aeb4c49868ad66658a667f3436b84a546"
+    },
+    {
+      "path": "controller/actual/abort-calls.jsonl",
+      "byteSize": 2332,
+      "sha256": "81ce2531f15057e79a90646f32a8cb1b201deb5e2717849b0cf370116cc1f0d0"
+    },
+    {
+      "path": "controller/actual/abort-docker",
+      "byteSize": 1557,
+      "sha256": "1320867266eec396bfacd74182be98596368aa99f36e90ca4a736112deab2139"
+    },
+    {
+      "path": "controller/actual/abort-running",
+      "byteSize": 64,
+      "sha256": "cfd33f2f0e4bffe30f813e74fe3870e68811abe5fff15c6f2a81682e9b1e0de2"
+    },
+    {
+      "path": "controller/actual/cgroup-probe.txt",
+      "byteSize": 5249,
+      "sha256": "df22c6db4ebc495d0b4d7a82d1d85a2d8323ebf3dc7a9ca5705f04cc91aaa408"
+    },
+    {
+      "path": "controller/actual/cgroup-receipt.json",
+      "byteSize": 6010,
+      "sha256": "991d7c64d7363f824e12fe8247081de88a0c9f50a2595a39809cad5140415ab6"
+    },
+    {
+      "path": "controller/actual/deadline-before.json",
+      "byteSize": 7180,
+      "sha256": "e6cbe98f2b7d3a50b3a5145595ab813f1f7fb6eb37857055ac1a15a09fb2d0d3"
+    },
+    {
+      "path": "controller/actual/deadline-calls.jsonl",
+      "byteSize": 2331,
+      "sha256": "c962e2dd4d6279ab9e86b2cedbbfc7b0a7c4d1677c91d226dd757975f5e90ce7"
+    },
+    {
+      "path": "controller/actual/deadline-docker",
+      "byteSize": 1569,
+      "sha256": "2f76855e5c5cfade154a4de99e054bd0ac2f38aec4e0f369706c9efc130e5174"
+    },
+    {
+      "path": "controller/actual/deadline-running",
+      "byteSize": 64,
+      "sha256": "3ff9742948496a5174fa268ee10a3cdfe058f362ed576f79306249a97e022ea1"
+    },
+    {
+      "path": "controller/actual/image.json",
+      "byteSize": 2140,
+      "sha256": "fac18f8f44e30e8f5209366d0ca383beed30b6fc9f0bd6f01efe6e01c29d7cce"
+    },
+    {
+      "path": "controller/actual/invalid-after.json",
+      "byteSize": 7578,
+      "sha256": "ebeb574a80e7abc86b677a44d7c354dda799fe67a2b3b1a22f6bfa49a53eee2a"
+    },
+    {
+      "path": "controller/actual/invalid-before.json",
+      "byteSize": 7182,
+      "sha256": "140d9d551b8e6ba7522a1b7d0930fde42e99a10238b2c1acfc6711b58ac92eba"
+    },
+    {
+      "path": "controller/actual/invalid-calls.jsonl",
+      "byteSize": 2332,
+      "sha256": "1ce2bc42033d1076ab7bc529bcbe7400228bf0f384de7806ac62c6da68228e25"
+    },
+    {
+      "path": "controller/actual/invalid-docker",
+      "byteSize": 1567,
+      "sha256": "235962b458d2f99a0c8b5d72cb98d4f698bd20bfea20906c27215fdf8ee2f95b"
+    },
+    {
+      "path": "controller/actual/mismatch-docker",
+      "byteSize": 1571,
+      "sha256": "55f041d7e23eeb562a50657d62e3fd1a3dc10a5ae13e9c2121abf58b13bba22c"
+    },
+    {
+      "path": "controller/actual/report.json",
+      "byteSize": 824,
+      "sha256": "886f0f57248759d9502a1677d34701237a48cc42a1c685f2d18eef67b210ef65"
+    },
+    {
+      "path": "controller/actual/request.json",
+      "byteSize": 613,
+      "sha256": "b3ea896d4628e961e6c1219dfbd7ab8c6ff381973fd88178e2a3b305aea3c794"
+    },
+    {
+      "path": "controller/actual/resaved-inventory/input-working-copy.dwg",
+      "byteSize": 11019,
+      "sha256": "7af2c6b532127116dde6fbf245a88582eedebdf87be63082f0ca52f2232b9f25"
+    },
+    {
+      "path": "controller/actual/resaved-inventory/no-edit-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "4ddaa253a6a481689680a9ff67bd1b1a76e9e82a2bf7ae85e5977b1b4e501676"
+    },
+    {
+      "path": "controller/actual/resaved-inventory/qualification-report.json",
+      "byteSize": 12444,
+      "sha256": "3f0368a879c88c523cd6575c644b18813a234055729accb6628dca97a9e6314d"
+    },
+    {
+      "path": "controller/actual/resaved.dwg",
+      "byteSize": 11019,
+      "sha256": "7af2c6b532127116dde6fbf245a88582eedebdf87be63082f0ca52f2232b9f25"
+    },
+    {
+      "path": "controller/actual/source/synthetic-input.dwg",
+      "byteSize": 10987,
+      "sha256": "bcc54d3c768444c9ade41a23e4ef2b9f5b5668d9972522ee4a4adbc98c670434"
+    },
+    {
+      "path": "controller/actual/source-inventory/input-working-copy.dwg",
+      "byteSize": 10987,
+      "sha256": "bcc54d3c768444c9ade41a23e4ef2b9f5b5668d9972522ee4a4adbc98c670434"
+    },
+    {
+      "path": "controller/actual/source-inventory/no-edit-roundtrip.dwg",
+      "byteSize": 11019,
+      "sha256": "4d4ade9a2dc17fd702ccfad6fd0cdf5f44afdbe3768563312692086bde83ab1f"
+    },
+    {
+      "path": "controller/actual/source-inventory/qualification-report.json",
+      "byteSize": 12368,
+      "sha256": "97524e7ad9933e77bc5202605becc36e34fe2a53bd4e8d8c4791f6e19254d1f1"
+    },
+    {
+      "path": "controller/actual/success-after.json",
+      "byteSize": 7580,
+      "sha256": "ee55a9a424f44b46dfb2f0a2368735033e654ef7144332df4c2c776ba6c30c9b"
+    },
+    {
+      "path": "controller/actual/success-before.json",
+      "byteSize": 7184,
+      "sha256": "73f5a923ca2d554c53d7d6c3eff8128f6b4fb5afbb14fbf8ae7f2defe30abf52"
+    },
+    {
+      "path": "controller/actual/success-calls.jsonl",
+      "byteSize": 2577,
+      "sha256": "aa5e8d0944f34ba0ca1c2a028de50a1747c96876811b0177c9d1131fc82bce09"
+    },
+    {
+      "path": "controller/actual/success-docker",
+      "byteSize": 1567,
+      "sha256": "593ed068e6eae1bc384ea83e69a5bcb33d8efb8cf8a99436e1c1d7b7b3640176"
+    },
+    {
+      "path": "controller/actual/summary.json",
+      "byteSize": 700,
+      "sha256": "369a97b72df25a713abd796be03808d8c47ab900de407a71b0f3095c8fc80e38"
+    },
+    {
+      "path": "preservation.json",
+      "byteSize": 2128,
+      "sha256": "36055ae5a2e4a1cec459f2498c4c5b9bfa7e9829f2ae3a0703ef9e62e79c2f3f"
+    },
+    {
+      "path": "progress.md",
+      "byteSize": 14059,
+      "sha256": "da5e730dda7512a27838ca060bcb59db27d8a1d497e9879424a09110c96070b1"
+    },
+    {
+      "path": "accepted-files.json",
+      "byteSize": 2730,
+      "sha256": "d87126444f18416b7360e3716b7e5a8a7de1752b13d1927acacd3e1f9f0a3d19"
+    },
+    {
+      "path": "accepted-diff.md",
+      "byteSize": 185563,
+      "sha256": "fee29bba54b931f9f681be7a9843e7123d5ec1cce97940a0687a58b51bd44d31"
+    },
+    {
+      "path": "accepted-code/platform/app/lukas/lib/drawing-native-dwg-resave-protocol.server.ts",
+      "byteSize": 6335,
+      "sha256": "54c8e3b032464dbeaf5718f6f849c8f4b4d1d6152d680d89d178ce4fe9e1bc08"
+    },
+    {
+      "path": "accepted-code/platform/app/lukas/lib/drawing-native-dwg-sandbox.server.ts",
+      "byteSize": 19641,
+      "sha256": "87e62b6ddea49c0af38cc37a0681d6a587812106f3ecdef4b646bf503153f54c"
+    },
+    {
+      "path": "accepted-code/platform/tests/drawing-native-dwg-geometry-resave-integration.test.mjs",
+      "byteSize": 25241,
+      "sha256": "34f91fc364e56bebd69744990053227ea8cebf907a62206140fff480d1061218"
+    },
+    {
+      "path": "accepted-code/platform/tests/drawing-native-dwg-resave-protocol.test.mjs",
+      "byteSize": 9522,
+      "sha256": "ec23975ccbb52fa5e8bd358a9e5a4d77722fa855a442e9b6b4c5c6adbf0e53eb"
+    },
+    {
+      "path": "accepted-code/platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs",
+      "byteSize": 22853,
+      "sha256": "f353fffb15c8f181d3a55482b3643f44afbbd154301be0d400feea7a1eff7497"
+    },
+    {
+      "path": "accepted-code/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs",
+      "byteSize": 12105,
+      "sha256": "3a49aa4dfe29eabca946b3ceb806f2e7ed08da1dcd6ded2743b4c0cf10e53f87"
+    },
+    {
+      "path": "accepted-code/platform/tests/drawing-native-dwg-sandbox.test.mjs",
+      "byteSize": 15721,
+      "sha256": "3499141bf9197e04157872241440eae890b9940b4708d4b977abf1885271f043"
+    },
+    {
+      "path": "accepted-code/platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs",
+      "byteSize": 9271,
+      "sha256": "d0311521371cde4bf1c098b692b961571c629a8a8a3f445d2671ed97615a1e38"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/Dockerfile.reader",
+      "byteSize": 1011,
+      "sha256": "bde84323fe3577a61cedd5e1a0b68e8955beda512ef030cbb751f837579c9e5d"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/NativeDwgReader.cs",
+      "byteSize": 23321,
+      "sha256": "967a6687a74df41607632a89d258064cd7e8eff6c290ffde75bc0b215f619a75"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/NativeDwgResaveSelfTests.cs",
+      "byteSize": 21322,
+      "sha256": "76dc1cb04fd4c75d7f55b8ddb2dedd0a054778ea5328a241a9fdcc5b3e04aab0"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/NativeDwgResaver.cs",
+      "byteSize": 6679,
+      "sha256": "1bc3b3bacfb59992f3026bfc05a43389e03a8abafd16ba3617371232418d3559"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/Program.cs",
+      "byteSize": 4387,
+      "sha256": "62ba82cce55f962aac1c78c5366df0c8fcdce684a09725004206a49128832d01"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/QualificationRunner.cs",
+      "byteSize": 27918,
+      "sha256": "266d1dff6baf5bd2f73fcb1d525915043870fd028522b2f9863143f5a7879be2"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/README.md",
+      "byteSize": 23631,
+      "sha256": "fa8ff6f0a041ecc62292d86c098a0e12a4c3ce8f80843ae3dc5f4c2a4677e127"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/SelectedDwgEdits.cs",
+      "byteSize": 17757,
+      "sha256": "ccd12c75330e42786a1107b6793d46e2e077f47a1ef367d69c2ae7e4710dae62"
+    },
+    {
+      "path": "accepted-code/tools/dwg-engine-qualification/SelfTests.cs",
+      "byteSize": 13593,
+      "sha256": "a562343f2d8d364ec1726e9060924ed427a40576b9360748f55131751e35c0d3"
+    }
+  ]
+}

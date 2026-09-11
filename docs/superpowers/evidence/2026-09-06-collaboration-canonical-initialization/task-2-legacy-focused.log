@@ -1,0 +1,19 @@
+✔ real HocuspocusProvider syncs and publishes one bounded cursor state (83.650167ms)
+✔ production-shaped first boot keeps server metadata authoritative and converges its pending operation (156.953792ms)
+✔ accepted polling and signed outcome receipts are authoritative and idempotent (3.569791ms)
+✔ signed outcome receipts preserve every protocol-valid operation size (8.502791ms)
+✔ signed outcome receipt verifier has one explicit 96 KiB boundary (0.95525ms)
+✔ outcome endpoint persists a protocol-valid receipt above the legacy 16 KiB cap (39.715417ms)
+✔ signed outcomes persist before 204 semantics, survive an unloaded room, and replay idempotently (2.279458ms)
+✔ signed outcome replay accepts only a clock-repaired DB bootstrap operation (1.752291ms)
+✔ polling persists server status with room scope and contains room lookup failures (3.761375ms)
+✔ Hocuspocus v4 decodes a real framed Sync/Update before collaboration validation (2.408542ms)
+✔ outcome endpoint distinguishes invalid signatures from retriable persistence failures (7.32825ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 479.630666

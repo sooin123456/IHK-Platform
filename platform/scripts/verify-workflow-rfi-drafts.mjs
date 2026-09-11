@@ -1,0 +1,17 @@
+import {chromium,expect} from '@playwright/test';
+const browser=await chromium.launch();
+try{
+ const page=await browser.newPage();page.setDefaultTimeout(7000);const errors=[];page.on('pageerror',error=>errors.push(error.message));const button=name=>page.getByRole('button',{name,exact:true});
+ await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=start',{waitUntil:'networkidle'});await page.getByLabel('빈 작업 이름',{exact:true}).fill('초안 도면');await button('빈 작업실 열기').click();await expect(page).toHaveURL(/blank=/);await button('사각형 구상 도구').click();await page.getByRole('img',{name:'빈 작업 캔버스'}).focus();await page.keyboard.press('Enter');
+ await page.getByText('선택 객체 공식 질의 작성',{exact:true}).click();await page.getByLabel('질의 제목',{exact:true}).fill('작성 중 제목');await page.getByLabel('질의 내용',{exact:true}).fill('도면 확인 후 등록할 문의');await page.getByLabel('질의 답변 기한',{exact:true}).fill('2026-10-03');
+ const doc=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('1hk:workflow-preview:session:v1')).blankDocuments.find(doc=>doc.title==='초안 도면'));expect(doc.rfis??[]).toEqual([]);
+ await page.reload();await page.getByLabel('선택할 객체',{exact:true}).selectOption(doc.shapes[0].id);await page.getByText('선택 객체 공식 질의 작성',{exact:true}).click();await expect(page.getByLabel('질의 제목',{exact:true})).toHaveValue('작성 중 제목');await expect(page.getByLabel('질의 내용',{exact:true})).toHaveValue('도면 확인 후 등록할 문의');await expect(page.getByLabel('질의 답변 기한',{exact:true})).toHaveValue('2026-10-03');
+ await button('질의 등록 (체험)').click();await expect(page.getByRole('region',{name:'선택 객체 공식 질의'})).toContainText('등록했습니다');await expect(page.getByLabel('질의 제목',{exact:true})).toHaveValue('');
+ await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=issues&scope=local&rfiRole=reviewer');await expect(page.getByRole('region',{name:'내 도면 공식 질의'}).getByRole('article')).toHaveCount(1);await page.getByLabel('RFI #1 처리 의견',{exact:true}).fill('답변 작성 중, 원본 확인 필요');
+ await button('RFI #1 도면 위치').click();await expect(page).toHaveURL(/rfiReturn=/);await button('질의 목록으로 돌아가기').click();await expect(page).toHaveURL(/page=issues/);await expect(page.getByLabel('RFI #1 처리 의견',{exact:true})).toHaveValue('답변 작성 중, 원본 확인 필요');
+ await page.reload();await expect(page.getByLabel('RFI #1 처리 의견',{exact:true})).toHaveValue('답변 작성 중, 원본 확인 필요');
+ await page.getByLabel('질의 처리 역할',{exact:true}).selectOption('approver');await expect(page).toHaveURL(/rfiRole=approver/);await expect(page.getByLabel('RFI #1 처리 의견',{exact:true})).toHaveValue('');await expect(page.getByLabel('RFI #1 처리 의견',{exact:true})).toBeDisabled();
+ await page.getByLabel('질의 처리 역할',{exact:true}).selectOption('reviewer');await expect(page).toHaveURL(/rfiRole=reviewer/);await expect(page.getByLabel('RFI #1 처리 의견',{exact:true})).toHaveValue('답변 작성 중, 원본 확인 필요');await button('RFI #1 답변 보관').click();
+ await page.getByLabel('질의 처리 역할',{exact:true}).selectOption('author');await expect(page).toHaveURL(/rfiRole=author/);await expect(page.getByLabel('RFI #1 처리 의견',{exact:true})).toHaveValue('');
+ const saved=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('1hk:workflow-preview:session:v1')).blankDocuments.find(doc=>doc.title==='초안 도면'));expect(saved.rfis[0].phase).toBe('answered');expect(saved.rfiDrafts).toEqual([]);expect(errors).toEqual([]);console.log('PASS unsent RFI compose and response drafts survive reload/roundtrip, isolate roles and clear on success');
+}finally{await browser.close();}

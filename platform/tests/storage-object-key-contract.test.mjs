@@ -181,7 +181,10 @@ test("large project sources use resumable Storage upload and a service-only veri
     projectScreen,
     /Authorization:\s*`Bearer \$\{session\.access_token\}`/,
   );
-  assert.match(projectScreen, /upload_verification_id:\s*verificationId/);
+  assert.match(
+    projectScreen,
+    /\.set\(["']upload_verification_id["'],\s*verificationId\)/,
+  );
   assert.match(projectScreen, /lukas_qto_finalize_verified_upload/);
   assert.doesNotMatch(projectScreen, /sha256:\s*uploaded\.sha256/);
 
@@ -195,7 +198,7 @@ test("large project sources use resumable Storage upload and a service-only veri
   assert.doesNotMatch(edgeVerifier, /\.remove\(/);
   assert.match(
     functionConfig,
-    /\[functions\.lukas-qto-upload-verify\]\s+verify_jwt\s*=\s*true/,
+    /\[functions\.lukas-qto-upload-verify\][^[]*^verify_jwt\s*=\s*true\s*$/m,
   );
   assert.match(
     immutableStorageMigration,

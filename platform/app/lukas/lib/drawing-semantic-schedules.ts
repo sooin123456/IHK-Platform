@@ -3,11 +3,14 @@ import {
   DRAWING_MEASUREMENT_RULE_VERSION,
   drawingObjectSupportsMeasurement,
   formatDrawingMeasurement,
-  measureDrawingObject,
+  measureDrawingObjectForCanvas,
   type DrawingMeasurement,
 } from "./drawing-measurements.ts";
 import { drawingSemanticScaledInteger } from "./drawing-semantic-geometry.ts";
-import type { DrawingObject } from "./drawing-workspace.types.ts";
+import type {
+  DrawingCanvas,
+  DrawingObject,
+} from "./drawing-workspace.types.ts";
 
 export type DrawingSemanticScheduleKind = "room" | "door" | "finish";
 
@@ -73,7 +76,18 @@ export type DrawingMeasurementEvidenceCurrent =
     hasUnconfirmedChanges: boolean;
   };
 
-type ScheduleState = Pick<DrawingDocumentState, "revisionId" | "objects">;
+type ScheduleState = Pick<DrawingDocumentState, "revisionId" | "objects"> & {
+  layers?: Readonly<Record<string, { canvasId?: string }>>;
+  structure?: {
+    canvases: Readonly<Record<string, DrawingCanvas>>;
+  };
+};
+
+function measureScheduleObject(object: DrawingObject, state: ScheduleState) {
+  const canvasId = state.layers?.[object.layerId]?.canvasId;
+  const canvas = canvasId ? state.structure?.canvases[canvasId] : null;
+  return measureDrawingObjectForCanvas(object, canvas, state.objects);
+}
 
 const scheduleDefinitions = {
   room: {
@@ -193,10 +207,7 @@ function formatSemanticMillimeters(value: number) {
 
 function areaTotal(objects: DrawingObject[], state: ScheduleState) {
   const total = objects.reduce((sum, object) => {
-    const area = measureDrawingObject(
-      object,
-      state.objects,
-    ).areaSquareMillimeters;
+    const area = measureScheduleObject(object, state).areaSquareMillimeters;
     return area === null ? sum : sum + fixedInteger(area, 6);
   }, 0n);
   // Measurement area strings carry six fractional square-millimetre digits;
@@ -246,7 +257,7 @@ export function resolveDrawingSemanticSchedule(
       caption: definition.caption,
       columns: [...definition.columns],
       rows: doors.map((object) => {
-        const measurement = measureDrawingObject(object, state.objects);
+        const measurement = measureScheduleObject(object, state);
         return {
           objectId: object.id,
           cells: {
@@ -278,7 +289,7 @@ export function resolveDrawingSemanticSchedule(
       caption: definition.caption,
       columns: [...definition.columns],
       rows: spaces.map((object) => {
-        const measurement = measureDrawingObject(object, state.objects);
+        const measurement = measureScheduleObject(object, state);
         return {
           objectId: object.id,
           cells: {
@@ -305,7 +316,7 @@ export function resolveDrawingSemanticSchedule(
     caption: definition.caption,
     columns: [...definition.columns],
     rows: spaces.map((object) => {
-      const measurement = measureDrawingObject(object, state.objects);
+      const measurement = measureScheduleObject(object, state);
       return {
         objectId: object.id,
         cells: {
@@ -419,7 +430,7 @@ export function deriveDrawingServerMeasurementEvidence({
         objectVersion: object.version,
         objectFingerprint: objectFingerprints[object.id],
         ruleVersion: DRAWING_MEASUREMENT_RULE_VERSION,
-        measurement: measureDrawingObject(object, state.objects),
+        measurement: measureScheduleObject(object, state),
       },
     ]),
   );

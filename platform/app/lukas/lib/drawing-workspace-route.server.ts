@@ -6,21 +6,129 @@ import {
   loadDrawingRoom,
   type DrawingClient,
 } from "~/lukas/lib/drawing-collaboration.server";
+import type {
+  DrawingRevisionReviewItem,
+  RelinkDrawingAnchorInput,
+} from "~/lukas/lib/drawing-revision.server";
+import { loadDrawingRevisionReviewCandidate } from "~/lukas/lib/drawing-revision.server";
 import {
   DrawingWorkspaceConflictError,
   DrawingWorkspaceRejectedError,
   DrawingWorkspaceRetryableError,
   DrawingWorkspaceRpcError,
+  DrawingWorkspaceSourceUnavailableError,
   type DrawingWorkspaceCapability,
+  type DrawingWorkspace,
   type DrawingWorkspaceClient as DrawingWorkspaceDatabaseClient,
+  type DrawingWorkspaceSourceBundle,
   loadDrawingWorkspace,
 } from "~/lukas/lib/drawing-workspace.server";
+import { drawingWorkspaceCanComment } from "~/lukas/lib/drawing-workspace-view";
 
 const drawingEstimateUuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const DrawingWorkspaceSourceAttachFormSchema = z
+  .object({
+    intent: z.literal("attach_source"),
+    revision_id: z.string().uuid(),
+    canvas_id: z.string().uuid(),
+    source_file_id: z.string().uuid(),
+    request_id: z.string().uuid(),
+  })
+  .strict();
+
 function canEdit(capability: DrawingWorkspaceCapability) {
   return capability === "admin" || capability === "editor";
+}
+
+export function assertDrawingWorkspaceRevisionRelinkScope({
+  capability,
+  mutation,
+  revisionReview,
+  workspace,
+}: {
+  capability: DrawingWorkspaceCapability;
+  mutation: RelinkDrawingAnchorInput;
+  revisionReview: DrawingRevisionReviewItem[];
+  workspace: Pick<DrawingWorkspace, "primarySource">;
+}) {
+  assertDrawingWorkspaceRevisionRelinkRequestScope({
+    capability,
+    mutation,
+    workspace,
+  });
+  const candidate = revisionReview.find(
+    (item) => item.previousAnchorId === mutation.previousAnchorId,
+  );
+  if (!candidate || candidate.sourceKind !== mutation.anchor.kind)
+    throw new Response("현재 작업실의 개정 검토 후보만 연결할 수 있습니다.", {
+      status: 409,
+    });
+  return candidate;
+}
+
+export function assertDrawingWorkspaceRevisionRelinkRequestScope({
+  capability,
+  mutation,
+  workspace,
+}: {
+  capability: DrawingWorkspaceCapability;
+  mutation: RelinkDrawingAnchorInput;
+  workspace: Pick<DrawingWorkspace, "primarySource">;
+}) {
+  if (!drawingWorkspaceCanComment(capability))
+    throw new Response("도면 근거를 다시 연결할 권한이 없습니다.", {
+      status: 403,
+    });
+  const source = workspace.primarySource;
+  const expectedKind =
+    source?.kind === "pdf"
+      ? "pdf_region"
+      : source?.kind === "ifc"
+        ? "ifc_element"
+        : null;
+  if (
+    !source ||
+    source.id !== mutation.currentFileId ||
+    mutation.anchor.fileId !== source.id ||
+    mutation.anchor.kind !== expectedKind
+  )
+    throw new Response("현재 작업실의 개정 검토 후보만 연결할 수 있습니다.", {
+      status: 409,
+    });
+  return source;
+}
+
+export async function assertDrawingWorkspaceRevisionRelinkAuthority({
+  baseClient,
+  capability,
+  mutation,
+  projectId,
+  workspace,
+}: {
+  baseClient: DrawingClient;
+  capability: DrawingWorkspaceCapability;
+  mutation: RelinkDrawingAnchorInput;
+  projectId: string;
+  workspace: Pick<DrawingWorkspace, "primarySource">;
+}) {
+  assertDrawingWorkspaceRevisionRelinkRequestScope({
+    capability,
+    mutation,
+    workspace,
+  });
+  const candidate = await loadDrawingRevisionReviewCandidate(
+    baseClient,
+    projectId,
+    mutation.currentFileId,
+    mutation.previousAnchorId,
+  );
+  if (!candidate || candidate.sourceKind !== mutation.anchor.kind)
+    throw new Response("현재 작업실의 개정 검토 후보만 연결할 수 있습니다.", {
+      status: 409,
+    });
+  return candidate;
 }
 
 export function parseDrawingWorkspaceLineageSearch(
@@ -61,6 +169,7 @@ export function actionRequestId(form: FormData) {
     "link_id",
     "comment_id",
     "freeze_request_id",
+    "new_anchor_id",
   ]) {
     const value = form.get(name);
     if (typeof value === "string" && drawingEstimateUuid.test(value))
@@ -79,6 +188,163 @@ export function actionRequestId(form: FormData) {
       // Validation will return the field-level error below.
     }
   return randomUUID();
+}
+
+export function parseDrawingWorkspaceSourceAttachForm(form: FormData) {
+  for (const name of [
+    "intent",
+    "revision_id",
+    "canvas_id",
+    "source_file_id",
+    "request_id",
+  ])
+    if (form.getAll(name).length !== 1)
+      throw new z.ZodError([
+        { code: "custom", path: [name], message: "Expected one value" },
+      ]);
+  const parsed = DrawingWorkspaceSourceAttachFormSchema.parse(
+    Object.fromEntries(form.entries()),
+  );
+  return {
+    revisionId: parsed.revision_id,
+    canvasId: parsed.canvas_id,
+    sourceFileId: parsed.source_file_id,
+    requestId: parsed.request_id,
+  };
+}
+
+export function drawingWorkspaceSourceAttachCanvasId(
+  workspace: DrawingWorkspace,
+): string | null {
+  const firstPage = workspace.document.revision.pages[0];
+  if (!firstPage || !("canvases" in firstPage)) return null;
+  const paper = [...firstPage.canvases]
+    .sort(
+      (left, right) =>
+        left.sortOrder - right.sortOrder || left.id.localeCompare(right.id),
+    )
+    .find((canvas) => canvas.spaceKind === "paper");
+  return paper?.background === null ? paper.id : null;
+}
+
+export function recoverDrawingWorkspaceSourceFailure(
+  error: unknown,
+  selectedIfcFileId: string | null,
+  loadSelectedIfc = true,
+): {
+  sourceBundle: DrawingWorkspaceSourceBundle & { error: string };
+  selectedIfcFileId: string | null;
+} | null {
+  if (
+    !(error instanceof DrawingWorkspaceSourceUnavailableError) &&
+    !(
+      error instanceof Error &&
+      error.name === "DrawingWorkspaceSourceUnavailableError"
+    )
+  )
+    return null;
+  const recoveryBundle = (
+    error as Error & {
+      recoveryBundle?: DrawingWorkspaceSourceBundle | null;
+    }
+  ).recoveryBundle ?? {
+    primary: null,
+    pdf: null,
+    ifc: null,
+    previousPdf: null,
+    revisionEdge: null,
+    catalog: [],
+  };
+  const unavailableIfc =
+    loadSelectedIfc &&
+    selectedIfcFileId !== null &&
+    recoveryBundle.ifc?.id !== selectedIfcFileId;
+  return {
+    sourceBundle: {
+      ...recoveryBundle,
+      error: unavailableIfc
+        ? "선택한 IFC 원본을 표시하지 못했습니다. 다시 시도해 주세요."
+        : "PDF 원본 배경을 표시하지 못했습니다. 다시 시도해 주세요.",
+    },
+    selectedIfcFileId: unavailableIfc ? null : selectedIfcFileId,
+  };
+}
+
+export function assertDrawingWorkspaceSourceAttachScope({
+  capability,
+  mutation,
+  workspace,
+}: {
+  capability: DrawingWorkspaceCapability;
+  mutation: ReturnType<typeof parseDrawingWorkspaceSourceAttachForm>;
+  workspace: DrawingWorkspace;
+}) {
+  if (!canEdit(capability))
+    throw new Response("도면 원본을 연결할 권한이 없습니다.", {
+      status: 403,
+    });
+  if (
+    workspace.primarySource !== null ||
+    workspace.document.source_file_id !== null ||
+    workspace.document.source_sha256 !== null
+  )
+    throw new Response("이미 원본이 연결된 작업실입니다.", { status: 409 });
+  if (
+    workspace.document.revision.status !== "draft" ||
+    workspace.document.revision.id !== mutation.revisionId
+  )
+    throw new Response("현재 초안에만 원본을 연결할 수 있습니다.", {
+      status: 409,
+    });
+  const canvasId = drawingWorkspaceSourceAttachCanvasId(workspace);
+  if (!canvasId || canvasId !== mutation.canvasId)
+    throw new Response("PDF를 연결할 기본 종이 캔버스가 없습니다.", {
+      status: 409,
+    });
+  return mutation;
+}
+
+function isDrawingWorkspaceRetryableRead(error: unknown) {
+  return (
+    error instanceof DrawingWorkspaceRetryableError ||
+    (error instanceof Error &&
+      error.name === "DrawingWorkspaceRetryableError" &&
+      (error as { kind?: unknown }).kind === "retryable")
+  );
+}
+
+function isDrawingWorkspaceConflict(error: unknown) {
+  return (
+    error instanceof DrawingWorkspaceConflictError ||
+    (error instanceof Error &&
+      error.name === "DrawingWorkspaceConflictError" &&
+      (error as { kind?: unknown }).kind === "conflict")
+  );
+}
+
+export async function retryDrawingWorkspaceLoaderSnapshot<T>(
+  load: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await load();
+    } catch (error) {
+      if (isDrawingWorkspaceConflict(error))
+        throw new Response("연결된 도면 근거를 열 수 없습니다.", {
+          status: 404,
+        });
+      if (!isDrawingWorkspaceRetryableRead(error)) throw error;
+      if (attempt === 1)
+        throw new Response(
+          "작업실이 변경 중입니다. 잠시 후 다시 열어 주세요.",
+          {
+            status: 503,
+            headers: { "Retry-After": "1" },
+          },
+        );
+    }
+  }
+  throw new Error("Drawing workspace loader retry is unreachable.");
 }
 
 function rejectedRecovery(message: string) {
@@ -300,10 +566,11 @@ export async function loadDrawingWorkspaceIssueRoom(
   client: DrawingClient,
   projectId: string,
   workspace: Awaited<ReturnType<typeof loadDrawingWorkspace>>,
+  options: { focusIssueIds?: readonly string[] } = {},
   loadFileRoom: typeof loadDrawingRoom = loadDrawingRoom,
 ) {
   if (workspace.primarySource)
-    return loadFileRoom(client, projectId, workspace.primarySource.id);
+    return loadFileRoom(client, projectId, workspace.primarySource.id, options);
   const issues = workspace.document.revision.issues;
   const issueIds = issues.map((issue) => issue.id);
   if (issueIds.length === 0)

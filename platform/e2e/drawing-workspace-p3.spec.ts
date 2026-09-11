@@ -22,17 +22,27 @@ import { appendDrawingCollaborationOperation } from "../app/lukas/lib/drawing-co
 import type { DrawingCollaborationOperation } from "../app/lukas/lib/drawing-collaboration-protocol";
 import { verifyConcreteTakeoffBundle } from "../app/lukas/lib/concrete-takeoff-artifact.server";
 import {
+  DRAWING_P3_SECOND_CANVAS_BUTTON_NAME,
+  DRAWING_P3_SECOND_OBJECT_TARGET,
   authenticateApiClient,
   authenticateContext,
   buildDrawingP2PerformanceFixture,
+  buildDrawingP3ReflectionGesture,
+  buildDrawingP3WorkspacePath,
   createDrawingFixture,
   destroyDrawingP3Fixture,
+  failDrawingP3DisposableDerivativeJobs,
   readSourceEvidence,
+  requireDrawingP3DisposableCredentials,
   requireDrawingP3ProductionCredentials,
   type DrawingFixture,
 } from "./utils/drawing-collaboration-fixture";
 
-const credentials = requireDrawingP3ProductionCredentials(process.env);
+const disposableP3Mode = process.env.M1_E2E_P3_DISPOSABLE === "1";
+const credentials =
+  disposableP3Mode
+    ? requireDrawingP3DisposableCredentials(process.env)
+    : requireDrawingP3ProductionCredentials(process.env);
 const baseUrl = credentials.E2E_BASE_URL;
 const collaborationUrl = credentials.VITE_DRAWING_COLLABORATION_URL;
 const trackedContexts = new Set<BrowserContext>();
@@ -40,15 +50,6 @@ const trackedProviderDisposers = new Set<() => void>();
 
 type ApiClient = Awaited<ReturnType<typeof authenticateApiClient>>;
 type TestUser = DrawingFixture["owner"];
-
-function workspacePath(
-  fixture: DrawingFixture,
-  workspace: DrawingFixture["blankWorkspace"],
-  documentId?: string,
-) {
-  const query = documentId ? `?document=${encodeURIComponent(documentId)}` : "";
-  return `/projects/${fixture.projectId}/drawings/${workspace.fileId}/workspace${query}`;
-}
 
 function roomName(fixture: DrawingFixture, revisionId: string) {
   return `drawing:${fixture.projectId}:${revisionId}`;
@@ -255,8 +256,8 @@ async function prepareQuantityWorkflow(
     if (file.error) throw file.error;
     inputs.push({ role, fileId: file.data.id, sha256 });
   }
-  const orderedInputs = roles.map((role) =>
-    inputs.find((item) => item.role === role)!,
+  const orderedInputs = roles.map(
+    (role) => inputs.find((item) => item.role === role)!,
   );
   const inputSha256 = Object.fromEntries(
     orderedInputs.map((input) => [input.role, input.sha256]),
@@ -318,7 +319,7 @@ async function openWorkspace(
   browser: Browser,
   fixture: DrawingFixture,
   user: TestUser,
-  path = workspacePath(fixture, fixture.blankWorkspace),
+  path = buildDrawingP3WorkspacePath(fixture, fixture.blankWorkspace),
 ) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -386,6 +387,7 @@ async function connectProvider(
         reject(new Error(reason));
       },
     });
+    provider.attach();
   });
   try {
     await synced;
@@ -476,6 +478,7 @@ async function deniedProvider(fixture: DrawingFixture, user: TestUser) {
             );
           },
         });
+        provider.attach();
       },
     );
   } catch (error) {
@@ -636,10 +639,37 @@ test.describe
   });
 
   test.afterAll(async () => {
-    await destroyDrawingP3Fixture(
-      fixture,
-      credentials.P3_E2E_DATABASE_ADMIN_URL,
-    );
+    if (!fixture) return;
+    const cleanupErrors = [];
+    if (disposableP3Mode) {
+      try {
+        const statusClient = await authenticateApiClient(fixture, fixture.owner);
+        await failDrawingP3DisposableDerivativeJobs(fixture, statusClient);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+      if (cleanupErrors.length > 0)
+        throw new AggregateError(
+          cleanupErrors,
+          "Drawing P3 E2E cleanup left possible derivative job residue",
+        );
+      return;
+    }
+    if (!disposableP3Mode) {
+      try {
+        await destroyDrawingP3Fixture(
+          fixture,
+          credentials.P3_E2E_DATABASE_ADMIN_URL,
+        );
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0)
+      throw new AggregateError(
+        cleanupErrors,
+        "Drawing P3 E2E cleanup left possible room or fixture residue",
+      );
   });
 
   test("P3 Gate 01: three participants share world cursor selection and canvas scope", async ({
@@ -688,7 +718,7 @@ test.describe
 
     await editor.page.getByRole("tab", { name: "페이지·레이어" }).click();
     const secondCanvas = editor.page.getByRole("button", {
-      name: /P2 (paper|model) canvas 02/,
+      name: DRAWING_P3_SECOND_CANVAS_BUTTON_NAME,
     });
     await secondCanvas.click();
     const activeCanvasId = await editor.page
@@ -724,7 +754,11 @@ test.describe
     ]);
     await Promise.all([
       dragWorld(owner.page, { x: 180, y: 100 }, { x: 190, y: 110 }),
-      dragWorld(editor.page, { x: 230, y: 100 }, { x: 245, y: 115 }),
+      dragWorld(
+        editor.page,
+        { x: 230, y: 100 },
+        DRAWING_P3_SECOND_OBJECT_TARGET,
+      ),
     ]);
     await Promise.all([
       waitUntilSaved(owner.page),
@@ -744,7 +778,7 @@ test.describe
       version: 2,
     });
     expect(movedById.get(second.id)).toMatchObject({
-      geometry: { center: { x: 245, y: 115 } },
+      geometry: { center: DRAWING_P3_SECOND_OBJECT_TARGET },
       version: 2,
     });
 
@@ -762,14 +796,9 @@ test.describe
             ? "사각형 도구"
             : "선 도구";
       await owner.page.getByRole("button", { name: tool }).click();
-      const from = await canvasPoint(owner.page, {
-        x: 35 + index * 4,
-        y: 150 + (index % 5) * 8,
-      });
-      const to = await canvasPoint(owner.page, {
-        x: 40 + index * 4,
-        y: 155 + (index % 5) * 8,
-      });
+      const gesture = buildDrawingP3ReflectionGesture(index);
+      const from = await canvasPoint(owner.page, gesture.from);
+      const to = await canvasPoint(owner.page, gesture.to);
       if (tool === "선 도구") {
         await owner.page.mouse.click(from.x, from.y);
         await owner.page.mouse.click(to.x, to.y);
@@ -790,8 +819,15 @@ test.describe
     const viewport = owner.page.viewportSize();
     const browserVersion = browser.version();
     const evidence = {
-      execution: "PRODUCTION_MEASURED",
-      localMeasurement: "UNEXECUTED_BY_THIS_COMMAND",
+      execution: disposableP3Mode
+        ? "DISPOSABLE_PRODUCTION_SHAPED_MEASURED"
+        : "PRODUCTION_MEASURED",
+      localMeasurement: disposableP3Mode
+        ? "MEASURED_BY_THIS_COMMAND"
+        : "UNEXECUTED_BY_THIS_COMMAND",
+      hostedProductionMeasurement: disposableP3Mode
+        ? "UNEXECUTED"
+        : "MEASURED_BY_THIS_COMMAND",
       browserName,
       browserVersion,
       viewport,
@@ -836,7 +872,7 @@ test.describe
     const ownerApi = await authenticateApiClient(fixture, fixture.owner);
     const created = await ownerApi.rpc("lukas_drawing_create_document", {
       p_project_id: fixture.projectId,
-      p_source_file_id: fixture.revisedPdfFileId,
+      p_source_file_id: null,
       p_title: `P3 collision room ${credentials.P3_E2E_RUN_ID}`,
       p_blank: true,
     });
@@ -902,6 +938,14 @@ test.describe
       conflictedLoser,
     );
     await editorConnection.provider.flushPendingUpdates();
+    await expect
+      .poll(() =>
+        ownerConnection.document
+          .getArray<string>("operationOrder")
+          .toArray()
+          .includes(conflictedLoser.clientOperationId),
+      )
+      .toBe(true);
     appendDrawingCollaborationOperation(
       ownerConnection.document,
       authoritativeWinner,
@@ -976,13 +1020,14 @@ test.describe
       openWorkspace(browser, fixture, fixture.owner),
       openWorkspace(browser, fixture, fixture.editor),
     ]);
+    await owner.page.getByRole("tab", { name: "객체" }).click();
     await editor.page.getByRole("button", { name: "선택 도구" }).click();
     const point = await canvasPoint(editor.page, { x: 120, y: 90 });
     await editor.page.mouse.move(point.x, point.y);
     await editor.page.mouse.down();
-    await expect(owner.page.getByLabel("객체 잠금 상태")).toContainText(
-      displayName(fixture.editor),
-    );
+    await expect(
+      owner.page.getByLabel("객체 잠금 상태", { exact: true }),
+    ).toContainText(displayName(fixture.editor));
     await editor.page.mouse.up();
     await Promise.all([owner.context.close(), editor.context.close()]);
     ownerConnection.dispose();
@@ -995,7 +1040,7 @@ test.describe
     const context = trackContext(
       await browser.newContext({ viewport: { width: 1440, height: 900 } }),
     );
-    const path = workspacePath(fixture, fixture.blankWorkspace);
+    const path = buildDrawingP3WorkspacePath(fixture, fixture.blankWorkspace);
     let page = await authenticateContext(
       fixture,
       context,
@@ -1004,9 +1049,25 @@ test.describe
       path,
     );
     await waitUntilSaved(page);
+    const workspaceCanvas = page.getByRole("region", {
+      name: "도면 캔버스",
+    });
+    const surface = page.getByLabel(/도면 화면/);
+    await expect(
+      page.getByRole("status", { name: "공동 편집 상태: connected" }),
+    ).toBeVisible({ timeout: 45_000 });
+    await expect(workspaceCanvas).toHaveAttribute(
+      "data-edit-ready",
+      "true",
+      { timeout: 45_000 },
+    );
     await page.getByRole("button", { name: "선택 도구" }).click();
     const point = await canvasPoint(page, { x: 120, y: 90 });
     await page.mouse.click(point.x, point.y);
+    await expect(surface).toHaveAttribute(
+      "data-selected-object-id",
+      sharedObjectId,
+    );
     const before = await fixture.admin
       .from("lukas_drawing_operations")
       .select("client_operation_id")
@@ -1149,12 +1210,13 @@ test.describe
     await context.close();
   });
 
-  test("P3 Gate 05: viewer reviewer and nonmember fail closed at WebSocket and database authorities", async ({
+  test("P3 Gate 05: viewer reviewer approver and nonmember fail closed at WebSocket and database authorities", async ({
     browser,
   }) => {
     const viewer = await openWorkspace(browser, fixture, fixture.viewer);
     const reviewer = await openWorkspace(browser, fixture, fixture.reviewer);
-    for (const page of [viewer.page, reviewer.page]) {
+    const approver = await openWorkspace(browser, fixture, fixture.approver);
+    for (const page of [viewer.page, reviewer.page, approver.page]) {
       await expect(
         page.getByRole("status", { name: "공동 편집 상태: connected" }),
       ).toContainText("읽기 전용");
@@ -1162,67 +1224,76 @@ test.describe
         0,
       );
     }
-    const viewerConnection = await connectProvider(fixture, fixture.viewer);
-    const viewerObserverConnection = await connectProvider(
-      fixture,
-      fixture.owner,
-    );
-    const viewerWsObjectId = randomUUID();
-    const viewerWsOperationId = randomUUID();
-    appendDrawingCollaborationOperation(viewerConnection.document, {
-      actorId: fixture.viewer.id,
-      schemaVersion: 1,
-      clientOperationId: viewerWsOperationId,
-      revisionId: fixture.blankWorkspace.revisionId,
-      type: "add_objects",
-      baseVersions: {},
-      forward: {
+    const readOnlyWebSocketRoles = [
+      { label: "viewer", user: fixture.viewer, coordinate: 12 },
+      { label: "reviewer", user: fixture.reviewer, coordinate: 13 },
+      { label: "approver", user: fixture.approver, coordinate: 14 },
+    ];
+    for (const { label, user, coordinate } of readOnlyWebSocketRoles) {
+      const deniedConnection = await connectProvider(fixture, user);
+      const observerConnection = await connectProvider(fixture, fixture.owner);
+      const deniedWsObjectId = randomUUID();
+      const deniedWsOperationId = randomUUID();
+      appendDrawingCollaborationOperation(deniedConnection.document, {
+        actorId: user.id,
+        schemaVersion: 1,
+        clientOperationId: deniedWsOperationId,
+        revisionId: fixture.blankWorkspace.revisionId,
         type: "add_objects",
-        objects: [
-          {
-            id: viewerWsObjectId,
-            name: "P3 viewer WS denied",
-            layerId: fixture.blankWorkspace.workLayerId,
-            geometry: {
-              type: "circle",
-              center: { x: 12, y: 12 },
-              radius: 2,
+        baseVersions: {},
+        forward: {
+          type: "add_objects",
+          objects: [
+            {
+              id: deniedWsObjectId,
+              name: `P3 ${label} WS denied`,
+              layerId: fixture.blankWorkspace.workLayerId,
+              geometry: {
+                type: "circle",
+                center: { x: coordinate, y: coordinate },
+                radius: 2,
+              },
+              style: { stroke: "#dc2626", strokeWidth: 1, fill: null },
+              version: 1,
             },
-            style: { stroke: "#dc2626", strokeWidth: 1, fill: null },
-            version: 1,
-          },
-        ],
-      },
-      inverse: { type: "delete_objects", objectIds: [viewerWsObjectId] },
-      createdAt: new Date().toISOString(),
-    });
-    viewerConnection.provider.flushPendingUpdates();
-    const viewerWriteStarted = Date.now();
-    await expect
-      .poll(() => {
-        const observerOrder = viewerObserverConnection.document
-          .getArray<string>("operationOrder")
-          .toArray();
-        return (
-          Date.now() - viewerWriteStarted >= 1_000 &&
-          viewerConnection.provider.hasUnsyncedChanges &&
-          !observerOrder.includes(viewerWsOperationId)
-        );
-      })
-      .toBe(true);
-    const viewerWsRow = await fixture.admin
-      .from("lukas_drawing_objects")
-      .select("id")
-      .eq("id", viewerWsObjectId)
-      .maybeSingle();
-    if (viewerWsRow.error) throw viewerWsRow.error;
-    expect(viewerWsRow.data).toBeNull();
-    viewerConnection.dispose();
-    viewerObserverConnection.dispose();
+          ],
+        },
+        inverse: { type: "delete_objects", objectIds: [deniedWsObjectId] },
+        createdAt: new Date().toISOString(),
+      });
+      deniedConnection.provider.flushPendingUpdates();
+      const writeStarted = Date.now();
+      await expect
+        .poll(() => {
+          const observerOrder = observerConnection.document
+            .getArray<string>("operationOrder")
+            .toArray();
+          return (
+            Date.now() - writeStarted >= 1_000 &&
+            deniedConnection.provider.hasUnsyncedChanges &&
+            !observerOrder.includes(deniedWsOperationId)
+          );
+        })
+        .toBe(true);
+      const deniedWsRow = await fixture.admin
+        .from("lukas_drawing_objects")
+        .select("id")
+        .eq("id", deniedWsObjectId)
+        .maybeSingle();
+      if (deniedWsRow.error) throw deniedWsRow.error;
+      expect(deniedWsRow.data).toBeNull();
+      deniedConnection.dispose();
+      observerConnection.dispose();
+    }
     const nonMemberWs = await deniedProvider(fixture, fixture.nonMember);
     expect(nonMemberWs.connected).toBe(false);
     expect(nonMemberWs.reason).toBeTruthy();
-    for (const user of [fixture.viewer, fixture.reviewer, fixture.nonMember]) {
+    for (const user of [
+      fixture.viewer,
+      fixture.reviewer,
+      fixture.approver,
+      fixture.nonMember,
+    ]) {
       const api = await authenticateApiClient(fixture, user);
       const deniedId = randomUUID();
       const denied = await api.rpc("lukas_drawing_apply_operation", {
@@ -1250,6 +1321,13 @@ test.describe
         p_inverse: { type: "delete_objects", objectIds: [deniedId] },
       });
       expect(denied.error).toBeTruthy();
+      const deniedRow = await fixture.admin
+        .from("lukas_drawing_objects")
+        .select("id")
+        .eq("id", deniedId)
+        .maybeSingle();
+      if (deniedRow.error) throw deniedRow.error;
+      expect(deniedRow.data).toBeNull();
     }
     const outsider = await authenticateApiClient(fixture, fixture.nonMember);
     const bootstrap = await outsider.rpc(
@@ -1259,7 +1337,11 @@ test.describe
       },
     );
     expect(bootstrap.error).toBeTruthy();
-    await Promise.all([viewer.context.close(), reviewer.context.close()]);
+    await Promise.all([
+      viewer.context.close(),
+      reviewer.context.close(),
+      approver.context.close(),
+    ]);
   });
 
   test("P3 Gate 06: comments mentions sharing history and checkpoint restore retain evidence", async ({
@@ -1304,17 +1386,20 @@ test.describe
         browser,
         fixture,
         fixture.owner,
-        workspacePath(fixture, fixture.pdfWorkspace),
+        buildDrawingP3WorkspacePath(fixture, fixture.pdfWorkspace),
       ),
       openWorkspace(
         browser,
         fixture,
         fixture.editor,
-        workspacePath(fixture, fixture.pdfWorkspace),
+        buildDrawingP3WorkspacePath(fixture, fixture.pdfWorkspace),
       ),
     ]);
     await owner.page.getByRole("tab", { name: "댓글·이슈" }).click();
-    await owner.page.getByLabel("댓글").fill("P3 명시적 멘션 댓글");
+    await editor.page.getByRole("tab", { name: "댓글·이슈" }).click();
+    await owner.page
+      .getByRole("textbox", { name: "댓글", exact: true })
+      .fill("P3 명시적 멘션 댓글");
     await owner.page
       .locator('select[name="mentioned_user_ids"]')
       .selectOption([fixture.editor.id]);
@@ -1361,9 +1446,9 @@ test.describe
     await members.close();
 
     await owner.page.getByRole("tab", { name: "변경 이력" }).click();
-    await expect(owner.page.getByLabel("변경 이력")).toContainText(
-      checkpointObject.operation.type,
-    );
+    await expect(
+      owner.page.getByRole("region", { name: "변경 이력" }),
+    ).toContainText(checkpointObject.operation.type);
     await owner.page
       .getByRole("button", { name: /상태로 복원/ })
       .first()
@@ -1385,7 +1470,7 @@ test.describe
       .from("lukas_drawing_objects")
       .select("id")
       .in("id", [checkpointObject.id, postCheckpointObject.id])
-      .is("deleted_at", null);
+      .eq("status", "active");
     if (checkpointGraph.error) throw checkpointGraph.error;
     expect(checkpointGraph.data.map((row) => row.id)).toEqual([
       checkpointObject.id,
@@ -1412,8 +1497,24 @@ test.describe
       openWorkspace(browser, fixture, fixture.owner),
       openWorkspace(browser, fixture, fixture.editor),
     ]);
+    await owner.page.getByRole("tab", { name: "객체" }).click();
     await editor.page.getByRole("button", { name: "선택 도구" }).click();
-    const point = await canvasPoint(editor.page, { x: 120, y: 90 });
+    const dragGeometry = dragBase.data.geometry as {
+      type?: unknown;
+      center?: { x?: unknown; y?: unknown };
+    };
+    const dragCenter = dragGeometry.center;
+    if (
+      dragGeometry.type !== "circle" ||
+      !dragCenter ||
+      typeof dragCenter.x !== "number" ||
+      typeof dragCenter.y !== "number"
+    )
+      throw new Error("P3 shared drag target is not a circle");
+    const point = await canvasPoint(editor.page, {
+      x: dragCenter.x,
+      y: dragCenter.y,
+    });
     await editor.page.mouse.move(point.x, point.y);
     await editor.page.mouse.down();
     await editor.page.mouse.move(point.x + 30, point.y + 20, { steps: 6 });
@@ -1425,17 +1526,14 @@ test.describe
     );
     expect(dragPointerId).toBeGreaterThanOrEqual(0);
     expect(
-      await editor.page.evaluate(
-        (pointerId) =>
-          [...document.querySelectorAll("canvas")].some((canvas) =>
-            canvas.hasPointerCapture(pointerId),
-          ),
+      await editorSurface.evaluate(
+        (element, pointerId) => element.hasPointerCapture(pointerId),
         dragPointerId,
       ),
     ).toBe(true);
-    await expect(owner.page.getByLabel("객체 잠금 상태")).toContainText(
-      displayName(fixture.editor),
-    );
+    await expect(
+      owner.page.getByLabel("객체 잠금 상태", { exact: true }),
+    ).toContainText(displayName(fixture.editor));
     await owner.page.getByRole("button", { name: "검토 요청" }).click();
     await expect
       .poll(
@@ -1450,17 +1548,15 @@ test.describe
         { timeout: 45_000 },
       )
       .toBe("review_requested");
-    await expect(
-      editor.page.getByRole("button", { name: "선 도구" }),
-    ).toHaveCount(0);
+    const enabledEditorLineTool = editor.page.locator(
+      'button[aria-label="선 도구"]:not(:disabled)',
+    );
+    await expect(enabledEditorLineTool).toHaveCount(0);
     await expect(editorSurface).toHaveAttribute("data-drag-active", "false");
     await expect(editorSurface).toHaveAttribute("data-drag-preview", "0,0");
     expect(
-      await editor.page.evaluate(
-        (pointerId) =>
-          [...document.querySelectorAll("canvas")].some((canvas) =>
-            canvas.hasPointerCapture(pointerId),
-          ),
+      await editorSurface.evaluate(
+        (element, pointerId) => element.hasPointerCapture(pointerId),
         dragPointerId,
       ),
     ).toBe(false);
@@ -1483,8 +1579,22 @@ test.describe
     );
 
     const reviewer = await openWorkspace(browser, fixture, fixture.reviewer);
-    await reviewer.page.getByLabel("검토 의견").fill("P3 production approval");
-    await reviewer.page.getByRole("button", { name: "도면 승인" }).click();
+    await reviewer.page.getByLabel("검토 의견").fill("P3 production review");
+    await reviewer.page.getByRole("button", { name: "도면 검토 완료" }).click();
+    await expect
+      .poll(async () => {
+        const revision = await fixture.admin
+          .from("lukas_drawing_revisions")
+          .select("status")
+          .eq("id", fixture.blankWorkspace.revisionId)
+          .single();
+        return revision.data?.status;
+      })
+      .toBe("reviewed");
+
+    const approver = await openWorkspace(browser, fixture, fixture.approver);
+    await approver.page.getByLabel("검토 의견").fill("P3 production approval");
+    await approver.page.getByRole("button", { name: "도면 최종 승인" }).click();
     await expect
       .poll(async () => {
         const revision = await fixture.admin
@@ -1495,6 +1605,17 @@ test.describe
         return revision.data?.status;
       })
       .toBe("approved");
+    const approvals = await fixture.admin
+      .from("lukas_drawing_revision_approvals")
+      .select("decision,decided_by")
+      .eq("revision_id", fixture.blankWorkspace.revisionId)
+      .in("decision", ["reviewed", "approved"])
+      .order("created_at");
+    if (approvals.error) throw approvals.error;
+    expect(approvals.data).toEqual([
+      { decision: "reviewed", decided_by: fixture.reviewer.id },
+      { decision: "approved", decided_by: fixture.approver.id },
+    ]);
     const ownerApi = await authenticateApiClient(fixture, fixture.owner);
     const frozenBase = await fixture.admin
       .from("lukas_drawing_objects")
@@ -1526,26 +1647,38 @@ test.describe
     await owner.page.reload();
     await owner.page.getByRole("tab", { name: "변경 이력" }).click();
     await owner.page.getByRole("button", { name: "새 초안으로 복원" }).click();
-    await owner.page.waitForURL((url) => url.searchParams.has("document"));
-    const documentId = new URL(owner.page.url()).searchParams.get("document")!;
-    const child = await fixture.admin
-      .from("lukas_drawing_revisions")
-      .select("id,status,document_id,parent_revision_id")
-      .eq("document_id", documentId)
-      .single();
-    if (child.error) throw child.error;
-    expect(child.data.status).toBe("draft");
-    expect(child.data.parent_revision_id).toBe(
-      fixture.blankWorkspace.revisionId,
-    );
-    nextDraft = { documentId, revisionId: child.data.id };
+    const expectedWorkspacePath = `/projects/${fixture.projectId}/workspaces/${fixture.blankWorkspace.documentId}`;
+    expect(new URL(owner.page.url()).pathname).toBe(expectedWorkspacePath);
     await expect(
       owner.page.getByRole("button", { name: "선 도구" }),
     ).toBeVisible();
+    const child = await fixture.admin
+      .from("lukas_drawing_revisions")
+      .select("id,status,document_id,parent_revision_id")
+      .eq("document_id", fixture.blankWorkspace.documentId)
+      .eq("parent_revision_id", fixture.blankWorkspace.revisionId)
+      .eq("status", "draft")
+      .single();
+    if (child.error) throw child.error;
+    expect(child.data.status).toBe("draft");
+    expect(child.data.document_id).toBe(
+      fixture.blankWorkspace.documentId,
+    );
+    expect(child.data.id).not.toBe(
+      fixture.blankWorkspace.revisionId,
+    );
+    expect(child.data.parent_revision_id).toBe(
+      fixture.blankWorkspace.revisionId,
+    );
+    nextDraft = {
+      documentId: fixture.blankWorkspace.documentId,
+      revisionId: child.data.id,
+    };
     await Promise.all([
       owner.context.close(),
       editor.context.close(),
       reviewer.context.close(),
+      approver.context.close(),
     ]);
   });
 
@@ -1553,6 +1686,24 @@ test.describe
     browser,
   }) => {
     expect(nextDraft).not.toBeNull();
+    const [childOperationsBefore, childObjectsBefore] = await Promise.all([
+      fixture.admin
+        .from("lukas_drawing_operations")
+        .select("client_operation_id")
+        .eq("revision_id", nextDraft!.revisionId),
+      fixture.admin
+        .from("lukas_drawing_objects")
+        .select("id")
+        .eq("revision_id", nextDraft!.revisionId),
+    ]);
+    if (childOperationsBefore.error) throw childOperationsBefore.error;
+    if (childObjectsBefore.error) throw childObjectsBefore.error;
+    const childOperationIdsBefore = new Set(
+      childOperationsBefore.data.map((row) => row.client_operation_id),
+    );
+    const childObjectIdsBefore = new Set(
+      childObjectsBefore.data.map((row) => row.id),
+    );
     expect(await readSourceEvidence(fixture)).toEqual(immutableSourceBefore);
     for (const evidence of Object.values(immutableSourceBefore)) {
       expect(evidence.storageByteSha256).toBe(evidence.metadataSha256);
@@ -1575,19 +1726,99 @@ test.describe
       context,
       fixture.owner,
       baseUrl,
-      workspacePath(fixture, fixture.blankWorkspace, nextDraft!.documentId),
+      buildDrawingP3WorkspacePath(
+        fixture,
+        fixture.blankWorkspace,
+        nextDraft!.documentId,
+      ),
     );
     await waitUntilSaved(page);
+    const childSurface = page.getByLabel(/도면 화면/);
+    await expect(childSurface).toHaveAttribute(
+      "data-rendered-object-count",
+      /^\d+$/,
+    );
+    const renderedChildObjectsBefore = Number(
+      await childSurface.getAttribute("data-rendered-object-count"),
+    );
     await page.getByRole("button", { name: "선 도구" }).click();
     const lineStart = await canvasPoint(page, { x: 40, y: 40 });
     const lineEnd = await canvasPoint(page, { x: 100, y: 40 });
     await page.mouse.click(lineStart.x, lineStart.y);
     await page.mouse.click(lineEnd.x, lineEnd.y);
     await waitUntilSaved(page);
+    let childLineId = "";
+    await expect
+      .poll(
+        async () => {
+          const [operations, objects] = await Promise.all([
+            fixture.admin
+              .from("lukas_drawing_operations")
+              .select("client_operation_id")
+              .eq("revision_id", nextDraft!.revisionId),
+            fixture.admin
+              .from("lukas_drawing_objects")
+              .select("id,geometry")
+              .eq("revision_id", nextDraft!.revisionId),
+          ]);
+          if (operations.error) throw operations.error;
+          if (objects.error) throw objects.error;
+          const newChildOperationIds = operations.data
+            .map((row) => row.client_operation_id)
+            .filter((id) => !childOperationIdsBefore.has(id));
+          const newChildObjects = objects.data.filter(
+            (row) => !childObjectIdsBefore.has(row.id),
+          );
+          const line = newChildObjects.find(
+            (row) =>
+              (row.geometry as { type?: unknown } | null)?.type === "line",
+          );
+          childLineId = line?.id ?? "";
+          return {
+            operationCount: newChildOperationIds.length,
+            objectCount: newChildObjects.length,
+            geometryTypes: newChildObjects.map(
+              (row) => (row.geometry as { type?: unknown } | null)?.type,
+            ),
+          };
+        },
+        { timeout: 45_000 },
+      )
+      .toEqual({ operationCount: 1, objectCount: 1, geometryTypes: ["line"] });
+    expect(childLineId).toMatch(/^[0-9a-f-]{36}$/);
+    await page.reload();
+    await waitUntilSaved(page);
+    await expect(childSurface).toHaveAttribute(
+      "data-rendered-object-count",
+      String(renderedChildObjectsBefore + 1),
+    );
+    const persistedChildObject = await fixture.admin
+      .from("lukas_drawing_objects")
+      .select("id,revision_id,geometry")
+      .eq("id", childLineId)
+      .eq("revision_id", nextDraft!.revisionId)
+      .single();
+    if (persistedChildObject.error) throw persistedChildObject.error;
+    expect(persistedChildObject.data.id).toBe(childLineId);
+    expect(
+      (persistedChildObject.data.geometry as { type?: unknown }).type,
+    ).toBe("line");
+    const approvedWorkspacePath = buildDrawingP3WorkspacePath(
+      fixture,
+      fixture.blankWorkspace,
+    );
+    const approvedResponse = await page.goto(
+      `${baseUrl}${approvedWorkspacePath}?revision=${fixture.blankWorkspace.revisionId}`,
+    );
+    expect(approvedResponse?.status()).toBe(200);
+    await waitUntilSaved(page);
+    await expect(
+      page.getByRole("button", { name: "선 도구" }),
+    ).toHaveCount(0);
     const svg = await runDownload(page, "SVG");
     expect(svg.filename).toMatch(/\.svg$/);
     expect(svg.bytes.toString("utf8")).toContain("<svg");
-    expect(svg.bytes.toString("utf8")).toContain("<line");
+    expect(svg.bytes.toString("utf8")).toContain("<circle");
     const pdf = await runDownload(page, "PDF");
     const parsedPdf = await PDFDocument.load(pdf.bytes);
     expect(parsedPdf.getPageCount()).toBeGreaterThan(0);
@@ -1604,7 +1835,10 @@ test.describe
       mimeType: "text/csv",
       buffer: quantityWorkflow.manifestBytes,
     });
-    await page.getByRole("button", { name: "두 파일 등록" }).click();
+    const takeoffForm = page.locator(
+      'form:has(input[name="intent"][value="takeoff_upload"])',
+    );
+    await takeoffForm.getByRole("button", { name: "두 파일 등록" }).click();
     await expect(page.getByText("CONCRETE_TAKEOFF_CSV_V1")).toBeVisible();
     await expect(page.getByText("1행")).toBeVisible();
     await expect(page.getByText("PASS 1")).toBeVisible();
@@ -1704,7 +1938,7 @@ test.describe
     for (const [route, evidence] of [
       [
         `/projects/${fixture.projectId}/drawings/${fixture.blankWorkspace.fileId}`,
-        /협업 도면실/,
+        /도면 작업실/,
       ],
       [`/projects/${fixture.projectId}/quantities`, /물량 산출 결과/],
       [`/projects/${fixture.projectId}/materials`, /자재 관리/],

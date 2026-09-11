@@ -31,9 +31,11 @@ export type IfcRenderManifest = {
   elements: IfcRenderElement[];
 };
 
+export type IfcRenderedPrimitive = THREE.Mesh | THREE.LineSegments;
+
 export type OwnedIfcRenderModel = {
   root: THREE.Object3D;
-  elementMeshes: ReadonlyMap<number, readonly THREE.Mesh[]>;
+  elementMeshes: ReadonlyMap<number, readonly IfcRenderedPrimitive[]>;
   renderedElementCount: number;
   dispose(): void;
 };
@@ -298,9 +300,13 @@ export function mapIfcRenderScene(
         expected.set(`${mesh.nodeId}:${primitiveIndex}`, element.expressId);
 
   const seen = new Set<string>();
-  const elementMeshes = new Map<number, THREE.Mesh[]>();
+  const elementMeshes = new Map<number, IfcRenderedPrimitive[]>();
   root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
+    if (
+      !(object instanceof THREE.Mesh) &&
+      !(object instanceof THREE.LineSegments)
+    )
+      return;
     let node: THREE.Object3D | null = object;
     while (node && typeof node.userData.ifcNodeId !== "string")
       node = node.parent;
@@ -361,7 +367,11 @@ function collectIfcRenderResources(root: THREE.Object3D) {
   const materials = new Set<THREE.Material>();
   const textures = new Set<THREE.Texture>();
   root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
+    if (
+      !(object instanceof THREE.Mesh) &&
+      !(object instanceof THREE.LineSegments)
+    )
+      return;
     geometries.add(object.geometry);
     for (const material of Array.isArray(object.material)
       ? object.material
@@ -631,7 +641,7 @@ export async function instantiateVerifiedIfcRenderModel(
   for (const [object, associationValue] of gltf.parser.associations ?? []) {
     const association = associationValue as { primitives?: unknown };
     if (
-      object instanceof THREE.Mesh &&
+      (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) &&
       Number.isSafeInteger(association.primitives)
     )
       object.userData.ifcPrimitiveIndex = association.primitives;

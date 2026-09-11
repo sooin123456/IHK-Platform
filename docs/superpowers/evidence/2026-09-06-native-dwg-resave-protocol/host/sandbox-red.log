@@ -1,0 +1,388 @@
+✖ resaver fixes command, ownership and 2GiB without accepting profile overrides (45.379958ms)
+✖ success streams literal frame and returns only verified bytes after both cleanup stages (0.232542ms)
+✖ request and source mismatches, host configuration and abort fail before Docker spawn (0.218833ms)
+✖ resaver refuses wrong image protocol and unenforced resources before create (0.198875ms)
+✖ actual receipt deviations prevent start and clean exact owned identity (0.128583ms)
+✖ stderr, nonzero, OOM, overflow, malformed and mismatched reports fail closed (0.142084ms)
+✖ uncertain create outcomes reconcile by owned name and foreign identity is preserved (0.129125ms)
+✖ source-mutation at start prevents publication after owned cleanup (0.210083ms)
+✖ request-mutation at start prevents publication after owned cleanup (0.109125ms)
+✖ abort at start prevents publication after owned cleanup (0.111958ms)
+✖ source-mutation at removal prevents publication after owned cleanup (0.07425ms)
+✖ request-mutation at removal prevents publication after owned cleanup (0.0615ms)
+✖ abort at removal prevents publication after owned cleanup (0.053541ms)
+✖ source-mutation at config-cleanup prevents publication after owned cleanup (0.049084ms)
+✖ request-mutation at config-cleanup prevents publication after owned cleanup (0.058375ms)
+✖ abort at config-cleanup prevents publication after owned cleanup (0.059541ms)
+✖ bounded outer deadline still performs independent cleanup (0.065916ms)
+✖ replaced private CLI directory is preserved and resave fails (0.070666ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 0
+ℹ fail 18
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 101.63475
+
+✖ failing tests:
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:28:1
+✖ resaver fixes command, ownership and 2GiB without accepting profile overrides (45.379958ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:29:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:36:1
+✖ success streams literal frame and returns only verified bytes after both cleanup stages (0.232542ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:37:19)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:54:1
+✖ request and source mismatches, host configuration and abort fail before Docker spawn (0.218833ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:55:19)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:62:1
+✖ resaver refuses wrong image protocol and unenforced resources before create (0.198875ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:63:19)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:70:1
+✖ actual receipt deviations prevent start and clean exact owned identity (0.128583ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:71:19)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:81:1
+✖ stderr, nonzero, OOM, overflow, malformed and mismatched reports fail closed (0.142084ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:82:19)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:95:1
+✖ uncertain create outcomes reconcile by owned name and foreign identity is preserved (0.129125ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:96:19)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ source-mutation at start prevents publication after owned cleanup (0.210083ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ request-mutation at start prevents publication after owned cleanup (0.109125ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ abort at start prevents publication after owned cleanup (0.111958ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ source-mutation at removal prevents publication after owned cleanup (0.07425ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ request-mutation at removal prevents publication after owned cleanup (0.0615ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ abort at removal prevents publication after owned cleanup (0.053541ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ source-mutation at config-cleanup prevents publication after owned cleanup (0.049084ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ request-mutation at config-cleanup prevents publication after owned cleanup (0.058375ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:108:3
+✖ abort at config-cleanup prevents publication after owned cleanup (0.059541ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:109:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:131:1
+✖ bounded outer deadline still performs independent cleanup (0.065916ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:132:19)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-native-dwg-resave-sandbox.test.mjs:137:1
+✖ replaced private CLI directory is preserved and resave fails (0.070666ms)
+  AssertionError [ERR_ASSERTION]: Required isolated resaver API absent
+  + actual - expected
+  
+  + 'undefined'
+  - 'function'
+  
+      at api (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:23:10)
+      at async TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-native-dwg-resave-sandbox.test.mjs:138:19)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'undefined',
+    expected: 'function',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -21,6 +21,40 @@ const viewerUrl = new URL(
   import.meta.url,
 );
 const lockUrl = new URL("../package-lock.json", import.meta.url);
+const fixtureGlbUrl = new URL(
+  "../public/examples/synthetic-ifc-mapping.glb",
+  import.meta.url,
+);
+const fixturePublicNoticeUrl = new URL(
+  "../public/examples/IFC_FIXTURE_NOTICE.md",
+  import.meta.url,
+);
+const fixtureConsumerUrl = new URL(
+  "../public/examples/index.html",
+  import.meta.url,
+);
+const fixtureManifestUrls = [
+  new URL(
+    "../public/examples/synthetic-ifc-mapping.manifest.json",
+    import.meta.url,
+  ),
+  new URL(
+    "../public/examples/synthetic-ifc-mapping-copy.manifest.json",
+    import.meta.url,
+  ),
+];
+const dxfFixtureUrl = new URL(
+  "../tests/fixtures/dxf-parser/extendeddata.dxf",
+  import.meta.url,
+);
+const dxfFixtureLicenseUrl = new URL(
+  "../tests/fixtures/dxf-parser/LICENSE",
+  import.meta.url,
+);
+const dxfFixtureNoticeUrl = new URL(
+  "../tests/fixtures/dxf-parser/DXF_FIXTURE_NOTICE.md",
+  import.meta.url,
+);
 const licenseAuthority = await import(
   "../scripts/drawing-p7-license-authority.mjs"
 ).catch(() => ({}));
@@ -51,6 +85,7 @@ const approvedDirectDependencies = [
   "clsx",
   "dotenv",
   "drizzle-orm",
+  "dxf-parser",
   "fast-xml-parser",
   "fflate",
   "gltf-validator",
@@ -258,6 +293,78 @@ test("the official glTF validator ships its exact Apache license and upstream no
   assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
 });
 
+test("DXF import pins the exact permissive server-only parser closure", async () => {
+  const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
+  const lock = JSON.parse(await readFile(lockUrl, "utf8"));
+  const notice = await readFile(noticeUrl, "utf8");
+  const parser = lock.packages["node_modules/dxf-parser"];
+  const loglevel = lock.packages["node_modules/loglevel"];
+
+  assert.equal(pkg.dependencies["dxf-parser"], "1.1.2");
+  assert.deepEqual(parser.dependencies, { loglevel: "^1.7.1" });
+  assert.equal(parser.version, "1.1.2");
+  assert.equal(parser.license, "MIT");
+  assert.equal(
+    parser.integrity,
+    "sha512-GPTumUvRkounlIazLIyJMmTWt+nlg+ksS0Hdm8jWvejmZKBTz6gvHTam76wRm4PQMma5sgKLThblQyeIJcH79Q==",
+  );
+  assert.equal(loglevel.license, "MIT");
+  assert.equal(
+    loglevel.integrity,
+    "sha512-HgMmCqIJSAKqo68l0rS2AanEWfkxaZ5wNiEFb5ggm08lDs9Xl2KxBlX3PTcaD2chBM1gXAYf491/M2Rv8Jwayg==",
+  );
+  assert.match(
+    notice,
+    /\|\s*dxf-parser\s*\|\s*1\.1\.2\s*\|\s*https:\/\/github\.com\/gdsestimating\/dxf-parser\s*\|\s*MIT\s*\|\s*No\s*\|\s*npm\s*\|/,
+  );
+  assert.match(
+    notice,
+    /\|\s*node_modules\/loglevel\s*\|\s*[\d.]+\s*\|\s*MIT\s*\|/,
+  );
+
+  assert.equal(
+    typeof licenseAuthority.containsDxfParserModuleSpecifier,
+    "function",
+  );
+  for (const source of [
+    "import DxfParser from 'dxf-parser'",
+    'await import("dxf-parser/browser")',
+    "require(`dxf-parser`)",
+    'require.resolve("dxf-parser")',
+  ])
+    assert.equal(
+      licenseAuthority.containsDxfParserModuleSpecifier(source),
+      true,
+    );
+  assert.equal(
+    licenseAuthority.containsDxfParserModuleSpecifier(
+      "const description = 'server-side DXF parser';",
+    ),
+    false,
+  );
+
+  const imports = [];
+  async function visit(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const url = new URL(
+        `${entry.name}${entry.isDirectory() ? "/" : ""}`,
+        directory,
+      );
+      if (entry.isDirectory()) await visit(url);
+      else if (/\.(?:[cm]?[jt]sx?)$/u.test(entry.name)) {
+        const source = await readFile(url, "utf8");
+        if (licenseAuthority.containsDxfParserModuleSpecifier(source))
+          imports.push(url.pathname);
+      }
+    }
+  }
+  await visit(new URL("../app/", import.meta.url));
+  assert.deepEqual(imports, [
+    new URL("../app/lukas/lib/drawing-dxf-import.server.ts", import.meta.url)
+      .pathname,
+  ]);
+});
+
 test("drawing export uses the exact unmodified MIT pdf-lib dependency", async () => {
   const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
   const lock = JSON.parse(await readFile(lockUrl, "utf8"));
@@ -446,6 +553,207 @@ test("shared PDF opening stops before starting an aborted load", async () => {
   assert.ok(abortCheck >= 0 && abortCheck < createLoadingTask);
 });
 
+test("DXF fixture provenance is pinned, fully licensed, and not customer acceptance", async () => {
+  assert.equal(
+    typeof licenseAuthority.validateDrawingP7DxfFixtureProvenance,
+    "function",
+  );
+  const [fixture, fixtureLicense, fixtureNotice, notice] = await Promise.all([
+    readFile(dxfFixtureUrl),
+    readFile(dxfFixtureLicenseUrl, "utf8"),
+    readFile(dxfFixtureNoticeUrl, "utf8"),
+    readFile(noticeUrl, "utf8"),
+  ]);
+  const expected = {
+    policyStatus: "PASS",
+    fixtureSha256:
+      "9b39289e3435fb187eb0e671fb8a07b8728cdf69a0275836f67ca005732f781d",
+    fixtureByteSize: 102001,
+  };
+
+  assert.deepEqual(
+    licenseAuthority.validateDrawingP7DxfFixtureProvenance(),
+    expected,
+  );
+  assert.deepEqual(
+    licenseAuthority.validateDrawingP7DxfFixtureProvenance({
+      fixture,
+      fixtureLicense,
+      fixtureNotice,
+      notice,
+    }),
+    expected,
+  );
+
+  const corruptedFixture = Buffer.from(fixture);
+  corruptedFixture[0] ^= 1;
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7DxfFixtureProvenance({
+        fixture: corruptedFixture,
+        fixtureLicense,
+        fixtureNotice,
+        notice,
+      }),
+    /extendeddata\.dxf SHA-256/i,
+  );
+
+  for (const incompleteLicense of [
+    fixtureLicense.replace("Copyright (c) 2015 GDS Storefront Estimating", ""),
+    fixtureLicense.replace(
+      /Permission is hereby granted[\s\S]*?subject to the following conditions:/u,
+      "",
+    ),
+    fixtureLicense.replace(/THE SOFTWARE IS PROVIDED[\s\S]*$/u, ""),
+  ])
+    assert.throws(
+      () =>
+        licenseAuthority.validateDrawingP7DxfFixtureProvenance({
+          fixture,
+          fixtureLicense: incompleteLicense,
+          fixtureNotice,
+          notice,
+        }),
+      /full MIT license/i,
+    );
+
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7DxfFixtureProvenance({
+        fixture,
+        fixtureLicense,
+        fixtureNotice: fixtureNotice.replace(
+          /This is an OSS interoperability fixture[^.]*\. It is not customer data or customer acceptance\./u,
+          "",
+        ),
+        notice,
+      }),
+    /OSS interoperability.*not customer data or customer acceptance/i,
+  );
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7DxfFixtureProvenance({
+        fixture,
+        fixtureLicense,
+        fixtureNotice,
+        notice: notice.replace(
+          /^\|\s*Upstream commit\s*\|[^\n]*0df7a37a4207a1f925b8d0bfffc270ff121446b4[^\n]*\|$/mu,
+          "",
+        ),
+      }),
+    /Upstream commit/i,
+  );
+});
+
+test("P7 license closure enforces DXF fixture provenance", async () => {
+  const packageJson = JSON.parse(await readFile(packageUrl, "utf8"));
+  const lock = JSON.parse(await readFile(lockUrl, "utf8"));
+  const notice = await readFile(noticeUrl, "utf8");
+  const noticeWithoutDxfCommit = notice.replace(
+    /^\|\s*Upstream commit\s*\|[^\n]*0df7a37a4207a1f925b8d0bfffc270ff121446b4[^\n]*\|$/mu,
+    "",
+  );
+
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7LicenseClosure({
+        packageJson,
+        lock,
+        notice: noticeWithoutDxfCommit,
+        installedRoot: new URL("../node_modules/", import.meta.url),
+      }),
+    /DXF fixture provenance is missing Upstream commit/i,
+  );
+});
+
+test("P7 release validates redistributed fixture provenance separately from npm licensing", async () => {
+  assert.equal(
+    typeof licenseAuthority.validateDrawingP7FixtureProvenance,
+    "function",
+  );
+  const notice = await readFile(noticeUrl, "utf8");
+  const publicNotice = await readFile(fixturePublicNoticeUrl, "utf8");
+  const fixtureConsumer = await readFile(fixtureConsumerUrl, "utf8");
+  const geometry = await readFile(fixtureGlbUrl);
+  const manifests = await Promise.all(
+    fixtureManifestUrls.map((url) => readFile(url)),
+  );
+  const result = licenseAuthority.validateDrawingP7FixtureProvenance({
+    notice,
+    publicNotice,
+    geometry,
+    manifests,
+  });
+
+  assert.deepEqual(result, {
+    policyStatus: "PASS",
+    geometrySha256:
+      "cb450586de90c234831a6a206c0cb83078d65eca1870ac642680df5b5056270f",
+    manifestSha256s: [
+      "65dc191d9089409f37d4757707e4a191bb7774ac4a64ac191384a67e3e85a17c",
+      "5c417a92f4e3feb6e61d19204e94eca0a131e89bc00c93c7aa5d1b5978147b82",
+    ],
+    semanticElementCounts: [115, 115],
+  });
+  assert.match(fixtureConsumer, /href="\/examples\/IFC_FIXTURE_NOTICE\.md"/);
+  assert.match(fixtureConsumer, /rel="license"/);
+  for (const asset of [
+    "synthetic-ifc-mapping.glb",
+    "synthetic-ifc-mapping.manifest.json",
+    "synthetic-ifc-mapping-copy.manifest.json",
+  ])
+    assert.match(
+      fixtureConsumer,
+      new RegExp(`href="/examples/${asset.replaceAll(".", "\\.")}"`),
+    );
+  assert.match(
+    fixtureConsumer,
+    /https:\/\/raw\.githubusercontent\.com\/ThatOpen\/engine_web-ifc\/3f6f3640b8317664194911fad63bcd407f7e32ca\/examples\/example\.ifc/,
+  );
+
+  const corruptedGeometry = Buffer.from(geometry);
+  corruptedGeometry[0] ^= 1;
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7FixtureProvenance({
+        notice,
+        geometry: corruptedGeometry,
+        manifests,
+      }),
+    /synthetic-ifc-mapping\.glb SHA-256/i,
+  );
+
+  const noticeWithoutCommitRecord = notice.replace(
+    /^\| Upstream commit .*$/mu,
+    "",
+  );
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7FixtureProvenance({
+        notice: noticeWithoutCommitRecord,
+        publicNotice,
+        geometry,
+        manifests,
+      }),
+    /Upstream commit/i,
+  );
+
+  const noticeWithoutPublicPathsRecord = notice.replace(
+    /^\| Deployed public fixture paths .*$/mu,
+    "",
+  );
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7FixtureProvenance({
+        notice: noticeWithoutPublicPathsRecord,
+        publicNotice,
+        geometry,
+        manifests,
+      }),
+    /Deployed public fixture paths/i,
+  );
+});
+
 test("P7 release inspects the actual drawing dependency closure and notices", async () => {
   assert.equal(
     typeof licenseAuthority.validateDrawingP7LicenseClosure,
@@ -460,8 +768,10 @@ test("P7 release inspects the actual drawing dependency closure and notices", as
     notice,
     installedRoot: new URL("../node_modules/", import.meta.url),
   });
-  assert.equal(result.packages.length, 33);
-  assert.equal(result.entries.length, 33);
+  assert.equal(result.packages.length, 35);
+  assert.equal(result.entries.length, 35);
+  assert.ok(result.packages.includes("node_modules/dxf-parser"));
+  assert.ok(result.packages.includes("node_modules/loglevel"));
   assert.ok(result.packages.includes("node_modules/gltf-validator"));
   assert.ok(result.packages.includes("node_modules/pdfjs-dist"));
   assert.ok(result.packages.includes("node_modules/@hocuspocus/server"));
@@ -473,8 +783,18 @@ test("P7 release inspects the actual drawing dependency closure and notices", as
     assert.match(notice, new RegExp(`\\|\\s*${escapedPath}\\s*\\|`));
     assert.match(notice, new RegExp(`\\|\\s*${escapedLicense}\\s*\\|`));
   }
-  assert.doesNotMatch(notice, /web-ifc|MPL-2\.0/i);
-
+  const wrongTransitiveVersion = structuredClone(lock);
+  wrongTransitiveVersion.packages["node_modules/loglevel"].version = "99.0.0";
+  assert.throws(
+    () =>
+      licenseAuthority.validateDrawingP7LicenseClosure({
+        packageJson,
+        lock: wrongTransitiveVersion,
+        notice,
+        installedRoot: new URL("../node_modules/", import.meta.url),
+      }),
+    /node_modules\/loglevel.*version.*notice/i,
+  );
   const prohibited = structuredClone(lock);
   prohibited.packages["node_modules/react-konva"].license = "PROPRIETARY";
   assert.throws(

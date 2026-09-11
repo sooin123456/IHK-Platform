@@ -1,0 +1,5 @@
+- Synchronous exception after request invocation was incorrectly confirmed — ADDRESSED. All invocation exceptions are uncertain at platform/native-dwg-worker/src/supabase.ts:345; real loopback POST regression at platform/tests/drawing-native-dwg-resave-storage.test.mjs:182.
+- Generic non-OK HTTP responses were incorrectly confirmed — ADDRESSED. Only fully consumed401+InvalidJWT is confirmed at supabase.ts:374; other imported HTTP failures uncertain at:380. Tests include503, unknown403, mismatch, malformed and body failures at resave-storage.test.mjs:103.
+- New breakage: none. Out-of-scope observations: none.
+- Reviewer /root/resave_artifacts_fix_review checked the exact two-file hashes and appended covering tests/typecheck/formatting output; no tests rerun or mutations.
+- Fix round: all findings addressed; no new Critical/Important breakage.

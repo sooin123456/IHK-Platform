@@ -16,6 +16,17 @@ export type DrawingProjectRole =
   | "procurement"
   | "viewer";
 
+export function canRelinkDrawingRevision(role: string) {
+  return (
+    role === "owner" ||
+    role === "staff" ||
+    role === "reviewer" ||
+    role === "estimator" ||
+    role === "site" ||
+    role === "procurement"
+  );
+}
+
 const reviewTransitions = new Set([
   "open:in_progress",
   "in_progress:resolution_requested",

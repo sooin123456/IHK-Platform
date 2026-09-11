@@ -142,17 +142,23 @@ P7_REAL_POSTGRES_DATABASE_URL='<operator-audit-url-with-set-role>' \
 node --test tests/drawing-workspace-p7-retention-database.test.mjs
 ```
 
-At least once per release, select a provider-issued managed backup in the Supabase
-dashboard/API and restore or clone it into a new, isolated Supabase project. A
-managed database restore does not restore Storage objects, so copy the source
-`lukas-qto` bucket to the isolated project through the approved backup procedure
-before comparison. Execute the rehearsal in an approved maintenance window: stop
-application/collaboration writers before the selected backup and keep them stopped
-until source and target captures finish, otherwise legitimate post-backup changes
-must produce `NOT MET`. Never point the target variables at production. The runner
-derives RPO from the provider backup and restored-project creation times, and RTO
-from provider project creation to the live completed comparison. It also requires
-the physical source/target PostgreSQL system identifier to match.
+At least once per release, select a provider-issued physical managed backup in the
+Supabase dashboard/API and restore or clone it into a new, isolated Supabase
+project. A managed database restore does not restore Storage objects, so copy the
+source `lukas-qto` bucket to the isolated project through the approved backup
+procedure before comparison. Execute the rehearsal in an approved maintenance
+window and preserve this exact event order:
+
+`backupCreatedAt <= drillStartedAt <= restoreCreatedAt <= measuredAt`
+
+Stop application/collaboration writers before `drillStartedAt`, record that one
+operator-authorized timestamp, create the isolated restore, copy Storage, and keep
+writers stopped until the source and target captures finish at `measuredAt`.
+Otherwise legitimate post-backup changes must produce `NOT MET`. Never point the
+target variables at production. RPO is `drillStartedAt - backupCreatedAt`; RTO is
+`measuredAt - drillStartedAt`. Invalid ordering leaves both measurements
+unavailable and the provider correlation `NOT MET`. The runner also requires the
+physical source/target PostgreSQL system identifier to match.
 
 Set all authorities out of band and run:
 
@@ -161,6 +167,7 @@ P7_RESTORE_ORGANIZATION_ID='<organization-uuid>' \
 P7_RESTORE_SOURCE_PROJECT_REF='<20-char-source-ref>' \
 P7_RESTORE_TARGET_PROJECT_REF='<20-char-isolated-ref>' \
 P7_RESTORE_BACKUP_ID='<provider-backup-id>' \
+P7_RESTORE_DRILL_STARTED_AT='<operator-authorized-ISO-8601-timestamp>' \
 P7_RESTORE_MANAGEMENT_ACCESS_TOKEN='<supabase-management-token>' \
 P7_RESTORE_SOURCE_POSTGRES_URL='<source-postgres-url>' \
 P7_RESTORE_TARGET_POSTGRES_URL='<isolated-postgres-url>' \
@@ -173,17 +180,24 @@ P7_RESTORE_REQUEST_ID='<new-uuid; reuse only for an exact retry>' \
 npm run release:drawing-workspace-p7:restore
 ```
 
-The runner verifies the backup and isolated project identities through the
-Supabase Management API, then compares schema (including RLS flags, ACLs, triggers,
-indexes, types, views, extensions, functions, policies, constraints, and columns),
-retained database rows, immutable
+The runner verifies the selected backup and isolated project as separate resources
+through the documented public Supabase Management API, then compares schema
+(including RLS flags, ACLs, triggers, indexes, types, views, extensions,
+functions, policies, constraints, and columns), retained database rows, immutable
 Storage bytes and their recorded SHA-256, accepted Yjs state, approvals, and
-quantity/BOQ/material lineage. It records a `PASS` or `NOT MET` run through the
-service-only append boundary. Missing credentials, unreachable provider
-authority, or an unverifiable backup writes `UNEXECUTED` evidence and exits 2;
-any mismatch exits 1. Only an executed, provider-verified comparison may exit 0.
-After evidence capture, revoke the temporary target credentials and remove the
-isolated restore project according to the organization disposal policy.
+quantity/BOQ/material lineage. Backup/project timestamps and a matching PostgreSQL
+system identifier establish correlation only; the public API does not directly
+bind the selected backup ID to the isolated target project.
+
+Accordingly, the current fully matched drill remains `UNEXECUTED`, exits nonzero,
+creates no append-only restore record, and cannot supply a release receipt. A
+provider-state or comparison mismatch remains `NOT MET`; it is append-recordable
+only when the event ordering is valid and RPO/RTO are available. Missing
+credentials, unreachable provider authority, or an unverifiable backup writes
+`UNEXECUTED` evidence and exits 2. No restore run may exit 0 or confer P7 PASS
+until an independent trustworthy selected-backup-to-target binding authority is
+implemented. After evidence capture, revoke the temporary target credentials and
+remove the isolated restore project according to the organization disposal policy.
 
 ## Drawing Workspace P3 collaboration database
 
@@ -1007,3 +1021,32 @@ The current Revit field beta is a free download, not a zero-value card charge.
 The unsafe scaffold checkout was removed. A paid release requires server-side
 order creation, signed payment confirmation/webhooks, an entitlement bound to the
 immutable release SHA-256, refund handling, and download access auditing.
+
+## Imported DWG resave worker
+
+The web application and imported-DWG resave worker must use the same trusted,
+immutable resaver image. Configure both processes with server-only values for
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+`NATIVE_DWG_RESAVER_IMAGE_ID`, `NATIVE_DWG_DOCKER_PATH`, and
+`NATIVE_DWG_DOCKER_HOST`. The worker additionally accepts
+`NATIVE_DWG_RESAVE_LEASE_SECONDS` (default `900`, range `180`–`900`) and
+`NATIVE_DWG_RESAVE_POLL_MILLISECONDS` (default `1000`, range `100`–`60000`).
+Never expose or log the service-role key.
+
+Start the queue consumer with `npm run start:native-dwg-resave-worker` after
+the matching database migrations and web build are deployed. Deploying the web
+application alone admits work but cannot drain the queue. Run only the intended
+number of consumers for the environment and monitor explicit worker outcomes,
+completed receipts, and retained attempt state.
+
+An uncertain admission response, upload session, `publication_uncertain`, or
+`settlement_uncertain` outcome requires reconciliation against the same request
+ID and the authoritative job/receipt before retrying operational work. Do not
+force-close or expiry-retry a publication whose outcome is unknown. Preserve
+the source, staged bytes, and attempt evidence while investigating.
+
+Imported resaves remain `experimental-unqualified` with persistence authority
+`not-issued`. This flow does not qualify professional DWG delivery, fonts,
+Xrefs, layouts, unsupported entity payload fidelity, or recipient CAD behavior;
+those require separate R5 and recipient acceptance. This section is deployment
+guidance only and performs no deployment.

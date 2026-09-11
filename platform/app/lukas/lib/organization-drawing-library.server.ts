@@ -7,6 +7,7 @@ import {
   DrawingStyleDefinitionSchema,
 } from "./drawing-workspace.types.ts";
 import { DrawingStarterDefinitionSchema } from "./drawing-starter-templates.ts";
+import { parseNativeDrawingDefinition } from "./drawing-native-catalog.server.ts";
 
 const Uuid = z.string().uuid();
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -126,8 +127,12 @@ const WorkspaceTemplatePayload = z
 export function parseOrganizationLibraryCanonicalPayload(
   kind: z.infer<typeof Kind>,
   payload: unknown,
-  sourceKind: "project_revision" | "platform_starter" = "project_revision",
+  sourceKind: "project_revision" | "platform_starter" | "platform_native" = "project_revision",
 ) {
+  if (sourceKind === "platform_native") {
+    if (kind !== "workspace_template" && kind !== "block") throw new Error("기본 도면 종류가 올바르지 않습니다.");
+    return parseNativeDrawingDefinition(kind, payload);
+  }
   if (sourceKind === "platform_starter") {
     if (kind !== "workspace_template")
       throw new Error("platform starter 종류가 올바르지 않습니다.");
@@ -160,7 +165,7 @@ const VersionRow = z
     canonical_payload: z.unknown(),
     content_sha256: Sha256,
     predecessor_version_id: Uuid.nullable(),
-    source_kind: z.enum(["project_revision", "platform_starter"]),
+    source_kind: z.enum(["project_revision", "platform_starter", "platform_native"]),
     source_project_id: Uuid.nullable(),
     source_revision_id: Uuid.nullable(),
     source_entity_id: Uuid.nullable(),
@@ -169,6 +174,8 @@ const VersionRow = z
       .regex(/^[a-z][a-z0-9-]{0,63}$/)
       .nullable(),
     platform_starter_version: z.coerce.number().int().positive().nullable(),
+    native_asset_key: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/).nullable().default(null),
+    native_asset_version: z.coerce.number().int().positive().nullable().default(null),
     created_by: Uuid,
     published_by: Uuid.nullable(),
     created_at: z.string(),
@@ -178,16 +185,43 @@ const VersionRow = z
   .strict()
   .superRefine((version, context) => {
     const projectRevision = version.source_kind === "project_revision";
+    const starter = version.source_kind === "platform_starter";
+    const native = version.source_kind === "platform_native";
     if (
       projectRevision !== (version.source_project_id !== null) ||
       projectRevision !== (version.source_revision_id !== null) ||
-      projectRevision === (version.platform_starter_key !== null) ||
-      projectRevision === (version.platform_starter_version !== null) ||
+      starter !== (version.platform_starter_key !== null) ||
+      starter !== (version.platform_starter_version !== null) ||
+      native !== (version.native_asset_key !== null) ||
+      native !== (version.native_asset_version !== null) ||
       (!projectRevision && version.source_entity_id !== null)
     )
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "회사 라이브러리 원본 계보가 올바르지 않습니다.",
+      });
+  });
+
+const PriceBookReuseCandidateRow = z
+  .object({
+    source_sha256: Sha256,
+    project_count: z.coerce.number().int().min(2),
+    price_book_count: z.coerce.number().int().min(2),
+    projects: z.array(
+      z.object({ id: Uuid, name: z.string().trim().min(1).max(255) }).strict(),
+    ),
+  })
+  .strict()
+  .superRefine((candidate, context) => {
+    const projectIds = new Set(candidate.projects.map(({ id }) => id));
+    if (
+      candidate.projects.length !== candidate.project_count ||
+      projectIds.size !== candidate.project_count ||
+      candidate.price_book_count < candidate.project_count
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "단가표 반복 사용 근거가 올바르지 않습니다.",
       });
   });
 
@@ -216,7 +250,7 @@ export async function listOrganizationDrawingLibrary(
   let versionsQuery = client
     .from("lukas_drawing_library_versions")
     .select(
-      "id,registry_id,organization_id,version_no,status,canonical_payload,content_sha256,predecessor_version_id,source_kind,source_project_id,source_revision_id,source_entity_id,platform_starter_key,platform_starter_version,created_by,published_by,created_at,published_at,deprecated_at",
+      "id,registry_id,organization_id,version_no,status,canonical_payload,content_sha256,predecessor_version_id,source_kind,source_project_id,source_revision_id,source_entity_id,platform_starter_key,platform_starter_version,native_asset_key,native_asset_version,created_by,published_by,created_at,published_at,deprecated_at",
     )
     .eq("organization_id", organizationId)
     .in(
@@ -239,6 +273,11 @@ export async function listOrganizationDrawingLibrary(
     const entry = entryById.get(version.registry_id);
     if (!entry || entry.organization_id !== version.organization_id)
       throw new Error("회사 라이브러리 계보가 올바르지 않습니다.");
+    if (version.source_kind === "platform_native") {
+      const payload = parseNativeDrawingDefinition(entry.kind === "block" ? "block" : "workspace_template", version.canonical_payload);
+      if (payload.key !== version.native_asset_key || payload.version !== version.native_asset_version)
+        throw new Error("기본 도면 계보가 올바르지 않습니다.");
+    }
     return {
       ...version,
       entry,
@@ -251,12 +290,49 @@ export async function listOrganizationDrawingLibrary(
   });
 }
 
+export async function listOrganizationPriceBookReuseCandidates(
+  client: LibraryClient,
+  organizationId: string,
+) {
+  const { data, error } = await client.rpc(
+    "lukas_qto_list_organization_price_book_reuse_candidates",
+    { p_organization_id: Uuid.parse(organizationId) },
+  );
+  if (error)
+    throw new Error(
+      `단가표 반복 사용 근거를 불러오지 못했습니다: ${error.message}`,
+    );
+  return z
+    .array(PriceBookReuseCandidateRow)
+    .max(100)
+    .parse(data ?? []);
+}
+
+export async function loadOrganizationPriceBookReuseEvidence(
+  client: LibraryClient,
+  organizationId: string,
+) {
+  try {
+    return {
+      candidates: await listOrganizationPriceBookReuseCandidates(
+        client,
+        organizationId,
+      ),
+      status: "available" as const,
+    };
+  } catch {
+    return { candidates: [], status: "unavailable" as const };
+  }
+}
+
 export function assertOrganizationDrawingLibraryMutationAllowed(
-  version: { source_kind: "project_revision" | "platform_starter" },
+  version: { source_kind: "project_revision" | "platform_starter" | "platform_native" },
   intent: "publish" | "deprecate" | "import",
 ) {
-  if (version.source_kind === "platform_starter")
-    throw new Error(`platform 기본 템플릿은 읽기 전용이라 ${intent}할 수 없습니다.`);
+  if (version.source_kind !== "project_revision")
+    throw new Error(
+      `platform 기본 템플릿은 읽기 전용이라 ${intent}할 수 없습니다.`,
+    );
 }
 
 export async function runOrganizationDrawingLibraryMutation(

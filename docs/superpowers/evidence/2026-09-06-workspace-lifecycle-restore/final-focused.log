@@ -1,0 +1,41 @@
+
+Running 3 tests using 1 worker
+
+(node:32313) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/3] [chromium] › e2e/drawing-workspace-shell.spec.ts:55:1 › compact desktop keeps the top bar single-row without hiding primary actions
+  1) [chromium] › e2e/drawing-workspace-shell.spec.ts:55:1 › compact desktop keeps the top bar single-row without hiding primary actions 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 3
+
+    - Array []
+    + Array [
+    +   "Failed to load resource: the server responded with a status of 500 ()",
+    + ]
+
+      108 |   expect(noticeLayout.bottom).toBeLessThanOrEqual(ifcPanelTop);
+      109 |   await expect(page.locator("vite-error-overlay")).toHaveCount(0);
+    > 110 |   expect(consoleErrors).toEqual([]);
+          |                         ^
+      111 | });
+      112 |
+      113 | test("current desktop preview is canvas-first and every dock remains keyboard recoverable", async ({
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:110:25
+
+    Error Context: test-results/drawing-workspace-shell-co-88f98-hout-hiding-primary-actions-chromium/error-context.md
+
+
+(node:32327) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[2/3] [chromium] › e2e/drawing-workspace-shell.spec.ts:650:1 › preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes
+[3/3] [chromium] › e2e/drawing-workspace-shell.spec.ts:689:1 › user replacement never borrows the previous room's connected status while admission is pending
+  1 failed
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:55:1 › compact desktop keeps the top bar single-row without hiding primary actions 
+  2 passed (6.6s)

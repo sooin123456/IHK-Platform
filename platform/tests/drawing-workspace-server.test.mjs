@@ -20,6 +20,8 @@ import {
   loadAllDrawingObjects,
   loadAllDrawingRows,
   loadDrawingWorkspace,
+  loadDrawingWorkspaceShell,
+  hydrateDrawingWorkspaceShell,
   loadDrawingTemplateCandidates,
   loadDrawingWorkspaceCapability,
   parseWorkspaceMutation,
@@ -981,6 +983,362 @@ test("P4 loader strictly converts semantic rows and fails closed for broken canv
   );
 });
 
+test("workspace shell skips canonical entity pagination before the collaboration bootstrap", async () => {
+  const client = queryClient({
+    lukas_qto_files: {
+      data: {
+        id: ids.file,
+        project_id: ids.project,
+        kind: "pdf",
+        original_filename: "source.pdf",
+        storage_path: "source.pdf",
+        content_type: "application/pdf",
+        byte_size: 4,
+        sha256: sourceSha,
+        immutable: true,
+        created_at: "2026-09-02T00:00:00.000Z",
+      },
+      error: null,
+    },
+    lukas_drawing_documents: {
+      data: {
+        id: ids.document,
+        project_id: ids.project,
+        source_file_id: ids.file,
+        source_sha256: sourceSha,
+        title: "Shell",
+        created_by: ids.actor,
+        created_at: "2026-09-02T00:00:00.000Z",
+        updated_at: "2026-09-02T00:00:00.000Z",
+      },
+      error: null,
+    },
+    lukas_drawing_revisions: {
+      data: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        parent_revision_id: null,
+        sequence: 1,
+        status: "draft",
+        version: 1,
+        created_by: ids.actor,
+        review_requested_at: null,
+        approved_at: null,
+        created_at: "2026-09-02T00:00:00.000Z",
+        updated_at: "2026-09-02T00:00:00.000Z",
+      },
+      error: null,
+    },
+    lukas_drawing_canvases: { data: [{ id: p2Ids.canvas }], error: null },
+    lukas_drawing_issues: { data: [], error: null },
+    lukas_drawing_object_issue_links: { data: [], error: null },
+    lukas_drawing_snapshots: { data: [], error: null },
+  });
+
+  const shell = await loadDrawingWorkspaceShell(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
+
+  assert.equal(shell.document.revision.id, ids.revision);
+  for (const key of [
+    "pages",
+    "canvases",
+    "layers",
+    "objects",
+    "sources",
+    "styles",
+    "blocks",
+    "blockInstances",
+    "propertySchemas",
+    "propertyValues",
+    "tables",
+  ])
+    assert.deepEqual(shell.document.revision[key], []);
+  for (const table of [
+    "lukas_drawing_pages",
+    "lukas_drawing_layers",
+    "lukas_drawing_objects",
+    "lukas_drawing_object_sources",
+    "lukas_drawing_styles",
+    "lukas_drawing_blocks",
+    "lukas_drawing_block_instances",
+    "lukas_drawing_property_schemas",
+    "lukas_drawing_property_values",
+    "lukas_drawing_tables",
+  ])
+    assert.equal(
+      client.calls.some((call) => call.table === table),
+      false,
+      `${table} must come from the SHA-bound collaboration graph`,
+    );
+});
+
+test("legacy workspace shell remains a full graph and is not classified for canonical hydration", async () => {
+  const client = queryClient(
+    canonicalLoaderResponses({
+      lukas_drawing_canvases: { data: [], error: null },
+      lukas_drawing_pages: {
+        data: [{ id: ids.page, revision_id: ids.revision }],
+        error: null,
+      },
+      lukas_drawing_layers: {
+        data: [
+          {
+            id: ids.sourceLayer,
+            page_id: ids.page,
+            name: "Source",
+            visible: true,
+            locked: true,
+            system_kind: "source",
+            version: 1,
+          },
+          {
+            id: ids.workLayer,
+            page_id: ids.page,
+            name: "Work",
+            visible: true,
+            locked: false,
+            system_kind: "work",
+            version: 1,
+          },
+        ],
+        error: null,
+      },
+      lukas_drawing_objects: { data: [], error: null },
+      lukas_drawing_issues: { data: [], error: null },
+      lukas_drawing_object_issue_links: { data: [], error: null },
+      lukas_drawing_snapshots: { data: [], error: null },
+    }),
+  );
+
+  const shell = await loadDrawingWorkspaceShell(client, {
+    projectId: ids.project,
+    workspaceId: ids.document,
+  });
+
+  assert.equal(shell.document.revision.pages.length, 1);
+  assert.equal(shell.document.revision.layers.length, 2);
+  assert.equal("canvases" in shell.document.revision, false);
+  assert.equal(
+    typeof workspaceServer.drawingWorkspaceUsesCanonicalGraph,
+    "function",
+  );
+  assert.equal(
+    workspaceServer.drawingWorkspaceUsesCanonicalGraph(shell),
+    false,
+  );
+});
+
+test("workspace shell hydrates one validated canonical graph for server consumers", () => {
+  const object = {
+    id: ids.object,
+    lineageId: ids.object,
+    pageId: ids.page,
+    layerId: ids.workLayer,
+    name: "L-01",
+    type: "line",
+    geometry: {
+      type: "line",
+      start: { x: 0, y: 0 },
+      end: { x: 100, y: 0 },
+    },
+    styleId: null,
+    style: { stroke: "#112233", strokeWidth: 2, fill: null },
+    version: 1,
+  };
+  const shell = {
+    primarySource: {
+      id: ids.file,
+      project_id: ids.project,
+      kind: "pdf",
+      original_filename: "source.pdf",
+      storage_path: "source.pdf",
+      content_type: "application/pdf",
+      byte_size: 4,
+      sha256: sourceSha,
+      immutable: true,
+      created_at: "2026-09-02T00:00:00.000Z",
+    },
+    templateCandidates: [],
+    document: {
+      id: ids.document,
+      project_id: ids.project,
+      source_file_id: ids.file,
+      source_sha256: sourceSha,
+      title: "Shell",
+      created_by: ids.actor,
+      created_at: "2026-09-02T00:00:00.000Z",
+      updated_at: "2026-09-02T00:00:00.000Z",
+      revision: {
+        id: ids.revision,
+        document_id: ids.document,
+        project_id: ids.project,
+        parent_revision_id: null,
+        sequence: 1,
+        status: "draft",
+        version: 1,
+        created_by: ids.actor,
+        review_requested_at: null,
+        approved_at: null,
+        created_at: "2026-09-02T00:00:00.000Z",
+        updated_at: "2026-09-02T00:00:00.000Z",
+        pages: [],
+        canvases: [],
+        layers: [],
+        objects: [],
+        sources: [],
+        styles: [],
+        blocks: [],
+        blockInstances: [],
+        propertySchemas: [],
+        propertyValues: [],
+        tables: [],
+        issues: [
+          {
+            id: ids.issue,
+            project_id: ids.project,
+            title: "검토",
+            priority: "normal",
+            status: "open",
+            updated_at: "2026-09-02T00:00:00.000Z",
+          },
+        ],
+        issueLinks: [
+          {
+            id: ids.link,
+            object_id: ids.object,
+            revision_id: ids.revision,
+            issue_id: ids.issue,
+            project_id: ids.project,
+            created_by: ids.actor,
+            created_at: "2026-09-02T00:00:00.000Z",
+          },
+        ],
+        reviewEvidence: null,
+        checkpoints: [],
+      },
+    },
+  };
+  const bootstrap = {
+    canonicalJson: {
+      schemaVersion: 2,
+      revision: {
+        id: ids.revision,
+        documentId: ids.document,
+        projectId: ids.project,
+        sequence: 1,
+        version: 1,
+      },
+      sources: [],
+      pages: [
+        {
+          id: ids.page,
+          revisionId: ids.revision,
+          name: "A-101",
+          sortOrder: 0,
+          version: 1,
+        },
+      ],
+      canvases: [
+        {
+          id: p2Ids.canvas,
+          pageId: ids.page,
+          name: "Paper",
+          spaceKind: "paper",
+          widthMillimeters: 841,
+          heightMillimeters: 594,
+          background: {
+            sourceFileId: ids.file,
+            sourceSha256: sourceSha,
+            pdfPageNumber: 1,
+            calibration: null,
+          },
+          sortOrder: 0,
+          version: 1,
+        },
+      ],
+      layers: [
+        {
+          id: ids.workLayer,
+          pageId: ids.page,
+          canvasId: p2Ids.canvas,
+          name: "Work",
+          sortOrder: 1,
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          version: 1,
+        },
+      ],
+      objects: [object],
+      styles: [],
+      blocks: [],
+      blockInstances: [],
+      propertySchemas: [],
+      propertyValues: [],
+      tables: [],
+      issues: [{ id: ids.issue, objectId: ids.object }],
+      operationSequence: 1,
+    },
+    operationSequence: 1,
+    schemaVersion: 2,
+    sha256: sourceSha,
+    revisionStatus: "draft",
+    capability: "editor",
+    canWrite: true,
+    recentOutcomes: [],
+  };
+
+  const workspace = hydrateDrawingWorkspaceShell(shell, bootstrap, {
+    focusObjectId: ids.object,
+  });
+  assert.equal(workspace.document.revision.objects.length, 1);
+  assert.equal(workspace.document.revision.objects[0].id, ids.object);
+  assert.equal(workspace.document.revision.pages[0].objects[0].id, ids.object);
+  assert.equal(workspace.document.revision.activePageId, ids.page);
+  assert.equal(workspace.document.revision.activeCanvasId, p2Ids.canvas);
+  assert.equal(workspace.document.revision.issueLinks.length, 1);
+
+  const wrong = structuredClone(bootstrap);
+  wrong.canonicalJson.revision.documentId = p2Ids.template;
+  assert.throws(
+    () => hydrateDrawingWorkspaceShell(shell, wrong),
+    /lineage|document|inconsistent/i,
+  );
+
+  const staleStatus = structuredClone(bootstrap);
+  staleStatus.revisionStatus = "review_requested";
+  staleStatus.canWrite = false;
+  assert.throws(
+    () => hydrateDrawingWorkspaceShell(shell, staleStatus),
+    /status|workflow|inconsistent/i,
+  );
+
+  const staleReviewEvidenceShell = structuredClone(shell);
+  staleReviewEvidenceShell.document.revision.status = "review_requested";
+  staleReviewEvidenceShell.document.revision.reviewEvidence = {
+    subjectVersion: 1,
+    snapshotSha256: "b".repeat(64),
+  };
+  const reviewBootstrap = structuredClone(bootstrap);
+  reviewBootstrap.revisionStatus = "review_requested";
+  reviewBootstrap.canWrite = false;
+  assert.throws(
+    () =>
+      hydrateDrawingWorkspaceShell(staleReviewEvidenceShell, reviewBootstrap),
+    /review|snapshot|evidence|inconsistent/i,
+  );
+
+  const staleIssueGraph = structuredClone(bootstrap);
+  staleIssueGraph.canonicalJson.issues = [];
+  assert.throws(
+    () => hydrateDrawingWorkspaceShell(shell, staleIssueGraph),
+    /issue|workflow|inconsistent/i,
+  );
+});
+
 test("P4 measurement evidence derives only from the authorized transactional checkpoint", async () => {
   assert.equal(
     typeof workspaceServer.deriveAuthorizedDrawingMeasurementEvidence,
@@ -1055,6 +1413,92 @@ test("P4 measurement evidence derives only from the authorized transactional che
   );
   assert.equal(evidence.measurements[opening.id].measurement.count, "1");
 
+  const calibratedCanvasId = "00000000-0000-4000-8000-000000000090";
+  const calibratedLine = p4Object(
+    "00000000-0000-4000-8000-000000000091",
+    ids.workLayer,
+    {
+      type: "line",
+      start: { x: 10, y: 20 },
+      end: { x: 60, y: 20 },
+    },
+    "Measured line",
+  );
+  const calibratedCanvas = {
+    id: calibratedCanvasId,
+    pageId: ids.page,
+    name: "Paper",
+    spaceKind: "paper",
+    widthMillimeters: 100,
+    heightMillimeters: 100,
+    background: {
+      sourceFileId: ids.file,
+      sourceSha256: sourceSha,
+      pdfPageNumber: 1,
+      calibration: {
+        normalizedStart: { x: 0.1, y: 0.2 },
+        normalizedEnd: { x: 0.6, y: 0.2 },
+        realLengthMillimeters: 5_000,
+        millimetersPerNormalizedUnit: 10_000,
+      },
+    },
+    sortOrder: 0,
+    version: 1,
+  };
+  const calibratedBootstrap = {
+    ...bootstrap,
+    canonicalJson: {
+      ...bootstrap.canonicalJson,
+      canvases: [calibratedCanvas],
+      layers: [
+        {
+          id: ids.workLayer,
+          pageId: ids.page,
+          canvasId: calibratedCanvasId,
+          name: "Work",
+          sortOrder: 0,
+          visible: true,
+          locked: false,
+          systemKind: "work",
+          version: 1,
+        },
+      ],
+      objects: [
+        {
+          ...calibratedLine,
+          lineageId: calibratedLine.id,
+          pageId: ids.page,
+          type: calibratedLine.geometry.type,
+        },
+      ],
+    },
+  };
+  const calibratedEvidence =
+    workspaceServer.deriveAuthorizedDrawingMeasurementEvidence(
+      calibratedBootstrap,
+    );
+  assert.equal(
+    calibratedEvidence.measurements[calibratedLine.id].measurement
+      .lengthMillimeters,
+    "5000",
+  );
+  const uncalibratedResult =
+    workspaceServer.deriveAuthorizedDrawingMeasurementEvidenceResult({
+      ...bootstrap,
+      canonicalJson: {
+        ...bootstrap.canonicalJson,
+        canvases: [
+          {
+            ...calibratedCanvas,
+            background: { ...calibratedCanvas.background, calibration: null },
+          },
+        ],
+        layers: calibratedBootstrap.canonicalJson.layers,
+        objects: calibratedBootstrap.canonicalJson.objects,
+      },
+    });
+  assert.deepEqual(uncalibratedResult, { evidence: null, error: null });
+
   assert.throws(
     () =>
       workspaceServer.deriveAuthorizedDrawingMeasurementEvidence({
@@ -1088,6 +1532,122 @@ test("P4 measurement evidence derives only from the authorized transactional che
     ),
     /document lineage is inconsistent/i,
   );
+});
+
+test("non-square PDF circles and rotated rectangles suppress only measurement evidence", async () => {
+  const canvasId = "00000000-0000-4000-8000-000000000092";
+  const canvas = {
+    id: canvasId,
+    pageId: ids.page,
+    name: "Paper",
+    spaceKind: "paper",
+    widthMillimeters: 200,
+    heightMillimeters: 100,
+    background: {
+      sourceFileId: ids.file,
+      sourceSha256: sourceSha,
+      pdfPageNumber: 1,
+      calibration: {
+        normalizedStart: { x: 0, y: 0 },
+        normalizedEnd: { x: 0.5, y: 0 },
+        realLengthMillimeters: 5_000,
+        millimetersPerNormalizedUnit: 10_000,
+      },
+    },
+    sortOrder: 0,
+    version: 1,
+  };
+  const layer = {
+    id: ids.workLayer,
+    pageId: ids.page,
+    canvasId,
+    name: "Work",
+    sortOrder: 0,
+    visible: true,
+    locked: false,
+    systemKind: "work",
+    version: 1,
+  };
+  const cases = [
+    p4Object(
+      "00000000-0000-4000-8000-000000000093",
+      ids.workLayer,
+      { type: "circle", center: { x: 50, y: 50 }, radius: 10 },
+      "Circle",
+    ),
+    p4Object(
+      "00000000-0000-4000-8000-000000000094",
+      ids.workLayer,
+      {
+        type: "rectangle",
+        origin: { x: 20, y: 20 },
+        width: 40,
+        height: 20,
+        rotation: 30,
+      },
+      "Rotated rectangle",
+    ),
+  ];
+
+  for (const object of cases) {
+    const bootstrap = {
+      canonicalJson: {
+        schemaVersion: 2,
+        revision: {
+          id: ids.revision,
+          documentId: ids.document,
+          projectId: ids.project,
+          sequence: 1,
+          version: 1,
+        },
+        sources: [],
+        pages: [],
+        canvases: [canvas],
+        layers: [layer],
+        objects: [
+          {
+            ...object,
+            lineageId: object.id,
+            pageId: ids.page,
+            type: object.geometry.type,
+          },
+        ],
+        styles: [],
+        blocks: [],
+        blockInstances: [],
+        propertySchemas: [],
+        propertyValues: [],
+        tables: [],
+        issues: [],
+        operationSequence: 17,
+      },
+      operationSequence: 17,
+      schemaVersion: 2,
+      sha256: sourceSha,
+      revisionStatus: "draft",
+      capability: "editor",
+      canWrite: true,
+      recentOutcomes: [],
+    };
+    const state = await workspaceServer.loadDrawingWorkspaceMeasurementState(
+      {
+        async rpc() {
+          return { data: bootstrap, error: null };
+        },
+      },
+      {
+        documentId: ids.document,
+        revisionId: ids.revision,
+        revisionVersion: 1,
+      },
+    );
+
+    assert.deepEqual(state.collaborationBootstrap, bootstrap);
+    assert.equal(state.authorizedCapability, "editor");
+    assert.equal(state.collaborationBootstrap.canWrite, true);
+    assert.equal(state.measurementEvidence, null);
+    assert.equal(state.measurementEvidenceError, null);
+  }
 });
 
 test("authorized measurement derivation returns a bounded error without evidence for an invalid graph", async () => {
@@ -1136,8 +1696,8 @@ test("authorized measurement derivation returns a bounded error without evidence
     schemaVersion: 2,
     sha256: sourceSha,
     revisionStatus: "draft",
-    capability: "viewer",
-    canWrite: false,
+    capability: "editor",
+    canWrite: true,
     recentOutcomes: [],
   };
 
@@ -1163,8 +1723,9 @@ test("authorized measurement derivation returns a bounded error without evidence
       revisionVersion: 1,
     },
   );
-  assert.equal(routeState.collaborationBootstrap, null);
-  assert.equal(routeState.authorizedCapability, "viewer");
+  assert.deepEqual(routeState.collaborationBootstrap, bootstrap);
+  assert.equal(routeState.authorizedCapability, "editor");
+  assert.equal(routeState.collaborationBootstrap.canWrite, true);
   assert.equal(routeState.measurementEvidence, null);
   assert.equal(
     routeState.measurementEvidenceError?.code,
@@ -1421,7 +1982,7 @@ test("template candidates expose only approved project revisions with matching i
             project_id: ids.project,
             status: "approved",
             version: 3,
-            approved_at: "2026-08-25T00:00:00.000Z",
+            approved_at: "2026-08-25T00:00:00.000+00:00",
           },
         ],
         error: null,
@@ -1456,7 +2017,7 @@ test("template candidates expose only approved project revisions with matching i
       revisionId: p2Ids.template,
       title: "Approved A-101",
       version: 3,
-      approvedAt: "2026-08-25T00:00:00.000Z",
+      approvedAt: "2026-08-25T00:00:00.000+00:00",
       snapshotSha256: sourceSha,
     },
   ]);
@@ -1523,6 +2084,42 @@ test("mutation parsing preserves a valid operation without accepting authority f
       form({
         intent: "apply_operation",
         operation_json: { ...input, actorId: ids.actor },
+      }),
+    ),
+  );
+});
+
+test("conflict discard parses one exact bounded causal operation batch", () => {
+  const input = operation();
+  assert.deepEqual(
+    parseWorkspaceMutation(
+      form({
+        intent: "discard_conflicted_operations",
+        revision_id: ids.revision,
+        operations_json: [input],
+      }),
+    ),
+    {
+      intent: "discard_conflicted_operations",
+      revisionId: ids.revision,
+      operations: [input],
+    },
+  );
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({
+        intent: "discard_conflicted_operations",
+        revision_id: ids.revision,
+        operations_json: [],
+      }),
+    ),
+  );
+  assert.throws(() =>
+    parseWorkspaceMutation(
+      form({
+        intent: "discard_conflicted_operations",
+        revision_id: ids.revision,
+        operations_json: [{ ...input, actorId: ids.actor }],
       }),
     ),
   );
@@ -1704,6 +2301,7 @@ test("stable domain SQLSTATEs map to terminal conflict or rejection while databa
   for (const [code, kind, status] of [
     ["P1C01", "conflict", 409],
     ["P1R01", "rejected", 404],
+    ["P1T01", "retryable", 503],
     ["40001", "retryable", 503],
     ["40P01", "retryable", 503],
   ]) {
@@ -2001,6 +2599,166 @@ function queryClient(responses) {
   };
 }
 
+test("source-free workspaces list only unused immutable project PDFs for attachment", async () => {
+  const availableFileId = "00000000-0000-4000-8000-000000000021";
+  const usedFileId = "00000000-0000-4000-8000-000000000022";
+  const client = queryClient({
+    lukas_qto_files: {
+      data: [
+        {
+          id: availableFileId,
+          project_id: ids.project,
+          kind: "pdf",
+          original_filename: "A-201.pdf",
+          byte_size: 2048,
+          sha256: "b".repeat(64),
+          immutable: true,
+          created_at: "2026-09-02T02:00:00.000Z",
+        },
+        {
+          id: usedFileId,
+          project_id: ids.project,
+          kind: "pdf",
+          original_filename: "A-101.pdf",
+          byte_size: 1024,
+          sha256: sourceSha,
+          immutable: true,
+          created_at: "2026-09-02T01:00:00.000Z",
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_documents: {
+      data: [
+        {
+          id: ids.document,
+          project_id: ids.project,
+          source_file_id: null,
+        },
+        {
+          id: "00000000-0000-4000-8000-000000000023",
+          project_id: ids.project,
+          source_file_id: usedFileId,
+        },
+      ],
+      error: null,
+    },
+  });
+
+  assert.deepEqual(
+    await workspaceServer.loadDrawingWorkspaceAttachCandidates(
+      client,
+      ids.project,
+    ),
+    [
+      {
+        id: availableFileId,
+        kind: "pdf",
+        originalFilename: "A-201.pdf",
+        byteSize: 2048,
+        sha256: "b".repeat(64),
+        createdAt: "2026-09-02T02:00:00.000Z",
+      },
+    ],
+  );
+  assert.deepEqual(
+    client.calls.find((call) => call.table === "lukas_qto_files").filters,
+    [
+      ["eq", "project_id", ids.project],
+      ["eq", "kind", "pdf"],
+      ["eq", "immutable", true],
+    ],
+  );
+});
+
+test("source attachment catalog fails closed on malformed immutable file evidence", async () => {
+  const client = queryClient({
+    lukas_qto_files: {
+      data: [
+        {
+          id: "00000000-0000-4000-8000-000000000021",
+          project_id: ids.project,
+          kind: "pdf",
+          original_filename: "poison.pdf",
+          byte_size: -1,
+          sha256: "b".repeat(64),
+          immutable: true,
+          created_at: "2026-09-02T02:00:00.000Z",
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_documents: { data: [], error: null },
+  });
+  await assert.rejects(
+    () =>
+      workspaceServer.loadDrawingWorkspaceAttachCandidates(client, ids.project),
+    /PDF attachment catalog is invalid/,
+  );
+});
+
+test("source attachment calls one scoped RPC and verifies its exact acknowledgement", async () => {
+  const canvasId = "00000000-0000-4000-8000-000000000024";
+  const requestId = "00000000-0000-4000-8000-000000000025";
+  const calls = [];
+  const input = {
+    documentId: ids.document,
+    revisionId: ids.revision,
+    canvasId,
+    sourceFileId: ids.file,
+    requestId,
+  };
+  const acknowledgement = {
+    documentId: ids.document,
+    revisionId: ids.revision,
+    canvasId,
+    sourceFileId: ids.file,
+    sourceSha256: sourceSha,
+    documentUpdatedAt: "2026-09-02T03:00:00.000Z",
+    operationId: ids.operation,
+    operationSequence: 4,
+    resultVersions: { [canvasId]: 2 },
+  };
+  const result = await workspaceServer.attachDrawingWorkspaceSource(
+    {
+      async rpc(name, payload) {
+        calls.push([name, payload]);
+        return { data: acknowledgement, error: null };
+      },
+    },
+    input,
+  );
+  assert.deepEqual(result, acknowledgement);
+  assert.deepEqual(calls, [
+    [
+      "lukas_drawing_attach_source",
+      {
+        p_document_id: ids.document,
+        p_revision_id: ids.revision,
+        p_canvas_id: canvasId,
+        p_source_file_id: ids.file,
+        p_request_id: requestId,
+      },
+    ],
+  ]);
+
+  await assert.rejects(
+    () =>
+      workspaceServer.attachDrawingWorkspaceSource(
+        {
+          async rpc() {
+            return {
+              data: { ...acknowledgement, sourceFileId: requestId },
+              error: null,
+            };
+          },
+        },
+        input,
+      ),
+    (error) => error.name === "DrawingWorkspaceRpcError",
+  );
+});
+
 function canonicalLoaderResponses(overrides = {}) {
   return {
     lukas_qto_files: {
@@ -2051,6 +2809,113 @@ function canonicalLoaderResponses(overrides = {}) {
     ...overrides,
   };
 }
+
+function canonicalReviewLoaderResponses(status, snapshotSha) {
+  const base = canonicalLoaderResponses();
+  return {
+    ...base,
+    lukas_drawing_revisions: {
+      data: {
+        ...base.lukas_drawing_revisions.data,
+        status,
+        version: 7,
+        review_requested_at: "2026-08-24T01:00:00.000Z",
+      },
+      error: null,
+    },
+    lukas_drawing_pages: {
+      data: [
+        {
+          id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Page 1",
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_canvases: {
+      data: [
+        {
+          id: p2Ids.canvas,
+          page_id: ids.page,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Canvas",
+          space_kind: "paper",
+          width_mm: 841,
+          height_mm: 594,
+          background_source_file_id: ids.file,
+          background_source_sha256: sourceSha,
+          background_pdf_page: 1,
+          calibration: null,
+          sort_order: 0,
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_layers: {
+      data: [
+        {
+          id: ids.sourceLayer,
+          page_id: ids.page,
+          canvas_id: p2Ids.canvas,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Source",
+          sort_order: 0,
+          visible: true,
+          locked: true,
+          system_kind: "source",
+          version: 1,
+        },
+        {
+          id: ids.workLayer,
+          page_id: ids.page,
+          canvas_id: p2Ids.canvas,
+          revision_id: ids.revision,
+          project_id: ids.project,
+          name: "Work",
+          sort_order: 1,
+          visible: true,
+          locked: false,
+          system_kind: "work",
+          version: 1,
+        },
+      ],
+      error: null,
+    },
+    lukas_drawing_objects: { data: [], error: null },
+    lukas_drawing_object_sources: { data: [], error: null },
+    lukas_drawing_styles: { data: [], error: null },
+    lukas_drawing_blocks: { data: [], error: null },
+    lukas_drawing_block_instances: { data: [], error: null },
+    lukas_drawing_property_schemas: { data: [], error: null },
+    lukas_drawing_property_values: { data: [], error: null },
+    lukas_drawing_tables: { data: [], error: null },
+    lukas_drawing_snapshots: {
+      data: { revision_version: 7, sha256: snapshotSha },
+      error: null,
+    },
+  };
+}
+
+test("canonical review and approval stages preserve exact snapshot evidence", async () => {
+  const snapshotSha = "c".repeat(64);
+  for (const status of ["review_requested", "reviewed"]) {
+    const loaded = await loadDrawingWorkspace(
+      queryClient(canonicalReviewLoaderResponses(status, snapshotSha)),
+      { projectId: ids.project, workspaceId: ids.document },
+    );
+    assert.deepEqual(loaded.document.revision.reviewEvidence, {
+      subjectVersion: 7,
+      snapshotSha256: snapshotSha,
+    });
+  }
+});
 
 function assertDrawingGraphNotLoaded(client) {
   for (const table of [
@@ -2655,7 +3520,7 @@ test("workspace loading rejects a page without an editable user layer", async ()
   );
 });
 
-test("review-requested workspace loads its exact project-bound snapshot evidence", async () => {
+test("review and approval stages load their exact project-bound snapshot evidence", async () => {
   const snapshotSha = "b".repeat(64);
   const file = {
     id: ids.file,
@@ -2693,60 +3558,65 @@ test("review-requested workspace loads its exact project-bound snapshot evidence
     created_at: "2026-08-24T00:00:00.000Z",
     updated_at: "2026-08-24T01:00:00.000Z",
   };
-  const client = queryClient({
-    lukas_qto_files: { data: file, error: null },
-    lukas_drawing_documents: { data: document, error: null },
-    lukas_drawing_revisions: { data: revision, error: null },
-    lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
-    lukas_drawing_layers: {
-      data: [
-        {
-          id: ids.sourceLayer,
-          page_id: ids.page,
-          name: "Source",
-          locked: true,
-          visible: true,
-          system_kind: "source",
-          version: 1,
-        },
-        {
-          id: ids.workLayer,
-          page_id: ids.page,
-          name: "Work",
-          locked: false,
-          visible: true,
-          system_kind: "work",
-          version: 1,
-        },
-      ],
-      error: null,
-    },
-    lukas_drawing_objects: { data: [], error: null },
-    lukas_drawing_snapshots: {
-      data: { revision_version: 7, sha256: snapshotSha },
-      error: null,
-    },
-  });
+  for (const status of ["review_requested", "reviewed"]) {
+    const client = queryClient({
+      lukas_qto_files: { data: file, error: null },
+      lukas_drawing_documents: { data: document, error: null },
+      lukas_drawing_revisions: {
+        data: { ...revision, status },
+        error: null,
+      },
+      lukas_drawing_pages: { data: [{ id: ids.page }], error: null },
+      lukas_drawing_layers: {
+        data: [
+          {
+            id: ids.sourceLayer,
+            page_id: ids.page,
+            name: "Source",
+            locked: true,
+            visible: true,
+            system_kind: "source",
+            version: 1,
+          },
+          {
+            id: ids.workLayer,
+            page_id: ids.page,
+            name: "Work",
+            locked: false,
+            visible: true,
+            system_kind: "work",
+            version: 1,
+          },
+        ],
+        error: null,
+      },
+      lukas_drawing_objects: { data: [], error: null },
+      lukas_drawing_snapshots: {
+        data: { revision_version: 7, sha256: snapshotSha },
+        error: null,
+      },
+    });
 
-  const loaded = await loadDrawingWorkspace(client, {
-    projectId: ids.project,
-    workspaceId: ids.document,
-  });
+    const loaded = await loadDrawingWorkspace(client, {
+      projectId: ids.project,
+      workspaceId: ids.document,
+    });
 
-  assert.deepEqual(loaded.document.revision.reviewEvidence, {
-    subjectVersion: 7,
-    snapshotSha256: snapshotSha,
-  });
-  const snapshotCall = client.calls.find(
-    (call) => call.table === "lukas_drawing_snapshots",
-  );
-  assert.equal(snapshotCall.select, "revision_version,sha256");
-  assert.deepEqual(snapshotCall.filters, [
-    ["eq", "project_id", ids.project],
-    ["eq", "revision_id", ids.revision],
-    ["eq", "revision_version", 7],
-  ]);
-  assert.equal(snapshotCall.terminal, "maybeSingle");
+    assert.deepEqual(loaded.document.revision.reviewEvidence, {
+      subjectVersion: 7,
+      snapshotSha256: snapshotSha,
+    });
+    const snapshotCall = client.calls.find(
+      (call) => call.table === "lukas_drawing_snapshots",
+    );
+    assert.equal(snapshotCall.select, "revision_version,sha256");
+    assert.deepEqual(snapshotCall.filters, [
+      ["eq", "project_id", ids.project],
+      ["eq", "revision_id", ids.revision],
+      ["eq", "revision_version", 7],
+    ]);
+    assert.equal(snapshotCall.terminal, "maybeSingle");
+  }
 });
 
 test("workspace source signing never mints a raw IFC capability and preserves exact PDF evidence", async () => {
@@ -3200,6 +4070,57 @@ test("reviewer recommendation and approver final approval are separate action au
     ["lukas_drawing_record_revision_decision", "reviewed"],
     ["lukas_drawing_record_revision_decision", "approved"],
   ]);
+});
+
+test("approved snapshot restore admits Reviewer and denies Approver before RPC", async () => {
+  const calls = [];
+  const client = {
+    async rpc(name, input) {
+      calls.push([name, input]);
+      return { data: { revisionId: ids.revision }, error: null };
+    },
+  };
+  const restoreForm = form({
+    intent: "restore_approved_snapshot",
+    source_revision_id: ids.revision,
+    request_id: ids.operation,
+  });
+  const workspace = loadedWorkspace();
+  workspace.document.revision.status = "approved";
+
+  const restored = await handleWorkspaceMutation({
+    client,
+    projectId: ids.project,
+    capability: "reviewer",
+    workspace,
+    form: restoreForm,
+  });
+  assert.equal(restored.status, 200);
+  assert.deepEqual(calls, [
+    [
+      "lukas_drawing_restore_approved_snapshot",
+      {
+        p_source_revision_id: ids.revision,
+        p_request_id: ids.operation,
+      },
+    ],
+  ]);
+
+  await assert.rejects(
+    handleWorkspaceMutation({
+      client,
+      projectId: ids.project,
+      capability: "approver",
+      workspace,
+      form: restoreForm,
+    }),
+    (error) =>
+      error instanceof Response &&
+      error.status === 403 &&
+      error.statusText === "" &&
+      error.body !== null,
+  );
+  assert.equal(calls.length, 1);
 });
 
 test("trusted staff context is admin without membership while viewer and outsider stay constrained", async () => {

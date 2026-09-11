@@ -1,0 +1,17 @@
+TAP version 13
+# {"event":"m1_native_dwg_import_pipeline_proof_passed","evidence":{"transportQualification":"loopback-test-bridge-not-real-postgrest-jwt-or-supabase-storage","sourceSha256":"5c287281fafa07f76a0158d5374dd7577910c107dcb55817688acf9fd8656c71","sourceByteSize":10987,"sourceHeaderVersion":"AC1024","reportSha256":"c01a5e9ebae2460de8781e90dda68a47dc8e3bf3a869d8be188d34adebc783cf","reportByteSize":1446,"readerImageId":"sha256:c67ff75cdacccad6cd77b275ad2557f889943bd29c98767c8f0e399d5e9b394f","jobId":"518ca078-4f62-440f-888f-697b90fb6192","status":"analyzed","persistenceAuthority":"not-issued","claimContenders":2,"claimWinners":1,"parserContainerResidue":0,"parserConfigResidue":0,"databaseResidue":0}}
+# Subtest: M1 real PostgreSQL proves Editor operations, idempotency, starter provenance, and binding authority
+ok 1 - M1 real PostgreSQL proves Editor operations, idempotency, starter provenance, and binding authority
+  ---
+  duration_ms: 4517.379
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4641.773666

@@ -24,6 +24,11 @@ export type DrawingStoreInput = DrawingStorageScope & {
   expectedGeneration: number;
   expectedSha256: string | null;
 };
+export type DrawingInitializeInput = DrawingStorageScope & {
+  state: Uint8Array;
+  baseOperationSequence: number;
+  baseSnapshotSha256: string;
+};
 export type DrawingAcceptedOperation = {
   revisionId: string;
   clientOperationId: string;
@@ -35,7 +40,7 @@ export type DrawingAcceptedOperation = {
   historyAction: "undo" | "redo" | null;
   originalOperationId: string | null;
   sequence: number;
-  resultVersions: Record<string, number>;
+  resultVersions: Record<string, number | null>;
 };
 
 export type DrawingCollaborationDatabase = {
@@ -45,6 +50,12 @@ export type DrawingCollaborationDatabase = {
     revisionId: string,
   ) => Promise<DrawingRoomAuthorization>;
   load: (scope: DrawingStorageScope) => Promise<DrawingStoredState | null>;
+  initializeState?: (
+    input: DrawingInitializeInput,
+  ) => Promise<DrawingStoredState>;
+  initializeServiceState?: (
+    input: Omit<DrawingInitializeInput, "userId">,
+  ) => Promise<DrawingStoredState>;
   store: (
     input: DrawingStoreInput,
   ) => Promise<{ generation: number; sha256: string }>;
@@ -59,6 +70,10 @@ export type DrawingCollaborationDatabase = {
   lookupOperations?: (
     revisionId: string,
     operationIds: string[],
+  ) => Promise<DrawingAcceptedOperation[]>;
+  nativeOperations?: (
+    scope: DrawingServiceStorageScope,
+    afterSequence: number,
   ) => Promise<DrawingAcceptedOperation[]>;
   freeze?: DrawingFreezeDatabase;
   health?: () => Promise<boolean>;
@@ -78,9 +93,9 @@ const transientCodes = new Set([
 function isTransient(error: unknown): boolean {
   return Boolean(
     error &&
-    typeof error === "object" &&
-    "code" in error &&
-    transientCodes.has(String(error.code)),
+      typeof error === "object" &&
+      "code" in error &&
+      transientCodes.has(String(error.code)),
   );
 }
 
@@ -130,6 +145,7 @@ export function createDrawingCollaborationStorage(input: {
           : input.database.load(scope as DrawingStorageScope),
       sleep,
     );
+    if (state) input.validateState?.(state.yjsState, scope);
     const userId = service ? null : (scope as DrawingStorageScope).userId;
     tokens.set(
       key(scope, userId),
@@ -142,6 +158,30 @@ export function createDrawingCollaborationStorage(input: {
   const load = (scope: DrawingStorageScope) => loadWith(scope, false);
   const loadService = (scope: DrawingServiceStorageScope) =>
     loadWith(scope, true);
+
+  async function initializeWith(
+    value: DrawingInitializeInput | Omit<DrawingInitializeInput, "userId">,
+    service: boolean,
+  ) {
+    const initialize = service
+      ? input.database.initializeServiceState
+      : input.database.initializeState;
+    if (!initialize)
+      throw new Error(
+        "Drawing collaboration canonical initialization is unavailable.",
+      );
+    input.validateState?.(value.state, value);
+    const winner = await retry(
+      () => initialize(value as DrawingInitializeInput),
+      sleep,
+    );
+    input.validateState?.(winner.yjsState, value);
+    const token = { generation: winner.generation, sha256: winner.sha256 };
+    tokens.set(key(value, null), token);
+    if (!service)
+      tokens.set(key(value, (value as DrawingInitializeInput).userId), token);
+    return winner;
+  }
 
   async function storeWith(
     value: (DrawingStorageScope | DrawingServiceStorageScope) & {
@@ -227,6 +267,10 @@ export function createDrawingCollaborationStorage(input: {
     store,
     loadService,
     storeService,
+    initializeState: (value: DrawingInitializeInput) =>
+      initializeWith(value, false),
+    initializeServiceState: (value: Omit<DrawingInitializeInput, "userId">) =>
+      initializeWith(value, true),
     authorize: input.database.authorize,
     bootstrap: input.database.bootstrap,
     bootstrapService: input.database.bootstrapService,
@@ -234,6 +278,13 @@ export function createDrawingCollaborationStorage(input: {
       ? (revisionId: string, operationIds: string[]) =>
           retry(
             () => input.database.lookupOperations!(revisionId, operationIds),
+            sleep,
+          )
+      : undefined,
+    nativeOperations: input.database.nativeOperations
+      ? (scope: DrawingServiceStorageScope, afterSequence: number) =>
+          retry(
+            () => input.database.nativeOperations!(scope, afterSequence),
             sleep,
           )
       : undefined,
@@ -263,7 +314,40 @@ export function createPostgresDrawingCollaborationDatabase(
       return action(transaction);
     });
 
+  const initialize = (
+    value: DrawingInitializeInput | Omit<DrawingInitializeInput, "userId">,
+    service: boolean,
+  ) =>
+    inRole(async (tx) => {
+      const rows = service
+        ? await tx`select * from private.lukas_drawing_collaboration_service_initialize_state(
+          ${value.projectId}::uuid,${value.revisionId}::uuid,
+          ${Buffer.from(value.state)}::bytea,${value.baseOperationSequence}::bigint,
+          ${value.baseSnapshotSha256}::text
+        )`
+        : await tx`select * from private.lukas_drawing_collaboration_initialize_state(
+          ${(value as DrawingInitializeInput).userId}::uuid,${value.projectId}::uuid,${value.revisionId}::uuid,
+          ${Buffer.from(value.state)}::bytea,${value.baseOperationSequence}::bigint,
+          ${value.baseSnapshotSha256}::text
+        )`;
+      const row = firstRow(rows);
+      if (!row)
+        throw new Error(
+          "Drawing collaboration initialization returned no state.",
+        );
+      return {
+        yjsState: new Uint8Array(row.yjs_state),
+        generation: Number(row.store_generation),
+        sha256: row.yjs_sha256 as string,
+        baseOperationSequence: Number(row.base_operation_sequence),
+        freezeState: row.freeze_state as DrawingFreezeState["state"],
+        freezeRequestId: row.freeze_request_id as string | null,
+      };
+    });
+
   return {
+    initializeState: (value) => initialize(value, false),
+    initializeServiceState: (value) => initialize(value, true),
     authorize: (userId, projectId, revisionId) =>
       inRole(async (tx) => {
         const row = firstRow(
@@ -403,7 +487,7 @@ export function createPostgresDrawingCollaborationDatabase(
             history_action: "undo" | "redo" | null;
             original_operation_id: string | null;
             sequence: number;
-            result_versions: Record<string, number>;
+            result_versions: Record<string, number | null>;
           }[]
         >`select * from private.lukas_drawing_collaboration_lookup_operations(${revisionId}::uuid,${operationIds}::uuid[])`;
         return rows.map((row) => ({
@@ -419,6 +503,14 @@ export function createPostgresDrawingCollaborationDatabase(
           sequence: Number(row.sequence),
           resultVersions: row.result_versions,
         }));
+      }),
+    nativeOperations: (scope, afterSequence) =>
+      inRole(async (tx) => {
+        const rows = await tx<{ operation: DrawingAcceptedOperation }[]>`
+          select * from private.lukas_drawing_collaboration_native_operations(
+            ${scope.projectId}::uuid,${scope.revisionId}::uuid,${afterSequence}::bigint
+          )`;
+        return rows.map((row) => row.operation);
       }),
     freeze: {
       readFreeze: (scope) =>
@@ -436,7 +528,8 @@ export function createPostgresDrawingCollaborationDatabase(
                 frozen_subject_revision_version: number | null;
                 frozen_yjs_state_vector: string | null;
                 frozen_operation_statuses:
-                  DrawingFreezeState["operationStatuses"] | null;
+                  | DrawingFreezeState["operationStatuses"]
+                  | null;
                 review_committed: boolean;
                 freeze_owner_token: string | null;
                 freeze_owner_request_id: string | null;

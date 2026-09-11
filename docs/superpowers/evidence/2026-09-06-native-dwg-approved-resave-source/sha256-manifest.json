@@ -1,0 +1,272 @@
+[
+  {
+    "path": "accepted-code/platform/app/lukas/lib/drawing-native-dwg-resave-source.server.ts",
+    "bytes": 9352,
+    "sha256": "2da86f08e24ffb922cc9b8a13c69c8dad9f691aec62cf3f98cc59f82e13dde64"
+  },
+  {
+    "path": "accepted-code/platform/supabase/migrations/20260906043637_drawing_native_dwg_resave_source_authority.sql",
+    "bytes": 11200,
+    "sha256": "6cd28cff0d714bd670e3a224d72475a9e5b4cd7b804caeb6c9de790ae2853ca5"
+  },
+  {
+    "path": "accepted-code/platform/tests/drawing-native-dwg-resave-source.test.mjs",
+    "bytes": 19382,
+    "sha256": "93f94087a5754f470ae0528ec1e51d5c5bfbf6c0aedf3bb5d8ea6a9b4581e8e6"
+  },
+  {
+    "path": "accepted-code/platform/tests/fixtures/drawing-native-dwg-canonical-import-database.mjs",
+    "bytes": 34573,
+    "sha256": "21b12f94e47adc511a27bb6731acac05e2abf82858b920e85162cd03937bbbbc"
+  },
+  {
+    "path": "accepted-code/platform/tests/fixtures/drawing-native-dwg-resave-source-database.mjs",
+    "bytes": 9006,
+    "sha256": "b5d8e172cd1047b81fcf0f79ac966035095c42a5644ab4a1fb507a9e9d420557"
+  },
+  {
+    "path": "accepted-files.json",
+    "bytes": 884,
+    "sha256": "a8461e589e241357881c4d70f9a14ff8a97ad09ed26c698ba1b9e1a9f37a4263"
+  },
+  {
+    "path": "final-check-1.log",
+    "bytes": 8295,
+    "sha256": "7cb5337436eab119796de32888519237339bcf2e022886be33d1d6ac9ce5987e"
+  },
+  {
+    "path": "final-check-2.log",
+    "bytes": 58,
+    "sha256": "30d632d155b5c6ee81c5f42da6918bff2b555f9a92a22715a6f795cdf95d1ec1"
+  },
+  {
+    "path": "final-check-3.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "final-diff.md",
+    "bytes": 58898,
+    "sha256": "234ea8a51bd0eb2d726c0e8c1500bc9511a89b78bef793281d8b23e30725696f"
+  },
+  {
+    "path": "final-review.md",
+    "bytes": 869,
+    "sha256": "6ceaf27ad92df77fd2ab4547dfcdf618ced3b5c0c6f38fea2f4ee886d572f904"
+  },
+  {
+    "path": "handoff.json",
+    "bytes": 449,
+    "sha256": "d9e43ed0e4de9feef3838de22e7df974c4bd86b3264f69fad5abd314991cef4f"
+  },
+  {
+    "path": "native-regression/full-turn-edit-request.json",
+    "bytes": 283,
+    "sha256": "abb9b476f9b7366f6c27af603cc35bada419bb3a961b4c3243ab23e3dd8ccae3"
+  },
+  {
+    "path": "native-regression/full-turn-qualification/edit-request.json",
+    "bytes": 283,
+    "sha256": "abb9b476f9b7366f6c27af603cc35bada419bb3a961b4c3243ab23e3dd8ccae3"
+  },
+  {
+    "path": "native-regression/full-turn-qualification/edited-roundtrip.dwg",
+    "bytes": 11019,
+    "sha256": "fe83e207116064572b85de2ae7fb12b03fa85d6f1ce974834314c11f562e3535"
+  },
+  {
+    "path": "native-regression/full-turn-qualification/input-working-copy.dwg",
+    "bytes": 10987,
+    "sha256": "523b56fba1b2f03e3e590cbcdf2f3d6db91f9d7a0b77d2531e1183268f8f855e"
+  },
+  {
+    "path": "native-regression/full-turn-qualification/no-edit-roundtrip.dwg",
+    "bytes": 11019,
+    "sha256": "af3d3124085c5d6a079aa31fbb6878503d94abb9d4a9553efa623ac6af0e47fa"
+  },
+  {
+    "path": "native-regression/full-turn-qualification/qualification-report.json",
+    "bytes": 17410,
+    "sha256": "dd4638110e217962001d6597c45f24d3abc1448bdbd8334763b53abc24e0af7b"
+  },
+  {
+    "path": "native-regression/full-turn-readback/native-import.json",
+    "bytes": 1457,
+    "sha256": "5a523f50a9dc313bbcb95e7fb61c946f301b2011cfc05bd54d1f93f54ce01be3"
+  },
+  {
+    "path": "native-regression/generated-fixture/synthetic-input.dwg",
+    "bytes": 10987,
+    "sha256": "523b56fba1b2f03e3e590cbcdf2f3d6db91f9d7a0b77d2531e1183268f8f855e"
+  },
+  {
+    "path": "native-regression/integration-summary.json",
+    "bytes": 1315,
+    "sha256": "3ec208f164a824ce1fb4eb284a6a645476cb9c130e725a79f52dfebdfc466640"
+  },
+  {
+    "path": "native-regression/nonzero-full-turn-edit-request.json",
+    "bytes": 300,
+    "sha256": "d4a915ca42c9a64ebb4cade95cc7eacc17bbdc05b71297af6c4f935cfe89da27"
+  },
+  {
+    "path": "native-regression/nonzero-full-turn-qualification/edit-request.json",
+    "bytes": 300,
+    "sha256": "d4a915ca42c9a64ebb4cade95cc7eacc17bbdc05b71297af6c4f935cfe89da27"
+  },
+  {
+    "path": "native-regression/nonzero-full-turn-qualification/edited-roundtrip.dwg",
+    "bytes": 11019,
+    "sha256": "30c2f9e0fb01668814ccb97f93d2468b8877f335b0c09a0a3883c395482ea875"
+  },
+  {
+    "path": "native-regression/nonzero-full-turn-qualification/input-working-copy.dwg",
+    "bytes": 10987,
+    "sha256": "523b56fba1b2f03e3e590cbcdf2f3d6db91f9d7a0b77d2531e1183268f8f855e"
+  },
+  {
+    "path": "native-regression/nonzero-full-turn-qualification/no-edit-roundtrip.dwg",
+    "bytes": 11019,
+    "sha256": "9aa461492dadc9c4467149bf1bdd87a848e439d2564a9779dccdab5d3d13f698"
+  },
+  {
+    "path": "native-regression/nonzero-full-turn-qualification/qualification-report.json",
+    "bytes": 17443,
+    "sha256": "18b9b1e3593fae98897fed210ca082f1f22c9a793b92600e39360aae51864067"
+  },
+  {
+    "path": "native-regression/nonzero-full-turn-readback/native-import.json",
+    "bytes": 1474,
+    "sha256": "9ecd5b7763ef890832e2085cf8e351b5beb14aef090818f55e7e980b1af5ecb2"
+  },
+  {
+    "path": "native-regression/source-read/native-import.json",
+    "bytes": 1446,
+    "sha256": "771ee30e50dbee23a668e4169ea23bb143df1eec091137b86ef1e5d8d446a019"
+  },
+  {
+    "path": "native-regression/wrapped-edit-request.json",
+    "bytes": 613,
+    "sha256": "5f8eec764d9b2deeab230944224ba19629b3ac31c7dfad051621da49953994ed"
+  },
+  {
+    "path": "native-regression/wrapped-qualification/edit-request.json",
+    "bytes": 613,
+    "sha256": "5f8eec764d9b2deeab230944224ba19629b3ac31c7dfad051621da49953994ed"
+  },
+  {
+    "path": "native-regression/wrapped-qualification/edited-roundtrip.dwg",
+    "bytes": 11019,
+    "sha256": "c5c64c052cd550d58c273ee0be5c5fbfe579f22d2c050919eeeec864a73c1184"
+  },
+  {
+    "path": "native-regression/wrapped-qualification/input-working-copy.dwg",
+    "bytes": 10987,
+    "sha256": "523b56fba1b2f03e3e590cbcdf2f3d6db91f9d7a0b77d2531e1183268f8f855e"
+  },
+  {
+    "path": "native-regression/wrapped-qualification/no-edit-roundtrip.dwg",
+    "bytes": 11019,
+    "sha256": "c2c600250fae9bca02a0c25d1e47f333309f5df6ad43328451b6786dc92c85e9"
+  },
+  {
+    "path": "native-regression/wrapped-qualification/qualification-report.json",
+    "bytes": 17536,
+    "sha256": "caa5a27c73bf2becc53112eeee9b750f18af8428517a4b52092460652f7b1fb5"
+  },
+  {
+    "path": "native-regression/wrapped-readback/native-import.json",
+    "bytes": 1490,
+    "sha256": "636533827c0357e307452bcedf8254be2f9784228c9274349ed8f8365580b238"
+  },
+  {
+    "path": "runtime/attempt-3-bind-preflight.log",
+    "bytes": 72,
+    "sha256": "4f47283fd8ccca9fef17fd376f55bbfb01f5fdd26d4db7f7d20265ff254ffc87"
+  },
+  {
+    "path": "runtime/dotnet-publish.log",
+    "bytes": 275,
+    "sha256": "9028e84d4d290dcff7c70a9dc543399069ebaeeac5402d0ff8c9a6459d73c0ac"
+  },
+  {
+    "path": "runtime/edge-bind-diagnostic.log",
+    "bytes": 3372,
+    "sha256": "810217aec8ad57dac74e7db92440153f47abd6745f664e7cb193f22f4133f37d"
+  },
+  {
+    "path": "runtime/m1-authenticated-runtime-attempt-2.log",
+    "bytes": 405,
+    "sha256": "4b04d62799281ca4bb9828574da454269677001f7b0a5ee9ee38d9ab9aec8e60"
+  },
+  {
+    "path": "runtime/m1-authenticated-runtime-attempt-3.log",
+    "bytes": 294997,
+    "sha256": "779d22229f37c251faabd2430487ea73e8aaf85736cb20577c4c53e04e72e585"
+  },
+  {
+    "path": "runtime/m1-authenticated-runtime.log",
+    "bytes": 405,
+    "sha256": "4b04d62799281ca4bb9828574da454269677001f7b0a5ee9ee38d9ab9aec8e60"
+  },
+  {
+    "path": "runtime/preflight-failure-1.log",
+    "bytes": 606,
+    "sha256": "66f5a535df9b9c06ccd97ca162d79163812edd9311b5e28f343c6c998dbaef2e"
+  },
+  {
+    "path": "runtime/runtime-report.md",
+    "bytes": 8730,
+    "sha256": "1ca969c2ee33440233e101c463230514caf5bc18979663d991b376e59f8e2d5d"
+  },
+  {
+    "path": "runtime/runtime-summary-attempt-2.json",
+    "bytes": 423,
+    "sha256": "013fd29c4e46065b7962a19c9f09f7fc2022dd5ca659aa2c6064b5de20c34a22"
+  },
+  {
+    "path": "runtime/runtime-summary-attempt-3.json",
+    "bytes": 2623,
+    "sha256": "421e11ad3554698c770ea16ab68a67d789dd7ad4bccb6799397a3823b1d5de20"
+  },
+  {
+    "path": "runtime/runtime-summary.json",
+    "bytes": 1307,
+    "sha256": "a59f2a2d9192d3d789b59526ba0bb35156f998a508296e12382ae8486ec464a8"
+  },
+  {
+    "path": "runtime/supabase-attempt-2-sanitized.log",
+    "bytes": 10446,
+    "sha256": "bdafd2246b27c64761a04b93edf532f41efacd79f478441794b3bf76e5df8968"
+  },
+  {
+    "path": "runtime/supabase-attempt-3-sanitized.log",
+    "bytes": 17990,
+    "sha256": "6d05cf5b999e07be31bb0a2c99b2a7fce9d87b13e13ba7efdf89a6d1d9da5c22"
+  },
+  {
+    "path": "task-1-fix-1-diff.md",
+    "bytes": 10094,
+    "sha256": "46ffa8ef3a52ac811b88611c2849f53c0f18fc0236e226d978f4d2a42dbb63de"
+  },
+  {
+    "path": "task-1-fix-1-review.md",
+    "bytes": 707,
+    "sha256": "aabb31ad13909cd7e0ed9ce2cc5b04603b403949c71669f68c01212776313c83"
+  },
+  {
+    "path": "task-1-report.md",
+    "bytes": 15738,
+    "sha256": "8bdba5c4cb375059463c4a476af89966fc2b716f5fadec76f226f3ba87c65f55"
+  },
+  {
+    "path": "task-1-review.md",
+    "bytes": 1439,
+    "sha256": "bf4114c2207a0946c33c7a03c5057f6f6ecf52bd25a5cd9de4f2f10160ad69c8"
+  },
+  {
+    "path": "verification.json",
+    "bytes": 2105,
+    "sha256": "598e4f8813d79a8b9113913bd2eada9daeefd30a4c4295b3571e95aa549f35f0"
+  }
+]

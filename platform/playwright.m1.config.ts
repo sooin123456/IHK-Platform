@@ -1,9 +1,12 @@
 import { defineConfig } from "@playwright/test";
 
+import { requireDrawingP3DisposableCredentials } from "./e2e/utils/drawing-collaboration-fixture";
 import base from "./playwright.config";
 import { verifyDisposableSupabaseAuthority } from "./scripts/run-drawing-workspace-m1-e2e.mjs";
 
 const authority = verifyDisposableSupabaseAuthority(process.env);
+if (process.env.M1_E2E_P3_DISPOSABLE === "1")
+  requireDrawingP3DisposableCredentials(process.env);
 
 const value = (name: string) => {
   const result = process.env[name]?.trim();

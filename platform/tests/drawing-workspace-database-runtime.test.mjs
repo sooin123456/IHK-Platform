@@ -305,6 +305,22 @@ const m1CollaborationServiceStoreMigration = () =>
     ),
     "utf8",
   );
+const collaborationCheckpointReviewBoundaryMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260902003000_drawing_collaboration_checkpoint_review_boundary.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+const m3CanonicalHardeningMigration = () =>
+  readFile(
+    new URL(
+      "../supabase/migrations/20260902005000_drawing_workspace_m3_canonical_hardening.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 const primitiveDeterministicAuthorityMigration = () =>
   readFile(
     new URL(
@@ -313,6 +329,14 @@ const primitiveDeterministicAuthorityMigration = () =>
     ),
     "utf8",
   );
+const operationDiscardAuthorityMigration = async () => {
+  const directory = new URL("../supabase/migrations/", import.meta.url);
+  const names = (await readdir(directory)).filter((name) =>
+    name.endsWith("_drawing_operation_discard_authority.sql"),
+  );
+  assert.equal(names.length, 1);
+  return readFile(new URL(names[0], directory), "utf8");
+};
 const p4SemanticObjectsMigration = () =>
   readFile(
     new URL(
@@ -406,6 +430,8 @@ async function applyP0ThroughP3Migrations(targetDb) {
     p3CrossInstanceFreezeLeaseMigration,
     p3PreloadStoreFenceMigration,
     m1CollaborationServiceStoreMigration,
+    collaborationCheckpointReviewBoundaryMigration,
+    m3CanonicalHardeningMigration,
   ]) {
     await targetDb.exec(await readMigration());
   }
@@ -475,9 +501,18 @@ const foundationSql = `
     create function auth.uid() returns uuid language sql stable set search_path = '' as $$
       select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
     $$;
+    create function private.lukas_qto_verified_session()
+    returns boolean language sql stable security invoker set search_path = '' as $$
+      select coalesce(
+        nullif(current_setting('request.jwt.claim.is_anonymous',true),'')::boolean,
+        false
+      )=false
+    $$;
     grant usage on schema auth to authenticated, service_role;
     grant execute on function auth.uid() to authenticated, service_role;
     grant usage on schema private to authenticated, service_role;
+    grant execute on function private.lukas_qto_verified_session()
+      to authenticated, service_role;
 
     create table public.lukas_qto_organizations(
       id uuid primary key,
@@ -613,6 +648,12 @@ const foundationSql = `
     revoke all on function private.lukas_qto_project_role(uuid) from public, anon;
     grant execute on function private.lukas_qto_project_role(uuid)
       to authenticated, service_role;
+    create function private.lukas_qto_project_feature_active(uuid,text)
+    returns boolean language sql stable security definer set search_path = '' as $$
+      select true
+    $$;
+    revoke all on function private.lukas_qto_project_feature_active(uuid,text)
+      from public,anon;
     grant select on public.lukas_qto_projects, public.lukas_qto_project_members,
       public.lukas_qto_files, public.lukas_qto_file_revisions,
       public.lukas_drawing_issues to authenticated;
@@ -634,7 +675,7 @@ async function createDocument(title = randomUUID()) {
   return result.rows[0].result;
 }
 
-async function persistCollaborationState(revisionId) {
+async function persistCollaborationState(revisionId, baseOperationSequence = 0) {
   const state = Buffer.from([0]);
   const sha = createHash("sha256").update(state).digest("hex");
   await db.exec("reset role");
@@ -642,8 +683,8 @@ async function persistCollaborationState(revisionId) {
     `insert into private.lukas_drawing_collaboration_states(
       revision_id,project_id,schema_version,yjs_state,yjs_sha256,
       base_operation_sequence,store_generation,byte_size,persisted_at
-    ) values($1,$2,1,$3::bytea,$4,0,1,1,clock_timestamp())`,
-    [revisionId, PROJECT, state, sha],
+    ) values($1,$2,1,$3::bytea,$4,$5,1,1,clock_timestamp())`,
+    [revisionId, PROJECT, state, sha, baseOperationSequence],
   );
   await db.exec("set role lukas_drawing_collaboration");
 }
@@ -841,6 +882,7 @@ before(async () => {
   await db.exec(await p5RevisionRelinkAuthorityMigration());
   await db.exec(await p7OrganizationLibraryMigration());
   await db.exec(await primitiveDeterministicAuthorityMigration());
+  await db.exec(await operationDiscardAuthorityMigration());
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [
     OWNER,
     REVIEWER,
@@ -1073,6 +1115,41 @@ test("P4 forward migrations preserve populated P0-P3 state before semantic write
   } finally {
     await upgradeDb.close();
   }
+});
+
+test("M3 HTTP checkpoint timestamp advances once per committed operation", async () => {
+  const ids = await createDocument();
+  const object = circleObject(randomUUID(), ids.workLayerId);
+  const operationId = randomUUID();
+  const before = await db.query(
+    "select updated_at::text value from public.lukas_drawing_revisions where id=$1",
+    [ids.revisionId],
+  );
+  const apply = () =>
+    applyOperationWithId(
+      ids.revisionId,
+      operationId,
+      "add_objects",
+      {},
+      { type: "add_objects", objects: [object] },
+      { type: "delete_objects", objectIds: [object.id] },
+    );
+
+  await apply();
+  const advanced = await db.query(
+    `select updated_at>$2::timestamptz advanced,updated_at::text value
+     from public.lukas_drawing_revisions where id=$1`,
+    [ids.revisionId, before.rows[0].value],
+  );
+  assert.equal(advanced.rows[0].advanced, true);
+
+  await apply();
+  const retried = await db.query(
+    `select updated_at=$2::timestamptz unchanged
+     from public.lukas_drawing_revisions where id=$1`,
+    [ids.revisionId, advanced.rows[0].value],
+  );
+  assert.equal(retried.rows[0].unchanged, true);
 });
 
 test("P5 upgrade preserves every legal P0-P4 source shape without inventing IFC identity", async () => {
@@ -4090,6 +4167,19 @@ test("P3 collaboration bootstrap is one canonical capability-scoped payload", as
   assert.equal(payload.sha256, canonicalDigest.rows[0].sha);
   assert.deepEqual(payload.recentOutcomes, []);
 
+  await db.query(
+    "select set_config('request.jwt.claim.is_anonymous','true',false)",
+  );
+  await assert.rejects(
+    db.query("select public.lukas_drawing_collaboration_bootstrap($1)", [
+      ids.revisionId,
+    ]),
+    (error) => error.code === "P3A01",
+  );
+  await db.query(
+    "select set_config('request.jwt.claim.is_anonymous','false',false)",
+  );
+
   await db.exec("set role lukas_drawing_collaboration");
   const privateOwner = await db.query(
     "select private.lukas_drawing_collaboration_bootstrap($1,$2,$3) result",
@@ -5019,10 +5109,14 @@ test("P3 collaborative review requires the exact service-frozen accepted manifes
   await db.exec("reset role");
   const legacyPrivileges = await db.query(`select
     has_function_privilege('authenticated','private.lukas_drawing_request_review(uuid)','execute') authenticated_execute,
-    has_function_privilege('service_role','private.lukas_drawing_request_review(uuid)','execute') service_execute`);
+    has_function_privilege('service_role','private.lukas_drawing_request_review(uuid)','execute') service_execute,
+    has_function_privilege('authenticated','private.lukas_drawing_request_collaborative_review(uuid,uuid,text,integer,bigint,jsonb)','execute') authenticated_legacy_collaborative,
+    has_function_privilege('service_role','private.lukas_drawing_request_collaborative_review(uuid,uuid,text,integer,bigint,jsonb)','execute') service_legacy_collaborative`);
   assert.deepEqual(legacyPrivileges.rows[0], {
     authenticated_execute: false,
     service_execute: false,
+    authenticated_legacy_collaborative: false,
+    service_legacy_collaborative: false,
   });
   await asActor(OWNER);
   await assert.rejects(
@@ -5339,6 +5433,118 @@ test("P3 collaborative review requires the exact service-frozen accepted manifes
     ),
     (error) => error.code === "P3F02",
   );
+  await db.exec("reset role");
+});
+
+test("P3 review accepts a checkpoint-bound manifest that omits legacy pre-checkpoint operations", async () => {
+  const ids = await createDocument("P3 checkpoint review boundary");
+  for (const [index, name] of ["Checkpoint legacy", "After checkpoint"].entries()) {
+    const layerId = randomUUID();
+    await applyOperationWithId(
+      ids.revisionId,
+      randomUUID(),
+      "add_layer",
+      { [layerId]: 1 },
+      {
+        type: "add_layer",
+        layer: {
+          id: layerId,
+          name,
+          canvasId: ids.canvasId,
+          sortOrder: 20 + index,
+          visible: true,
+          locked: false,
+          version: 1,
+        },
+      },
+      {},
+    );
+  }
+  const accepted = await db.query(
+    `select client_operation_id "clientOperationId",revision_id "revisionId",
+      actor_id "actorId",operation_type "operationType",
+      base_versions "baseVersions",forward,inverse,
+      history_action "historyAction",original_operation_id "originalOperationId",
+      sequence,result_versions "resultVersions"
+     from public.lukas_drawing_operations where revision_id=$1 order by sequence`,
+    [ids.revisionId],
+  );
+  assert.equal(accepted.rows.length, 2);
+  const checkpointSequence = Number(accepted.rows[0].sequence);
+  const manifest = [accepted.rows[1]];
+  const manifestSha256 = createHash("sha256")
+    .update(JSON.stringify(manifest))
+    .digest("hex");
+  const operationStatuses = manifest.map((operation) => ({
+    clientOperationId: operation.clientOperationId,
+    status: "acked",
+    authoritativeSequence: Number(operation.sequence),
+    resultVersions: operation.resultVersions,
+  }));
+  const requestId = randomUUID();
+  const ownerToken = randomUUID();
+  const stateVectorBase64 = "AQ==";
+
+  await persistCollaborationState(ids.revisionId, checkpointSequence);
+  await db.query(
+    "select private.lukas_drawing_collaboration_acquire_freeze_lease($1,$2,$3,$4,30,$5::bytea,$6)",
+    [
+      PROJECT,
+      ids.revisionId,
+      requestId,
+      ownerToken,
+      Buffer.from([0]),
+      checkpointSequence,
+    ],
+  );
+  await db.query(
+    "select private.lukas_drawing_collaboration_begin_freeze($1,$2,$3,$4::bytea,$5,$6)",
+    [
+      PROJECT,
+      ids.revisionId,
+      requestId,
+      Buffer.from([1]),
+      checkpointSequence,
+      ownerToken,
+    ],
+  );
+  await db.query(
+    "select private.lukas_drawing_collaboration_complete_freeze($1,$2,$3,$4::bytea,$5,$6,$7,$8,$9,$10,$11)",
+    [
+      PROJECT,
+      ids.revisionId,
+      requestId,
+      Buffer.from([2]),
+      manifest,
+      manifestSha256,
+      manifest.length,
+      checkpointSequence,
+      stateVectorBase64,
+      operationStatuses,
+      ownerToken,
+    ],
+  );
+  await db.exec("reset role");
+  await asActor(OWNER);
+  const reviewed = await db.query(
+    "select public.lukas_drawing_request_collaborative_review($1,$2,$3,$4,$5,1,$6,$7,$8) result",
+    [
+      ids.revisionId,
+      requestId,
+      manifestSha256,
+      manifest.length,
+      checkpointSequence,
+      stateVectorBase64,
+      operationStatuses,
+      manifest,
+    ],
+  );
+  assert.equal(reviewed.rows[0].result.freezeRequestId, requestId);
+  const revision = await db.query(
+    "select status from public.lukas_drawing_revisions where id=$1",
+    [ids.revisionId],
+  );
+  assert.equal(revision.rows[0].status, "review_requested");
   await db.exec("reset role");
 });
 
@@ -8830,9 +9036,11 @@ test("block library and instance inspector remain readable while approved viewer
   });
   const viewer = renderToStaticMarkup(
     createElement(DrawingBlocksPanel, {
+      activeCanvasId: canvasId,
       activeLayerId: null,
       actorId: OWNER,
       canEdit: false,
+      layers: state.layers,
       onCommand() {},
       onSelectionChange() {},
       selectedIds: [],
@@ -8885,9 +9093,11 @@ test("block library and instance inspector remain readable while approved viewer
 
   const editor = renderToStaticMarkup(
     createElement(DrawingBlocksPanel, {
+      activeCanvasId: canvasId,
       activeLayerId: layerId,
       actorId: OWNER,
       canEdit: true,
+      layers: state.layers,
       onCommand() {},
       onSelectionChange() {},
       selectedIds: [],
@@ -8895,9 +9105,12 @@ test("block library and instance inspector remain readable while approved viewer
     }),
   );
   assert.match(editor, /선택 객체로 블록 만들기/);
-  assert.match(editor, /정의 저장/);
+  assert.match(editor, /이름 저장/);
+  assert.match(editor, /선택 객체로 정의 교체/);
+  assert.match(editor, /선택 원본은 유지/);
   assert.match(editor, /인스턴스 삽입/);
   assert.match(editor, /사용 중인 정의는 삭제할 수 없습니다/);
+  assert.doesNotMatch(editor, /도형 요소 JSON|<textarea/);
 });
 
 test("semantic block navigation exposes hidden active-canvas instances but no off-canvas buttons or edits", () => {
@@ -14552,4 +14765,272 @@ test("P3 checkpoint restore revives older non-object tombstone content", async (
     [style.id],
   );
   assert.deepEqual(restored.rows, [{ name: style.name, version: 4 }]);
+});
+
+function discardableAddLayerOperation(ids, name) {
+  const layerId = randomUUID();
+  return {
+    layerId,
+    operation: {
+      clientOperationId: randomUUID(),
+      revisionId: ids.revisionId,
+      type: "add_layer",
+      baseVersions: { [layerId]: 1 },
+      forward: {
+        type: "add_layer",
+        layer: {
+          id: layerId,
+          name,
+          canvasId: ids.canvasId,
+          sortOrder: 20,
+          visible: true,
+          locked: false,
+          version: 1,
+        },
+      },
+      inverse: {},
+      createdAt: "2026-09-02T00:00:00.000Z",
+    },
+  };
+}
+
+async function discardOperationSuffix(revisionId, operations, actorId = OWNER) {
+  await asActor(actorId);
+  const result = await db.query(
+    `select public.lukas_drawing_discard_operation_suffix(
+      $1,$2::jsonb
+    ) result`,
+    [revisionId, JSON.stringify(operations)],
+  );
+  return result.rows[0].result;
+}
+
+test("operation discard reports the exact accepted operation when apply wins first", async () => {
+  const ids = await createDocument("Discard accepted winner");
+  const { operation } = discardableAddLayerOperation(ids, "Accepted winner");
+  const accepted = await applyOperationWithId(
+    ids.revisionId,
+    operation.clientOperationId,
+    operation.type,
+    operation.baseVersions,
+    operation.forward,
+    operation.inverse,
+  );
+
+  const result = await discardOperationSuffix(ids.revisionId, [operation]);
+  assert.deepEqual(result, {
+    dispositions: [
+      {
+        clientOperationId: operation.clientOperationId,
+        status: "acked",
+        authoritativeSequence: accepted.sequence,
+        resultVersions: accepted.resultVersions,
+      },
+    ],
+  });
+  await db.exec("reset role");
+  const disposition = await db.query(
+    `select count(*)::int count
+     from private.lukas_drawing_operation_dispositions
+     where revision_id=$1 and client_operation_id=$2`,
+    [ids.revisionId, operation.clientOperationId],
+  );
+  assert.equal(disposition.rows[0].count, 0);
+});
+
+test("operation discard tombstone wins before apply and rolls back every graph write", async () => {
+  const ids = await createDocument("Discard rejected winner");
+  const { layerId, operation } = discardableAddLayerOperation(
+    ids,
+    "Rejected winner",
+  );
+
+  const first = await discardOperationSuffix(ids.revisionId, [operation]);
+  assert.deepEqual(first, {
+    dispositions: [
+      {
+        clientOperationId: operation.clientOperationId,
+        status: "rejected",
+        authoritativeSequence: null,
+        resultVersions: {},
+      },
+    ],
+  });
+  assert.deepEqual(
+    await discardOperationSuffix(ids.revisionId, [operation]),
+    first,
+  );
+  await assert.rejects(
+    applyOperationWithId(
+      ids.revisionId,
+      operation.clientOperationId,
+      operation.type,
+      operation.baseVersions,
+      operation.forward,
+      operation.inverse,
+    ),
+    (error) => error.code === "P1R01" && /discarded/i.test(error.message),
+  );
+  await db.exec("reset role");
+  const persisted = await db.query(
+    `select
+      (select count(*)::int from public.lukas_drawing_operations
+       where revision_id=$1 and client_operation_id=$2) operation_count,
+      (select count(*)::int from public.lukas_drawing_layers
+       where revision_id=$1 and id=$3) layer_count,
+      (select count(*)::int from private.lukas_drawing_operation_dispositions
+       where revision_id=$1 and client_operation_id=$2) disposition_count`,
+    [ids.revisionId, operation.clientOperationId, layerId],
+  );
+  assert.deepEqual(persisted.rows[0], {
+    operation_count: 0,
+    layer_count: 0,
+    disposition_count: 1,
+  });
+});
+
+test("an editor discard tombstone cannot preempt another editor's pending operation id", async () => {
+  const ids = await createDocument("Discard actor isolation");
+  const { layerId, operation } = discardableAddLayerOperation(
+    ids,
+    "Victim pending layer",
+  );
+
+  const discarded = await discardOperationSuffix(
+    ids.revisionId,
+    [operation],
+    OWNER,
+  );
+  assert.equal(discarded.dispositions[0].status, "rejected");
+
+  await asActor(EDITOR);
+  const accepted = await applyOperationWithId(
+    ids.revisionId,
+    operation.clientOperationId,
+    operation.type,
+    operation.baseVersions,
+    operation.forward,
+    operation.inverse,
+  );
+  assert.equal(accepted.resultVersions[layerId], 1);
+
+  await db.exec("reset role");
+  const persisted = await db.query(
+    `select
+      (select actor_id from public.lukas_drawing_operations
+       where revision_id=$1 and client_operation_id=$2) operation_actor,
+      (select count(*)::int from private.lukas_drawing_operation_dispositions
+       where revision_id=$1 and client_operation_id=$2
+         and actor_id=$3) attacker_disposition_count,
+      (select count(*)::int from private.lukas_drawing_operation_dispositions
+       where revision_id=$1 and client_operation_id=$2
+         and actor_id=$4) victim_disposition_count`,
+    [ids.revisionId, operation.clientOperationId, OWNER, EDITOR],
+  );
+  assert.deepEqual(persisted.rows[0], {
+    operation_actor: EDITOR,
+    attacker_disposition_count: 1,
+    victim_disposition_count: 0,
+  });
+});
+
+test("operation discard fails closed when an accepted payload or actor differs", async () => {
+  const ids = await createDocument("Discard accepted mismatch");
+  const { operation } = discardableAddLayerOperation(ids, "Original request");
+  await applyOperationWithId(
+    ids.revisionId,
+    operation.clientOperationId,
+    operation.type,
+    operation.baseVersions,
+    operation.forward,
+    operation.inverse,
+  );
+
+  const changed = structuredClone(operation);
+  changed.forward.layer.name = "Forged request";
+  await assert.rejects(
+    discardOperationSuffix(ids.revisionId, [changed]),
+    (error) => error.code === "P1C01",
+  );
+  await assert.rejects(
+    discardOperationSuffix(ids.revisionId, [operation], EDITOR),
+    (error) => error.code === "P1C01",
+  );
+});
+
+test("operation discard returns one ordered disposition per mixed batch and restricts execution", async () => {
+  const ids = await createDocument("Discard mixed suffix");
+  const accepted = discardableAddLayerOperation(ids, "Mixed accepted");
+  const rejected = discardableAddLayerOperation(ids, "Mixed rejected");
+  const stored = await applyOperationWithId(
+    ids.revisionId,
+    accepted.operation.clientOperationId,
+    accepted.operation.type,
+    accepted.operation.baseVersions,
+    accepted.operation.forward,
+    accepted.operation.inverse,
+  );
+
+  const result = await discardOperationSuffix(ids.revisionId, [
+    accepted.operation,
+    rejected.operation,
+  ]);
+  assert.deepEqual(result, {
+    dispositions: [
+      {
+        clientOperationId: accepted.operation.clientOperationId,
+        status: "acked",
+        authoritativeSequence: stored.sequence,
+        resultVersions: stored.resultVersions,
+      },
+      {
+        clientOperationId: rejected.operation.clientOperationId,
+        status: "rejected",
+        authoritativeSequence: null,
+        resultVersions: {},
+      },
+    ],
+  });
+
+  await asActor(OWNER);
+  await assert.rejects(
+    db.query(
+      "select public.lukas_drawing_discard_operation_suffix($1,null) result",
+      [ids.revisionId],
+    ),
+    (error) => error.code === "P1C01",
+  );
+
+  await assert.rejects(
+    discardOperationSuffix(ids.revisionId, [rejected.operation], REVIEWER),
+    (error) => error.code === "P1R01",
+  );
+  await db.exec("reset role");
+  const privileges = await db.query(`select
+    has_function_privilege(
+      'authenticated',
+      'public.lukas_drawing_discard_operation_suffix(uuid,jsonb)',
+      'execute'
+    ) authenticated_execute,
+    has_function_privilege(
+      'anon',
+      'public.lukas_drawing_discard_operation_suffix(uuid,jsonb)',
+      'execute'
+    ) anon_execute,
+    has_function_privilege(
+      'service_role',
+      'public.lukas_drawing_discard_operation_suffix(uuid,jsonb)',
+      'execute'
+    ) service_execute,
+    has_table_privilege(
+      'authenticated',
+      'private.lukas_drawing_operation_dispositions',
+      'select'
+    ) authenticated_table_read`);
+  assert.deepEqual(privileges.rows[0], {
+    authenticated_execute: true,
+    anon_execute: false,
+    service_execute: false,
+    authenticated_table_read: false,
+  });
 });

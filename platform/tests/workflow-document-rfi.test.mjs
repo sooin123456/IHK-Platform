@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {createServer} from 'vite';
+const vite=await createServer({configFile:false,appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+test.after(()=>vite.close());
+test('unsent RFI drafts are context bound and consumed only by successful submission',async()=>{
+ const {rfiDraftKey,saveRfiDraft,createRfi,actOnRfi}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-rfi.ts');
+ const doc={id:'d',title:'도면',revision:1,shapes:[{id:'a',label:'벽',x:10,y:20,page:1}]};
+ const key=rfiDraftKey(doc,'a','author','compose');const draft={key,title:'문의',question:'폭 확인',due:'2026-10-01',assignee:'reviewer',text:''};
+ const saved=saveRfiDraft(doc,draft);assert.deepEqual(saved.rfiDrafts,[draft]);assert.equal(doc.rfiDrafts,undefined);
+ assert.notEqual(rfiDraftKey({...doc,revision:2},'a','author','compose'),key);assert.notEqual(rfiDraftKey({...doc,shapes:[{...doc.shapes[0],x:11}]},'a','author','compose'),key);assert.notEqual(rfiDraftKey(doc,'a','reviewer','compose'),key);
+ assert.equal(saveRfiDraft(doc,{...draft,question:'x'.repeat(1001)}),doc);
+ assert.equal(createRfi(saved,'viewer',{...draft,objectId:'a'}),saved);
+ let requested=createRfi(saved,'author',{...draft,objectId:'a'});assert.deepEqual(requested.rfiDrafts,[]);
+ const answerKey=rfiDraftKey(requested,'a','reviewer','1:requested');requested=saveRfiDraft(requested,{...draft,key:answerKey,text:'答え'});
+ assert.equal(actOnRfi(requested,1,'author','answer','回答'),requested);
+ const answered=actOnRfi(requested,1,'reviewer','answer','回答');assert.deepEqual(answered.rfiDrafts,[]);assert.equal(answered.rfis[0].answer,'回答');
+});
+test('RFI inbox filters preserve document identity and route work to the next role',async()=>{
+ const {selectRfis}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-rfi.ts');
+ const requested={id:1,title:'출입구',text:'폭 확인',assignee:'reviewer',phase:'requested',due:'2026-10-01'};
+ const documents=[{id:'a',title:'건축',rfis:[requested,{...requested,id:2,phase:'answered'}]},{id:'b',title:'토목',rfis:[{...requested,assignee:'approver'},{...requested,id:2,phase:'closed'}]}];
+ assert.deepEqual(selectRfis(documents,{search:'토목',phase:'requested'}).map(({document,record})=>[document.id,record.id]),[['b',1]]);
+ assert.equal(selectRfis(documents,{document:'missing'}).length,0);
+ assert.deepEqual(selectRfis(documents,{queue:true,role:'author'}).map(({document,record})=>[document.id,record.id]),[['a',2]]);
+ assert.deepEqual(selectRfis(documents,{queue:true,role:'reviewer'}).map(({document,record})=>[document.id,record.id]),[['a',1]]);
+ assert.deepEqual(selectRfis(documents,{queue:true,role:'approver'}).map(({document,record})=>[document.id,record.id]),[['b',1]]);
+ assert.equal(selectRfis(documents,{queue:true,role:'viewer'}).length,0);
+ assert.equal(selectRfis(documents,{phase:'missing'}).length,0);
+ assert.deepEqual(selectRfis(documents,{assignee:'approver'}).map(({document,record})=>[document.id,record.id]),[['b',1]]);
+});
+test('RFI retains evidence and requires assigned answer before author closure',async()=>{
+ const {createRfi,actOnRfi,rfiSchema}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-rfi.ts');
+ const doc={id:'d',title:'도면',revision:1,shapes:[{id:'a',label:'벽',x:10,y:20,page:1}],reviewRounds:[]};
+ const input={objectId:'a',title:'출입구 폭',question:'유효 폭을 확인해주세요',assignee:'reviewer',due:'2026-10-01'};
+ let next=createRfi(doc,'author',input);assert.equal(next.rfis[0].phase,'requested');assert.equal(next.rfis[0].objectId,'a');assert.equal(next.shapes,doc.shapes);assert.equal(next.reviewRounds,doc.reviewRounds);
+ for(const [role,data] of [['viewer',input],['author',{...input,due:'2026-02-30'}],['author',{...input,objectId:'missing'}],['author',{...input,question:' '}]])assert.equal(createRfi(doc,role,data),doc);
+ assert.equal(actOnRfi(next,1,'author','close','확인'),next);
+ assert.equal(actOnRfi(next,1,'approver','answer','900mm'),next);
+ assert.equal(actOnRfi(next,1,'reviewer','answer',' '),next);
+ next=actOnRfi(next,1,'reviewer','answer','유효 폭 900mm로 검토 바랍니다');assert.equal(next.rfis[0].phase,'answered');
+ assert.equal(actOnRfi(next,1,'reviewer','close','확인'),next);
+ const closed=actOnRfi(next,1,'author','close','답변 확인, 도면 수정은 별도 검토 요청');assert.equal(closed.rfis[0].phase,'closed');assert.equal(closed.rfis[0].answer,next.rfis[0].answer);assert.equal(actOnRfi(closed,1,'reviewer','answer','덮어쓰기'),closed);
+ assert.equal(rfiSchema.safeParse({...closed.rfis[0],answer:undefined}).success,false);
+ assert.equal(rfiSchema.safeParse({...next.rfis[0],phase:'requested'}).success,false);
+ const moved={...next,shapes:[{...doc.shapes[0],x:30}]};assert.equal(actOnRfi(moved,1,'author','close','확인'),moved);
+});

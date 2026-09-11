@@ -12,13 +12,16 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { Form, Link, data, redirect } from "react-router";
+import { Form, Link, data, redirect, useLocation } from "react-router";
 import { z } from "zod";
 
 import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
+import { VerifiedBoqPriceBookImportPreview } from "~/lukas/components/verified-boq-pricebook-import-preview";
 import { recordProjectExport } from "~/lukas/lib/project-export-audit.server";
 import { VerifiedBoqDrawingSources } from "~/lukas/components/verified-boq-drawing-sources";
 import { VerifiedBoqComparison } from "~/lukas/components/verified-boq-comparison";
@@ -57,6 +60,7 @@ import {
   type VerifiedBoqV1_1Comparison,
   verifiedBoqStoredReplayMatches,
 } from "~/lukas/lib/verified-boq-comparison-v1-1.server";
+import { verifiedBoqComparisonRowHash } from "~/lukas/lib/verified-boq-comparison-links";
 import { compareVerifiedBoq } from "~/lukas/lib/verified-boq-comparison.server";
 import {
   assertVerifiedBoqSourceCoverage,
@@ -65,8 +69,10 @@ import {
   sha256Bytes,
 } from "~/lukas/lib/verified-boq-source.server";
 import {
+  analyzeVerifiedBoqPriceBook,
+  buildVerifiedBoqPriceBookAnalysisErrorsCsv,
   buildVerifiedBoqPriceBookTemplateCsv,
-  parseVerifiedBoqPriceBook,
+  validateVerifiedBoqPriceBookFileMetadata,
 } from "~/lukas/lib/verified-boq-pricebook.server";
 import {
   buildVerifiedBoqStructureTemplateCsv,
@@ -219,35 +225,68 @@ export function verifiedBoqLocation(
   projectId: string,
   versionId?: string,
   returnTo?: string | null,
-  download?: "pricebook-template" | "structure-template",
 ) {
   const query = new URLSearchParams();
   if (versionId) query.set("version", versionId);
   if (returnTo)
     query.set("returnTo", parseVerifiedBoqReturnTo(projectId, returnTo)!);
-  if (download) query.set("download", download);
   const suffix = query.toString();
   return `/projects/${projectId}/boq${suffix ? `?${suffix}` : ""}`;
+}
+
+export function verifiedBoqExportLocation(
+  projectId: string,
+  format:
+    | "csv"
+    | "xlsx"
+    | "manifest"
+    | "pricebook-template"
+    | "structure-template",
+  versionId?: string,
+) {
+  const query = new URLSearchParams();
+  if (versionId) query.set("version", versionId);
+  const suffix = query.toString();
+  return `/projects/${projectId}/boq/export/${format}${suffix ? `?${suffix}` : ""}`;
+}
+
+export function verifiedBoqPriceBookErrorReportLocation(
+  projectId: string,
+  priceBookId: string,
+) {
+  const query = new URLSearchParams({ price_book_id: priceBookId });
+  return `/projects/${projectId}/boq/export/pricebook-errors?${query}`;
+}
+
+function mergeVerifiedBoqResponseHeaders(
+  response: Response,
+  authHeaders: Headers,
+) {
+  return mergeResponseHeaders(response, authHeaders);
 }
 
 function untyped(client: unknown) {
   return client as SupabaseClient<any>;
 }
 
-async function getContext(request: Request, projectId: string) {
+async function getVerifiedBoqContext(request: Request, projectId: string) {
   const [typedClient, headers] = makeServerClient(request);
   const client = untyped(typedClient);
   const {
     data: { user },
   } = await typedClient.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   const { data: project, error } = await typedClient
     .from("lukas_qto_projects")
     .select("id,name,owner_id")
     .eq("id", projectId)
     .single();
   if (error || !project)
-    throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+    throw mergeResponseHeaders(
+      new Response("프로젝트를 찾을 수 없습니다.", { status: 404 }),
+      headers,
+    );
   const { data: membership } = await client
     .from("lukas_qto_project_members")
     .select("role")
@@ -318,6 +357,64 @@ async function loadStoredBoqSource(
   if (sha256Bytes(sourceBytes) !== sourceSha256)
     throw new Error("원수량 원본 파일의 고유 확인번호가 변경되었습니다.");
   return { file, sourceSha256, sourceBytes };
+}
+
+async function loadVerifiedBoqPriceBookSource(
+  context: Awaited<ReturnType<typeof getVerifiedBoqContext>>,
+  bookId: string,
+) {
+  const { data: book, error: bookError } = await context.client
+    .from("lukas_qto_price_books")
+    .select("id,source_file_id,source_sha256")
+    .eq("id", bookId)
+    .eq("project_id", context.project.id)
+    .single();
+  if (bookError || !book) throw new Error("단가표를 찾지 못했습니다.");
+  const { data: file, error: fileError } = await context.client
+    .from("lukas_qto_files")
+    .select(
+      "id,original_filename,storage_path,sha256,immutable,byte_size,content_type",
+    )
+    .eq("id", book.source_file_id)
+    .eq("project_id", context.project.id)
+    .single();
+  if (fileError || !file?.immutable || file.sha256 !== book.source_sha256)
+    throw new Error("단가표 원본 파일의 등록 정보가 변경되었습니다.");
+  const metadataError = validateVerifiedBoqPriceBookFileMetadata({
+    filename: file.original_filename,
+    contentType: file.content_type ?? "",
+    byteSize: file.byte_size,
+  });
+  if (metadataError) throw new Error(metadataError);
+  const storage = context.client.storage.from("lukas-qto");
+  const { data: storageInfo, error: storageInfoError } = await storage.info(
+    file.storage_path,
+  );
+  if (storageInfoError || !storageInfo)
+    throw new Error("단가표 원본 파일 정보를 읽지 못했습니다.");
+  const storageMetadataError = validateVerifiedBoqPriceBookFileMetadata({
+    filename: file.original_filename,
+    contentType: file.content_type ?? "",
+    byteSize: storageInfo.size ?? 0,
+  });
+  if (storageMetadataError) throw new Error(storageMetadataError);
+  if (storageInfo.size !== file.byte_size)
+    throw new Error("단가표 원본 파일의 크기 정보가 변경되었습니다.");
+  const { data: sourceBlob, error: downloadError } = await storage.download(
+    file.storage_path,
+  );
+  if (downloadError || !sourceBlob)
+    throw new Error("단가표 원본 파일을 읽지 못했습니다.");
+  if (sourceBlob.size !== storageInfo.size)
+    throw new Error("단가표 원본 파일의 크기 정보가 변경되었습니다.");
+  const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
+  const sourceSha256 = sha256.parse(book.source_sha256);
+  if (
+    sourceBytes.byteLength !== file.byte_size ||
+    sha256Bytes(sourceBytes) !== sourceSha256
+  )
+    throw new Error("단가표 원본 파일의 고유 확인번호가 변경되었습니다.");
+  return { book, file, sourceBytes, sourceSha256 };
 }
 
 async function assertVersionSourceCoverage(
@@ -560,8 +657,29 @@ export function focusVerifiedBoqLine(
   return true;
 }
 
-export async function loader({ request, params }: Route.LoaderArgs) {
-  const context = await getContext(request, params.projectId!);
+export function shouldFocusVerifiedBoqCalculationLine({
+  comparisonRowRendered,
+  focusedItemCode,
+  locationHash,
+}: {
+  comparisonRowRendered: boolean;
+  focusedItemCode: string | null;
+  locationHash: string;
+}) {
+  return !(
+    comparisonRowRendered &&
+    focusedItemCode &&
+    locationHash === verifiedBoqComparisonRowHash(focusedItemCode)
+  );
+}
+
+async function loadVerifiedBoqWithContext({
+  context,
+  request,
+}: {
+  context: Awaited<ReturnType<typeof getVerifiedBoqContext>>;
+  request: Request;
+}) {
   await assertProjectOrganizationFeature(
     context.client as any,
     context.project.id,
@@ -572,6 +690,66 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     context.project.id,
     url.searchParams.get("returnTo"),
   );
+  if (url.searchParams.get("download") === "pricebook-errors") {
+    if (!context.mayEdit)
+      throw new Response("적산 담당자만 단가표 오류를 내려받을 수 있습니다.", {
+        status: 403,
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    const parsedBookId = uuid.safeParse(url.searchParams.get("price_book_id"));
+    if (!parsedBookId.success)
+      throw new Response("단가표를 선택하세요.", {
+        status: 400,
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    try {
+      const source = await loadVerifiedBoqPriceBookSource(
+        context,
+        parsedBookId.data,
+      );
+      const analysis = analyzeVerifiedBoqPriceBook(
+        source.sourceBytes,
+        source.file.original_filename,
+      );
+      if (analysis.totalErrorCount === 0)
+        throw new Response("내려받을 단가표 오류가 없습니다.", {
+          status: 409,
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      const reportErrors = analysis.errorsTruncated
+        ? [
+            ...analysis.errors,
+            {
+              row: null,
+              field: null,
+              reason: `전체 ${analysis.totalErrorCount}건 중 첫 ${analysis.errors.length}건만 포함했습니다. 원본을 수정한 뒤 다시 검사하세요.`,
+            },
+          ]
+        : analysis.errors;
+      return mergeVerifiedBoqResponseHeaders(
+        new Response(buildVerifiedBoqPriceBookAnalysisErrorsCsv(reportErrors), {
+          headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Disposition":
+              'attachment; filename="pricebook-import-errors.csv"',
+            "Content-Type": "text/csv; charset=utf-8",
+          },
+        }),
+        context.headers,
+      );
+    } catch (error) {
+      if (error instanceof Response) throw error;
+      throw new Response(
+        error instanceof Error
+          ? error.message
+          : "단가표 오류 보고서를 만들지 못했습니다.",
+        {
+          status: 400,
+          headers: { "Cache-Control": "private, no-store" },
+        },
+      );
+    }
+  }
   if (url.searchParams.get("download") === "pricebook-template") {
     const artifact = buildVerifiedBoqPriceBookTemplateCsv();
     await recordProjectExport(
@@ -580,13 +758,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       "boq_template_csv",
       artifact,
     );
-    return new Response(artifact, {
-      headers: {
-        "Content-Disposition":
-          'attachment; filename="verified-boq-pricebook-template.csv"',
-        "Content-Type": "text/csv; charset=utf-8",
-      },
-    });
+    return mergeVerifiedBoqResponseHeaders(
+      new Response(artifact, {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "Content-Disposition":
+            'attachment; filename="verified-boq-pricebook-template.csv"',
+          "Content-Type": "text/csv; charset=utf-8",
+        },
+      }),
+      context.headers,
+    );
   }
   if (url.searchParams.get("download") === "structure-template") {
     const artifact = buildVerifiedBoqStructureTemplateCsv();
@@ -596,13 +778,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       "boq_template_csv",
       artifact,
     );
-    return new Response(artifact, {
-      headers: {
-        "Content-Disposition":
-          'attachment; filename="verified-boq-structure-template.csv"',
-        "Content-Type": "text/csv; charset=utf-8",
-      },
-    });
+    return mergeVerifiedBoqResponseHeaders(
+      new Response(artifact, {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "Content-Disposition":
+            'attachment; filename="verified-boq-structure-template.csv"',
+          "Content-Type": "text/csv; charset=utf-8",
+        },
+      }),
+      context.headers,
+    );
   }
   const [fileResult, bookResult, versionResult] = await Promise.all([
     context.client
@@ -664,17 +850,23 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         format === "manifest" ? "boq_manifest" : `boq_${format}`,
         artifact,
       );
-      return approvedVerifiedBoqDownloadResponse(
-        exported,
-        format,
-        version.version_no,
+      return mergeVerifiedBoqResponseHeaders(
+        approvedVerifiedBoqDownloadResponse(
+          exported,
+          format,
+          version.version_no,
+        ),
+        context.headers,
       );
     } catch (error) {
       const failure = drawingQuantityLineageErrorResponse(error);
-      throw new Response(failure.body.error, {
-        status: failure.status,
-        headers: { "Cache-Control": "private, no-store" },
-      });
+      throw mergeVerifiedBoqResponseHeaders(
+        new Response(failure.body.error, {
+          status: failure.status,
+          headers: { "Cache-Control": "private, no-store" },
+        }),
+        context.headers,
+      );
     }
   }
   let resources: Resource[] = [];
@@ -996,14 +1188,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         "boq_xlsx",
         workbook,
       );
-      return new Response(workbook, {
-        headers: {
-          "Content-Type":
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "Content-Disposition": `attachment; filename="verified-boq-v${version.version_no}.xlsx"`,
-          "Cache-Control": "private, no-store",
-        },
-      });
+      return mergeVerifiedBoqResponseHeaders(
+        new Response(workbook, {
+          headers: {
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="verified-boq-v${version.version_no}.xlsx"`,
+            "Cache-Control": "private, no-store",
+          },
+        }),
+        context.headers,
+      );
     }
     if (download !== "csv")
       throw new Response("지원하지 않는 내보내기 형식입니다.", { status: 400 });
@@ -1014,13 +1209,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       "boq_csv",
       csv,
     );
-    return new Response(csv, {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="verified-boq-v${version.version_no}.csv"`,
-        "Cache-Control": "private, no-store",
-      },
-    });
+    return mergeVerifiedBoqResponseHeaders(
+      new Response(csv, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="verified-boq-v${version.version_no}.csv"`,
+          "Cache-Control": "private, no-store",
+        },
+      }),
+      context.headers,
+    );
   }
   return data(
     {
@@ -1053,13 +1251,101 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   );
 }
 
+function verifiedBoqExportRequest(
+  request: Request,
+  projectId: string,
+  format: string | undefined,
+) {
+  if (
+    !format ||
+    ![
+      "csv",
+      "xlsx",
+      "manifest",
+      "pricebook-template",
+      "structure-template",
+      "pricebook-errors",
+    ].includes(format)
+  )
+    throw new Response("지원하지 않는 내보내기 형식입니다.", {
+      status: 400,
+    });
+  const incoming = new URL(request.url);
+  const target = new URL(`/projects/${projectId}/boq`, incoming.origin);
+  target.searchParams.set("download", format);
+  const versionId = incoming.searchParams.get("version");
+  if (versionId) target.searchParams.set("version", versionId);
+  const priceBookId = incoming.searchParams.get("price_book_id");
+  if (priceBookId) target.searchParams.set("price_book_id", priceBookId);
+  return new Request(target, request);
+}
+
+function requireVerifiedBoqAttachmentResponse(value: unknown) {
+  if (
+    !(value instanceof Response) ||
+    value.status < 200 ||
+    value.status >= 300 ||
+    !value.headers.get("Content-Disposition")?.startsWith("attachment;")
+  )
+    throw new Response("현재 상태에서는 내보낼 파일이 없습니다.", {
+      status: 409,
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  return value;
+}
+
+type VerifiedBoqLoaderInput = Pick<Route.LoaderArgs, "request" | "params">;
+type VerifiedBoqLoaderResult = Awaited<
+  ReturnType<typeof loadVerifiedBoqWithContext>
+>;
+
+/** @internal Server-only branch used by the dedicated export route, never request input. */
+export function loader(
+  args: VerifiedBoqLoaderInput,
+  internal: {
+    readonly verifiedBoqExport: true;
+    readonly format: string | undefined;
+  },
+): Promise<Response>;
+export function loader(
+  args: Route.LoaderArgs,
+): Promise<VerifiedBoqLoaderResult>;
+export async function loader(
+  { request, params }: VerifiedBoqLoaderInput,
+  internal?: {
+    readonly verifiedBoqExport: true;
+    readonly format: string | undefined;
+  },
+) {
+  const context = await getVerifiedBoqContext(request, params.projectId!);
+  try {
+    const result = await loadVerifiedBoqWithContext({
+      context,
+      request: internal
+        ? verifiedBoqExportRequest(request, context.project.id, internal.format)
+        : request,
+    });
+    return internal ? requireVerifiedBoqAttachmentResponse(result) : result;
+  } catch (error) {
+    if (error instanceof Response)
+      throw mergeResponseHeaders(error, context.headers);
+    throw error;
+  }
+}
+
 export async function action({ request, params }: Route.ActionArgs) {
-  const context = await getContext(request, params.projectId!);
-  await assertProjectOrganizationFeature(
-    context.client as any,
-    context.project.id,
-    "quantity_lineage",
-  );
+  const context = await getVerifiedBoqContext(request, params.projectId!);
+  try {
+    await assertProjectOrganizationFeature(
+      context.client as any,
+      context.project.id,
+      "quantity_lineage",
+    );
+  } catch (error) {
+    if (error instanceof Response)
+      throw mergeResponseHeaders(error, context.headers);
+    throw error;
+  }
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const returnField = form.get("return_to");
@@ -1078,6 +1364,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       [
         "price_book",
         "resource",
+        "resource_import_preview",
         "resource_import",
         "version",
         "section",
@@ -1107,7 +1394,14 @@ export async function action({ request, params }: Route.ActionArgs) {
         .single();
       if (scopeError || !scopedVersion)
         throw new Error("현재 프로젝트의 BOQ 버전이 아닙니다.");
-      await putDrawingBoqLink(context.client, mutation);
+      await putDrawingBoqLink(context.client, {
+        id: mutation.id,
+        quantityLinkId: mutation.quantityLinkId,
+        boqVersionId: mutation.boqVersionId,
+        boqLineId: mutation.boqLineId,
+        allocationFactor: mutation.allocationFactor,
+        baseVersion: mutation.baseVersion,
+      });
       return redirect(back(mutation.boqVersionId), {
         headers: context.headers,
       });
@@ -1124,7 +1418,10 @@ export async function action({ request, params }: Route.ActionArgs) {
         .single();
       if (scopeError || !scopedLink)
         throw new Error("현재 프로젝트의 Drawing 배분이 아닙니다.");
-      await deleteDrawingBoqLink(context.client, mutation);
+      await deleteDrawingBoqLink(context.client, {
+        id: mutation.id,
+        baseVersion: mutation.baseVersion,
+      });
       return redirect(
         back(new URL(request.url).searchParams.get("version") ?? undefined),
         { headers: context.headers },
@@ -1217,42 +1514,46 @@ export async function action({ request, params }: Route.ActionArgs) {
       if (error) throw error;
       return redirect(back(), { headers: context.headers });
     }
-    if (intent === "resource_import") {
+    if (["resource_import_preview", "resource_import"].includes(intent)) {
       const bookId = uuid.parse(form.get("price_book_id"));
-      const { data: book } = await context.client
-        .from("lukas_qto_price_books")
-        .select("id,source_file_id,source_sha256")
-        .eq("id", bookId)
-        .eq("project_id", context.project.id)
-        .single();
-      if (!book) throw new Error("단가표를 찾지 못했습니다.");
-      const { data: file } = await context.client
-        .from("lukas_qto_files")
-        .select("id,original_filename,storage_path,sha256,immutable")
-        .eq("id", book.source_file_id)
-        .eq("project_id", context.project.id)
-        .single();
-      if (!file?.immutable || file.sha256 !== book.source_sha256)
-        throw new Error("단가표 원본 파일의 등록 정보가 변경되었습니다.");
-      const { data: sourceBlob, error: downloadError } =
-        await context.client.storage
-          .from("lukas-qto")
-          .download(file.storage_path);
-      if (downloadError || !sourceBlob)
-        throw new Error("단가표 원본 파일을 읽지 못했습니다.");
-      const sourceBytes = new Uint8Array(await sourceBlob.arrayBuffer());
-      if (sha256Bytes(sourceBytes) !== sha256.parse(book.source_sha256))
-        throw new Error("단가표 원본 파일의 고유 확인번호가 변경되었습니다.");
-      const imported = parseVerifiedBoqPriceBook(
-        sourceBytes,
-        file.original_filename,
+      const source = await loadVerifiedBoqPriceBookSource(context, bookId);
+      const analysis = analyzeVerifiedBoqPriceBook(
+        source.sourceBytes,
+        source.file.original_filename,
       );
+      if (intent === "resource_import_preview") {
+        const previewHeaders = new Headers(context.headers);
+        previewHeaders.set("Cache-Control", "private, no-store");
+        return data(
+          {
+            priceBookImportPreview: {
+              bookId: source.book.id,
+              filename: source.file.original_filename,
+              sourceSha256: source.sourceSha256,
+              reportUrl: verifiedBoqPriceBookErrorReportLocation(
+                context.project.id,
+                source.book.id,
+              ),
+              headerMapping: analysis.headerMapping,
+              validRowCount: analysis.validRows.length,
+              errors: analysis.errors,
+              totalErrorCount: analysis.totalErrorCount,
+              errorsTruncated: analysis.errorsTruncated,
+            },
+          },
+          { headers: previewHeaders },
+        );
+      }
+      if (intent === "resource_import" && analysis.totalErrorCount > 0)
+        throw new Error(
+          "단가표 검사에서 오류가 확인되었습니다. 오류를 수정한 뒤 다시 검사하세요.",
+        );
       const { error } = await context.client
         .from("lukas_qto_price_resources")
         .insert(
-          imported.map((resource) => ({
+          analysis.validRows.map((resource) => ({
             project_id: context.project.id,
-            price_book_id: book.id,
+            price_book_id: source.book.id,
             resource_code: resource.resourceCode,
             resource_type: resource.resourceType,
             resource_name: resource.resourceName,
@@ -1686,11 +1987,11 @@ export async function action({ request, params }: Route.ActionArgs) {
         const mutation = parseDrawingBoqMutationForm(form);
         if (mutation.intent !== "decision" || mutation.versionId !== versionId)
           throw new Error("지원하지 않는 작업입니다.");
-        await recheckAndDecideVerifiedBoqV1_1(
-          context.client,
-          context.user.id,
-          mutation,
-        );
+        await recheckAndDecideVerifiedBoqV1_1(context.client, context.user.id, {
+          versionId: mutation.versionId,
+          decision: mutation.decision,
+          note: mutation.note,
+        });
         return redirect(back(versionId), { headers: context.headers });
       }
       const rows = await loadVersionData(context.client, version as Version);
@@ -1786,6 +2087,7 @@ export default function VerifiedBoq({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
+  const location = useLocation();
   const {
     project,
     files,
@@ -1804,14 +2106,54 @@ export default function VerifiedBoq({
     focusedLineId &&
       result?.lines.some((line) => line.lineId === focusedLineId),
   );
+  const focusedItemCode = focusedLineId
+    ? (result?.lines.find((line) => line.lineId === focusedLineId)?.itemCode ??
+      null)
+    : null;
+  const comparisonRowRendered = Boolean(
+    focusedItemCode &&
+      loaderData.comparison?.status === "comparable" &&
+      loaderData.comparison.rows.some(
+        (row) => row.itemCode === focusedItemCode,
+      ),
+  );
   useEffect(() => {
     if (!focusedLineId || !focusedLineRendered) return;
+    if (
+      !shouldFocusVerifiedBoqCalculationLine({
+        comparisonRowRendered,
+        focusedItemCode,
+        locationHash: location.hash,
+      })
+    )
+      return;
     focusVerifiedBoqLine(focusedLineRef.current, focusedLineId, focusedLineId);
-  }, [focusedLineId, focusedLineRendered]);
+  }, [
+    comparisonRowRendered,
+    focusedItemCode,
+    focusedLineId,
+    focusedLineRendered,
+    location.hash,
+  ]);
   const activeBookId = version?.price_book_id ?? priceBooks[0]?.id ?? "";
   const currentResources = resources.filter(
     (resource) => resource.price_book_id === activeBookId,
   );
+  const actionError =
+    actionData && "error" in actionData ? actionData.error : null;
+  const priceBookImportPreview =
+    actionData && "priceBookImportPreview" in actionData
+      ? actionData.priceBookImportPreview
+      : null;
+  const materialHandoffVersionId =
+    loaderData.mayEdit &&
+    loaderData.snapshotValid &&
+    version?.engine_version === "VERIFIED-BOQ-1.1" &&
+    ["approved", "superseded"].includes(version.status) &&
+    result?.engineVersion === "VERIFIED-BOQ-1.1" &&
+    result.versionId === version.id
+      ? version.id
+      : null;
   const identityByElement = new Map(
     loaderData.identityLinks.map((link) => [link.revit_element_id, link]),
   );
@@ -1849,14 +2191,14 @@ export default function VerifiedBoq({
           <div className="flex gap-2">
             <Button asChild className="min-h-11" variant="outline">
               <a
-                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=xlsx`}
+                href={verifiedBoqExportLocation(project.id, "xlsx", version.id)}
               >
                 <Download className="size-4" /> Excel
               </a>
             </Button>
             <Button asChild className="min-h-11" variant="outline">
               <a
-                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=csv`}
+                href={verifiedBoqExportLocation(project.id, "csv", version.id)}
               >
                 CSV
               </a>
@@ -1869,23 +2211,36 @@ export default function VerifiedBoq({
         version.engine_version === "VERIFIED-BOQ-1.1" &&
         ["approved", "superseded"].includes(version.status) ? (
           <div className="flex gap-2">
+            {materialHandoffVersionId ? (
+              <Button asChild className="min-h-11">
+                <Link
+                  to={`/projects/${project.id}/materials?version=${materialHandoffVersionId}`}
+                >
+                  자재 인계
+                </Link>
+              </Button>
+            ) : null}
             <Button asChild className="min-h-11" variant="outline">
               <a
-                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=xlsx`}
+                href={verifiedBoqExportLocation(project.id, "xlsx", version.id)}
               >
                 <Download className="size-4" /> Excel
               </a>
             </Button>
             <Button asChild className="min-h-11" variant="outline">
               <a
-                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=csv`}
+                href={verifiedBoqExportLocation(project.id, "csv", version.id)}
               >
                 CSV
               </a>
             </Button>
             <Button asChild className="min-h-11" variant="outline">
               <a
-                href={`${verifiedBoqLocation(project.id, version.id, returnTo)}&download=manifest`}
+                href={verifiedBoqExportLocation(
+                  project.id,
+                  "manifest",
+                  version.id,
+                )}
               >
                 Manifest
               </a>
@@ -1893,13 +2248,13 @@ export default function VerifiedBoq({
           </div>
         ) : null}
       </header>
-      {actionData?.error ? (
+      {actionError ? (
         <p
           aria-live="assertive"
           className="mt-5 rounded-xl bg-destructive/10 p-4 text-sm text-destructive"
           role="alert"
         >
-          {actionData.error}
+          {actionError}
         </p>
       ) : null}
 
@@ -2004,12 +2359,7 @@ export default function VerifiedBoq({
             <h2 className="font-semibold">단가 자원</h2>
             <a
               className="text-sm text-primary underline underline-offset-4"
-              href={verifiedBoqLocation(
-                project.id,
-                undefined,
-                returnTo,
-                "pricebook-template",
-              )}
+              href={verifiedBoqExportLocation(project.id, "pricebook-template")}
             >
               CSV 양식
             </a>
@@ -2092,7 +2442,11 @@ export default function VerifiedBoq({
           ) : null}
           {loaderData.mayEdit && priceBooks.length ? (
             <Form className="mt-3 flex gap-2" method="post">
-              <input name="intent" type="hidden" value="resource_import" />
+              <input
+                name="intent"
+                type="hidden"
+                value="resource_import_preview"
+              />
               <input name="return_to" type="hidden" value={returnTo ?? ""} />
               <select
                 aria-label="가져올 단가표"
@@ -2106,9 +2460,15 @@ export default function VerifiedBoq({
                 ))}
               </select>
               <Button className="min-h-11" type="submit" variant="outline">
-                원본에서 일괄 가져오기
+                단가표 검사
               </Button>
             </Form>
+          ) : null}
+          {priceBookImportPreview ? (
+            <VerifiedBoqPriceBookImportPreview
+              preview={priceBookImportPreview}
+              returnTo={returnTo}
+            />
           ) : null}
           <ul className="mt-4 max-h-60 space-y-2 overflow-auto text-sm">
             {currentResources.map((resource) => (
@@ -2219,11 +2579,10 @@ export default function VerifiedBoq({
                 </div>
                 <Button asChild className="min-h-11" variant="outline">
                   <a
-                    href={verifiedBoqLocation(
+                    href={verifiedBoqExportLocation(
                       project.id,
-                      version.id,
-                      returnTo,
                       "structure-template",
+                      version.id,
                     )}
                   >
                     CSV 양식
@@ -2739,6 +3098,7 @@ export default function VerifiedBoq({
                         {moneyText(line.amountKrw)}
                       </td>
                       <td>
+                        <span className="sr-only">{line.message}</span>
                         <details>
                           <summary className="cursor-pointer text-primary">
                             계산식·요소
@@ -2783,7 +3143,11 @@ export default function VerifiedBoq({
           </section>
 
           {loaderData.comparison ? (
-            <VerifiedBoqComparison comparison={loaderData.comparison} />
+            <VerifiedBoqComparison
+              comparison={loaderData.comparison}
+              focusedItemCode={focusedItemCode}
+              focusedLocationHash={location.hash}
+            />
           ) : null}
 
           <section className="mt-5 rounded-2xl border bg-[#17124a] p-6 text-white">

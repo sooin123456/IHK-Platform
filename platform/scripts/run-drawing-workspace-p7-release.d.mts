@@ -53,7 +53,18 @@ export function p7CombinedReleaseExitCode(
 export function p7ProductionGateStatus(
   gateId: string,
   exitCode: number,
-  providerEvidence?: { status?: P7ReleaseStatus } | null,
+  providerEvidence?: unknown,
+  expectedRestoreIdentity?: {
+    expectedSourceCommit?: string;
+    expectedRequestId?: string;
+  },
+): P7ReleaseStatus;
+export function classifyDrawingP7RestoreEvidence(
+  evidence: unknown,
+  expectedRestoreIdentity?: {
+    expectedSourceCommit?: string;
+    expectedRequestId?: string;
+  },
 ): P7ReleaseStatus;
 export function p7LocalGateStatus(
   gateId: string,
@@ -74,4 +85,5 @@ export function buildReleaseEvidenceFromResults(
   performance: any,
   restore: any,
   invocationId?: string,
+  environment?: Record<string, string | undefined>,
 ): any;

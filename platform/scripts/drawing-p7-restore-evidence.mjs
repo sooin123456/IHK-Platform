@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import assert from "node:assert/strict";
 
 import postgres from "postgres";
 
@@ -35,6 +36,10 @@ const LINEAGE_TABLES = [
   "lukas_qto_material_plans",
   "lukas_qto_material_transactions",
 ];
+const PROJECT_REF = /^[a-z0-9]{20}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -66,6 +71,11 @@ function timestamp(value, name) {
   return new Date(time).toISOString();
 }
 
+function providerTimestamp(value) {
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString() : null;
+}
+
 export function requireManagedRestoreAuthority(environment = process.env) {
   const managementAccessToken = required(
     environment,
@@ -95,11 +105,7 @@ export function requireManagedRestoreAuthority(environment = process.env) {
   if (!/^[0-9a-f]{40}$/.test(sourceCommit))
     throw new Error("UNEXECUTED: invalid P7_RESTORE_COMMIT");
   const requestId = required(environment, "P7_RESTORE_REQUEST_ID");
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      requestId,
-    )
-  )
+  if (!UUID.test(requestId))
     throw new Error("UNEXECUTED: invalid P7_RESTORE_REQUEST_ID");
   const sourceSupabaseUrl = required(
     environment,
@@ -141,6 +147,10 @@ export function requireManagedRestoreAuthority(environment = process.env) {
     ),
     sourceCommit,
     requestId,
+    drillStartedAt: timestamp(
+      required(environment, "P7_RESTORE_DRILL_STARTED_AT"),
+      "P7_RESTORE_DRILL_STARTED_AT",
+    ),
   };
 }
 
@@ -149,14 +159,40 @@ export function buildUnexecutedRestoreEvidence(
   missing = [],
 ) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     status: "UNEXECUTED",
-    sourceCommit,
-    provider: { status: "UNEXECUTED", backupId: null, restoreProjectRef: null },
+    sourceCommit: /^[0-9a-f]{40}$/.test(sourceCommit ?? "")
+      ? sourceCommit
+      : null,
+    requestId: null,
+    organizationId: null,
+    provider: {
+      sourceProjectRef: null,
+      targetProjectRef: null,
+      backupId: null,
+      backupStatus: null,
+      backupIsPhysical: null,
+      backupCreatedAt: null,
+      restoreProjectId: null,
+      restoreProjectRef: null,
+      restoreStatus: null,
+      restoreCreatedAt: null,
+      correlation: {
+        status: "UNEXECUTED",
+        physicalClusterSystemIdentifier: null,
+      },
+      directBinding: { status: "UNEXECUTED", authority: null },
+    },
+    source: null,
+    target: null,
     comparison: { status: "UNEXECUTED", mismatches: DOMAINS },
     rpoSeconds: null,
     rtoSeconds: null,
-    missingAuthorities: missing,
+    drillStartedAt: null,
+    measuredAt: null,
+    missingAuthorities: missing.length
+      ? missing
+      : ["managed restore authorities unavailable"],
     recordedAt: new Date().toISOString(),
   };
 }
@@ -170,6 +206,256 @@ export function compareRestoreSnapshots(source, target) {
       target?.[domain]?.integrity === false,
   );
   return { status: mismatches.length ? "NOT MET" : "PASS", mismatches };
+}
+
+export function classifyDrawingP7RestoreFailure(error, sourceCommit) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (error !== null && typeof error === "object" && "restoreEvidence" in error)
+    return {
+      evidence: inspectDrawingP7RestoreEvidence(error.restoreEvidence),
+      message,
+      exitCode: 1,
+    };
+  return {
+    evidence: buildUnexecutedRestoreEvidence(sourceCommit, [message]),
+    message,
+    exitCode: 2,
+  };
+}
+
+function exactKeys(value, keys, name) {
+  assert.equal(
+    value !== null && typeof value === "object" && !Array.isArray(value),
+    true,
+    `${name} object`,
+  );
+  assert.deepEqual(Object.keys(value).sort(), [...keys].sort(), `${name} keys`);
+}
+
+function inspectIso(value, name) {
+  assert.equal(typeof value, "string", `${name} string`);
+  assert.equal(new Date(Date.parse(value)).toISOString(), value, `${name} ISO`);
+  return Date.parse(value);
+}
+
+function inspectDigest(value, domain) {
+  const keys =
+    domain === "storage"
+      ? ["count", "digest", "integrity"]
+      : ["count", "digest"];
+  exactKeys(value, keys, domain);
+  assert.equal(Number.isSafeInteger(value.count) && value.count >= 0, true);
+  assert.match(value.digest, SHA256);
+  if (domain === "storage") assert.equal(typeof value.integrity, "boolean");
+}
+
+function inspectSnapshot(value, name) {
+  exactKeys(value, ["systemIdentifier", ...DOMAINS], name);
+  assert.equal(
+    value.systemIdentifier === null ||
+      (typeof value.systemIdentifier === "string" &&
+        value.systemIdentifier.length > 0),
+    true,
+    `${name} system identifier`,
+  );
+  for (const domain of DOMAINS) inspectDigest(value[domain], domain);
+}
+
+function providerCorrelation(provider, source, target, ordered) {
+  const sameSystem =
+    typeof source.systemIdentifier === "string" &&
+    source.systemIdentifier.length > 0 &&
+    source.systemIdentifier === target.systemIdentifier;
+  const matched =
+    provider.backupStatus === "COMPLETED" &&
+    provider.backupIsPhysical &&
+    typeof provider.restoreProjectId === "string" &&
+    provider.restoreProjectId !== provider.targetProjectRef &&
+    provider.targetProjectRef !== provider.sourceProjectRef &&
+    provider.restoreProjectRef === provider.targetProjectRef &&
+    ["ACTIVE_HEALTHY", "ACTIVE"].includes(provider.restoreStatus) &&
+    ordered &&
+    sameSystem;
+  return {
+    status: matched ? "MATCHED" : "NOT MET",
+    physicalClusterSystemIdentifier: sameSystem
+      ? source.systemIdentifier
+      : null,
+  };
+}
+
+export function inspectDrawingP7RestoreEvidence(evidence) {
+  exactKeys(
+    evidence,
+    [
+      "schemaVersion",
+      "status",
+      "sourceCommit",
+      "requestId",
+      "organizationId",
+      "provider",
+      "source",
+      "target",
+      "comparison",
+      "rpoSeconds",
+      "rtoSeconds",
+      "drillStartedAt",
+      "measuredAt",
+      "missingAuthorities",
+      "recordedAt",
+    ],
+    "restore evidence",
+  );
+  assert.equal(evidence.schemaVersion, 2);
+  inspectIso(evidence.recordedAt, "recordedAt");
+  assert.equal(Array.isArray(evidence.missingAuthorities), true);
+  for (const item of evidence.missingAuthorities)
+    assert.equal(typeof item === "string" && item.length > 0, true);
+  exactKeys(
+    evidence.provider,
+    [
+      "sourceProjectRef",
+      "targetProjectRef",
+      "backupId",
+      "backupStatus",
+      "backupIsPhysical",
+      "backupCreatedAt",
+      "restoreProjectId",
+      "restoreProjectRef",
+      "restoreStatus",
+      "restoreCreatedAt",
+      "correlation",
+      "directBinding",
+    ],
+    "provider",
+  );
+  exactKeys(
+    evidence.provider.correlation,
+    ["status", "physicalClusterSystemIdentifier"],
+    "provider correlation",
+  );
+  exactKeys(
+    evidence.provider.directBinding,
+    ["status", "authority"],
+    "provider direct binding",
+  );
+  exactKeys(evidence.comparison, ["status", "mismatches"], "comparison");
+
+  if (evidence.source === null || evidence.target === null) {
+    assert.equal(evidence.source, null);
+    assert.equal(evidence.target, null);
+    assert.equal(evidence.status, "UNEXECUTED");
+    assert.equal(
+      evidence.sourceCommit === null ||
+        /^[0-9a-f]{40}$/.test(evidence.sourceCommit),
+      true,
+    );
+    assert.equal(evidence.requestId, null);
+    assert.equal(evidence.organizationId, null);
+    assert.equal(evidence.drillStartedAt, null);
+    assert.equal(evidence.measuredAt, null);
+    assert.equal(evidence.rpoSeconds, null);
+    assert.equal(evidence.rtoSeconds, null);
+    assert.equal(evidence.provider.correlation.status, "UNEXECUTED");
+    assert.equal(
+      evidence.provider.correlation.physicalClusterSystemIdentifier,
+      null,
+    );
+    assert.equal(evidence.provider.directBinding.status, "UNEXECUTED");
+    assert.equal(evidence.provider.directBinding.authority, null);
+    for (const [key, value] of Object.entries(evidence.provider))
+      if (!["correlation", "directBinding"].includes(key))
+        assert.equal(value, null);
+    assert.deepEqual(evidence.comparison, {
+      status: "UNEXECUTED",
+      mismatches: DOMAINS,
+    });
+    assert.equal(evidence.missingAuthorities.length > 0, true);
+    return evidence;
+  }
+
+  assert.match(evidence.sourceCommit, /^[0-9a-f]{40}$/);
+  assert.match(evidence.requestId, UUID);
+  assert.match(evidence.organizationId, UUID);
+  assert.deepEqual(evidence.missingAuthorities, []);
+  inspectSnapshot(evidence.source, "source snapshot");
+  inspectSnapshot(evidence.target, "target snapshot");
+  const provider = evidence.provider;
+  assert.match(provider.sourceProjectRef, PROJECT_REF);
+  assert.match(provider.targetProjectRef, PROJECT_REF);
+  assert.equal(
+    typeof provider.backupId === "string" && provider.backupId.length > 0,
+    true,
+  );
+  assert.equal(
+    provider.backupStatus === null || typeof provider.backupStatus === "string",
+    true,
+  );
+  assert.equal(typeof provider.backupIsPhysical, "boolean");
+  assert.equal(
+    provider.restoreProjectId === null ||
+      (typeof provider.restoreProjectId === "string" &&
+        provider.restoreProjectId.length > 0),
+    true,
+  );
+  assert.equal(
+    provider.restoreProjectRef === null ||
+      (typeof provider.restoreProjectRef === "string" &&
+        provider.restoreProjectRef.length > 0),
+    true,
+  );
+  assert.equal(
+    provider.restoreStatus === null ||
+      typeof provider.restoreStatus === "string",
+    true,
+  );
+  const drill = inspectIso(evidence.drillStartedAt, "drillStartedAt");
+  const measured = inspectIso(evidence.measuredAt, "measuredAt");
+  const backup =
+    provider.backupCreatedAt === null
+      ? null
+      : inspectIso(provider.backupCreatedAt, "backupCreatedAt");
+  const restore =
+    provider.restoreCreatedAt === null
+      ? null
+      : inspectIso(provider.restoreCreatedAt, "restoreCreatedAt");
+  const ordered =
+    backup !== null &&
+    restore !== null &&
+    backup <= drill &&
+    drill <= restore &&
+    restore <= measured;
+  assert.equal(
+    evidence.rpoSeconds,
+    ordered ? Math.round((drill - backup) / 1000) : null,
+  );
+  assert.equal(
+    evidence.rtoSeconds,
+    ordered ? Math.round((measured - drill) / 1000) : null,
+  );
+
+  const compared = compareRestoreSnapshots(evidence.source, evidence.target);
+  assert.deepEqual(evidence.comparison.mismatches, compared.mismatches);
+  assert.equal(
+    evidence.comparison.status,
+    compared.status === "NOT MET" ? "NOT MET" : "UNEXECUTED",
+  );
+  const correlation = providerCorrelation(
+    provider,
+    evidence.source,
+    evidence.target,
+    ordered,
+  );
+  assert.deepEqual(provider.correlation, correlation);
+  assert.equal(provider.directBinding.status, "UNEXECUTED");
+  assert.equal(provider.directBinding.authority, null);
+  assert.equal(
+    evidence.status,
+    compared.status === "NOT MET" || correlation.status === "NOT MET"
+      ? "NOT MET"
+      : "UNEXECUTED",
+  );
+  return evidence;
 }
 
 function normalizeBackups(value) {
@@ -191,25 +477,18 @@ export async function runManagedRestoreComparison(authority, adapters) {
   const backup = backups.find(
     (candidate) => String(candidate.id) === authority.backupId,
   );
-  const backupCreatedAt = backup?.inserted_at ?? backup?.created_at;
+  const backupCreatedAt = providerTimestamp(
+    backup?.inserted_at ?? backup?.created_at,
+  );
   const restoreProject = await adapters.getProject(
     authority.targetProjectRef,
     authority.managementAccessToken,
   );
-  const restoreCreatedAt = restoreProject?.created_at;
-  const measuredAt = timestamp(adapters.now(), "restore measurement time");
-  const providerIdentityPass =
-    backup?.status === "COMPLETED" &&
-    backup?.is_physical_backup === true &&
-    Boolean(backupCreatedAt) &&
-    typeof restoreProject?.id === "string" &&
-    restoreProject.id.length > 0 &&
-    restoreProject.id !== authority.targetProjectRef &&
-    restoreProject?.ref === authority.targetProjectRef &&
-    ["ACTIVE_HEALTHY", "ACTIVE"].includes(restoreProject?.status) &&
-    Boolean(restoreCreatedAt) &&
-    Date.parse(restoreCreatedAt) >= Date.parse(backupCreatedAt) &&
-    Date.parse(measuredAt) >= Date.parse(restoreCreatedAt);
+  const restoreCreatedAt = providerTimestamp(restoreProject?.created_at);
+  const drillStartedAt = timestamp(
+    authority.drillStartedAt,
+    "restore drill start time",
+  );
   const [sourceDatabase, targetDatabase, sourceStorage, targetStorage] =
     await Promise.all([
       adapters.captureDatabase("source", authority),
@@ -219,58 +498,93 @@ export async function runManagedRestoreComparison(authority, adapters) {
     ]);
   const source = { ...sourceDatabase, storage: sourceStorage };
   const target = { ...targetDatabase, storage: targetStorage };
-  const providerPass =
-    providerIdentityPass &&
-    typeof source.systemIdentifier === "string" &&
-    source.systemIdentifier.length > 0 &&
-    source.systemIdentifier === target.systemIdentifier;
-  const comparison = compareRestoreSnapshots(source, target);
-  const rpoSeconds =
-    backupCreatedAt && restoreCreatedAt
-      ? Math.max(
-          0,
-          Math.round(
-            (Date.parse(restoreCreatedAt) - Date.parse(backupCreatedAt)) / 1000,
-          ),
-        )
-      : null;
-  const rtoSeconds = restoreCreatedAt
-    ? Math.max(
-        0,
-        Math.round(
-          (Date.parse(measuredAt) - Date.parse(restoreCreatedAt)) / 1000,
-        ),
+  const compared = compareRestoreSnapshots(source, target);
+  const measuredAt = timestamp(adapters.now(), "restore measurement time");
+  const ordered =
+    backupCreatedAt !== null &&
+    restoreCreatedAt !== null &&
+    Date.parse(backupCreatedAt) <= Date.parse(drillStartedAt) &&
+    Date.parse(drillStartedAt) <= Date.parse(restoreCreatedAt) &&
+    Date.parse(restoreCreatedAt) <= Date.parse(measuredAt);
+  const comparison = {
+    status: compared.status === "NOT MET" ? "NOT MET" : "UNEXECUTED",
+    mismatches: compared.mismatches,
+  };
+  const rpoSeconds = ordered
+    ? Math.round(
+        (Date.parse(drillStartedAt) - Date.parse(backupCreatedAt)) / 1000,
       )
     : null;
+  const rtoSeconds = ordered
+    ? Math.round((Date.parse(measuredAt) - Date.parse(drillStartedAt)) / 1000)
+    : null;
+  const providerIdentity = {
+    sourceProjectRef: authority.sourceProjectRef,
+    targetProjectRef: authority.targetProjectRef,
+    backupId: backup?.id === undefined ? authority.backupId : String(backup.id),
+    backupStatus: typeof backup?.status === "string" ? backup.status : null,
+    backupIsPhysical: backup?.is_physical_backup === true,
+    backupCreatedAt: backupCreatedAt ?? null,
+    restoreProjectId:
+      typeof restoreProject?.id === "string" && restoreProject.id.length > 0
+        ? restoreProject.id
+        : null,
+    restoreProjectRef:
+      typeof restoreProject?.ref === "string" && restoreProject.ref.length > 0
+        ? restoreProject.ref
+        : null,
+    restoreStatus:
+      typeof restoreProject?.status === "string" ? restoreProject.status : null,
+    restoreCreatedAt: restoreCreatedAt ?? null,
+  };
+  const correlation = providerCorrelation(
+    providerIdentity,
+    source,
+    target,
+    ordered,
+  );
   const evidence = {
-    schemaVersion: 1,
-    status: providerPass && comparison.status === "PASS" ? "PASS" : "NOT MET",
+    schemaVersion: 2,
+    status:
+      compared.status === "NOT MET" || correlation.status === "NOT MET"
+        ? "NOT MET"
+        : "UNEXECUTED",
     sourceCommit: authority.sourceCommit,
     requestId: authority.requestId,
     organizationId: authority.organizationId,
     provider: {
-      status: providerPass ? "VERIFIED" : "NOT MET",
-      sourceProjectRef: authority.sourceProjectRef,
-      backupId: backup?.id ?? null,
-      backupStatus: backup?.status ?? null,
-      backupCreatedAt: backupCreatedAt ?? null,
-      restoreId: restoreProject?.id ?? null,
-      restoreProjectRef: restoreProject?.ref ?? null,
-      restoreStatus: restoreProject?.status ?? null,
-      restoreCreatedAt: restoreCreatedAt ?? null,
-      physicalClusterSystemIdentifier: providerPass
-        ? source.systemIdentifier
-        : null,
+      ...providerIdentity,
+      correlation,
+      directBinding: { status: "UNEXECUTED", authority: null },
     },
     source,
     target,
     comparison,
     rpoSeconds,
     rtoSeconds,
+    drillStartedAt,
     measuredAt,
+    missingAuthorities: [],
+    recordedAt: measuredAt,
   };
-  await adapters.record(evidence, authority);
-  return evidence;
+  const inspected = inspectDrawingP7RestoreEvidence(evidence);
+  if (
+    inspected.status === "NOT MET" &&
+    inspected.rpoSeconds !== null &&
+    inspected.rtoSeconds !== null
+  )
+    try {
+      await adapters.record(inspected, authority);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failure = new Error(
+        `NOT MET: restore evidence record failed: ${message}`,
+        { cause: error },
+      );
+      failure.restoreEvidence = inspected;
+      throw failure;
+    }
+  return inspected;
 }
 
 async function managementGet(path, token) {
@@ -523,10 +837,11 @@ export const realRestoreAdapters = {
 };
 
 async function writeEvidence(value) {
+  const evidence = inspectDrawingP7RestoreEvidence(value);
   await mkdir(dirname(DRAWING_P7_RESTORE_EVIDENCE_PATH), { recursive: true });
   await writeFile(
     DRAWING_P7_RESTORE_EVIDENCE_PATH,
-    `${JSON.stringify(value, null, 2)}\n`,
+    `${JSON.stringify(evidence, null, 2)}\n`,
   );
 }
 
@@ -553,13 +868,13 @@ async function main() {
     await writeEvidence(evidence);
     if (evidence.status !== "PASS") process.exitCode = 1;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const evidence = buildUnexecutedRestoreEvidence(authority.sourceCommit, [
-      message,
-    ]);
-    await writeEvidence(evidence);
-    console.error(message);
-    process.exitCode = 2;
+    const failure = classifyDrawingP7RestoreFailure(
+      error,
+      authority.sourceCommit,
+    );
+    await writeEvidence(failure.evidence);
+    console.error(failure.message);
+    process.exitCode = failure.exitCode;
   }
 }
 

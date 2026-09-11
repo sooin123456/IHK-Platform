@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2552mm" height="1152mm" viewBox="0 0 2552 1152">
+<rect x="0" y="0" width="2552" height="1152" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/outline" transform="matrix(1 0 0 1 176 176)">
+<rect x="0" y="0" width="2200" height="800" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/back" transform="matrix(1 0 0 1 176 176)">
+<rect x="100" y="75" width="2000" height="150" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/seat-1" transform="matrix(1 0 0 1 176 176)">
+<rect x="100" y="250" width="666.666666666667" height="425" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/seat-2" transform="matrix(1 0 0 1 176 176)">
+<rect x="766.666666666667" y="250" width="666.666666666667" height="425" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/seat-3" transform="matrix(1 0 0 1 176 176)">
+<rect x="1433.333333333333" y="250" width="666.666666666667" height="425" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+</svg>

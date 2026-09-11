@@ -4,12 +4,14 @@ import test from "node:test";
 import {
   blockInstanceBounds,
   blockInstanceRenderModel,
+  canUseDrawingSelectionForBlock,
   drawingBlockSelectionCandidates,
   copyDrawingBlockInstanceCommand,
   createBlockFromSelection,
   deleteDrawingBlockCommand,
   deleteDrawingBlockInstanceCommand,
   insertDrawingBlockInstanceCommand,
+  redefineDrawingBlockFromSelection,
   transformBlockPoint,
   updateDrawingBlockCommand,
   updateDrawingBlockInstanceCommand,
@@ -413,6 +415,78 @@ test("calibrated dimension bounds reserve deterministic space for every finite n
   );
   assert.ok(bounds.width >= 177.79);
   assert.equal(bounds.height, 18.4);
+});
+
+test("native styled dimension bounds drive transformed block culling and hit testing", async () => {
+  const blocks = await import("../app/lukas/lib/drawing-blocks.ts");
+  const dimensionContext = { kind: "native_millimeters" };
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Native dimension",
+    version: 1,
+    primitives: [
+      {
+        localId: "dimension",
+        name: "Dimension",
+        geometry: {
+          type: "dimension",
+          start: { x: 0, y: 0 },
+          end: { x: 10, y: 0 },
+          offset: 4,
+          calibrationId: null,
+        },
+        styleId: null,
+        style: { ...inlineStyle, fontSize: 140 },
+      },
+    ],
+  };
+  const instance = {
+    id: ids.instance,
+    lineageId: ids.instance,
+    blockId: ids.block,
+    layerId: ids.otherLayer,
+    name: "Scaled dimension",
+    origin: { x: 100, y: 50 },
+    rotation: 0,
+    scaleX: 2,
+    scaleY: 2,
+    version: 1,
+  };
+  const model = blockInstanceRenderModel(block, instance, {});
+  const legacyBounds = blockInstanceBounds(block, instance, {});
+  const adapter = blocks.drawingCanvasRenderAdapter({
+    layers: structure().layers,
+    objects: [],
+    blockInstances: [{ ...model, bounds: legacyBounds }],
+    dimensionContext,
+    viewportBounds: { x: 890, y: 140, width: 20, height: 20 },
+    zoom: 1,
+  });
+
+  assert.equal(adapter.items[0].bounds.width > legacyBounds.width, true);
+  assert.equal(adapter.projectedItems.length, 1);
+  assert.equal(adapter.topmostAt({ x: 900, y: 150 })?.id, ids.instance);
+
+  const cache = blocks.createDrawingBlockRenderCache();
+  const cacheInput = {
+    activeCanvasId: ids.canvas,
+    blocks: { [block.id]: block },
+    dimensionContext,
+    instances: { [instance.id]: instance },
+    layers: structure().layers,
+    styles: {},
+  };
+  const nativeResult = cache.select(cacheInput);
+  assert.equal(cache.resolveCount, 1);
+  assert.equal(cache.select(cacheInput), nativeResult);
+  assert.equal(cache.resolveCount, 1);
+  const pdfResult = cache.select({
+    ...cacheInput,
+    dimensionContext: { kind: "pdf", calibration: null },
+  });
+  assert.equal(cache.resolveCount, 2);
+  assert.notDeepEqual(pdfResult.instances[0].bounds, nativeResult.instances[0].bounds);
 });
 
 test("production render adapter orders committed and hit items together and dispatches the visual topmost overlap", async () => {
@@ -1057,6 +1131,171 @@ test("create from selection is one exact atomic structure command with undo and 
   assert.equal(
     redone.state.structure.blockInstances[ids.instance].name,
     "Panel",
+  );
+});
+
+test("redefine from selection keeps source objects and updates every instance through one block version", () => {
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Reusable panel",
+    primitives: [
+      {
+        localId: "old-line",
+        name: "Old line",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 1, y: 0 },
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+    version: 3,
+  };
+  const instance = {
+    id: ids.instance,
+    lineageId: ids.instance,
+    blockId: ids.block,
+    layerId: ids.layer,
+    name: "Reusable panel 1",
+    origin: { x: 100, y: 200 },
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    version: 1,
+  };
+  const current = state({
+    blocks: { [ids.block]: block },
+    blockInstances: { [ids.instance]: instance },
+  });
+  const localIds = ["replacement-a", "replacement-b"];
+  const command = redefineDrawingBlockFromSelection(
+    current,
+    [ids.objectB, ids.objectA],
+    ids.actor,
+    ids.block,
+    {
+      activeLayerId: ids.layer,
+      createId: () => localIds.shift(),
+    },
+  );
+  assert.deepEqual(command.actions.map((action) => action.kind), ["put_block"]);
+  assert.equal(command.actions[0].baseVersion, 3);
+  assert.equal(command.actions[0].entity.name, "Reusable panel");
+  assert.deepEqual(
+    command.actions[0].entity.primitives.map((primitive) => primitive.localId),
+    ["replacement-a", "replacement-b"],
+  );
+  const applied = applyDrawingCommand(current, command).state;
+  assert.equal(applied.structure.blocks[ids.block].version, 4);
+  assert.deepEqual(applied.structure.blockInstances[ids.instance], instance);
+  assert.deepEqual(applied.objects, current.objects);
+  assert.deepEqual(current.structure.blocks[ids.block], block);
+});
+
+test("redefine rejects empty, stale, cross-layer, semantic, hidden, and locked source selections", () => {
+  const block = {
+    id: ids.block,
+    revisionId: ids.revision,
+    name: "Reusable panel",
+    primitives: [
+      {
+        localId: "old-line",
+        name: "Old line",
+        geometry: {
+          type: "line",
+          start: { x: 0, y: 0 },
+          end: { x: 1, y: 0 },
+        },
+        styleId: null,
+        style: inlineStyle,
+      },
+    ],
+    version: 1,
+  };
+  const attempt = (candidate, selectedIds, activeLayerId = ids.layer) =>
+    redefineDrawingBlockFromSelection(
+      candidate,
+      selectedIds,
+      ids.actor,
+      ids.block,
+      { activeLayerId, createId: () => crypto.randomUUID() },
+    );
+  const current = state({ blocks: { [ids.block]: block } });
+  assert.throws(() => attempt(current, []));
+  assert.throws(() =>
+    attempt(current, ["00000000-0000-4000-8000-999999999999"]),
+  );
+  assert.throws(() => attempt(current, [ids.objectA], ids.otherLayer));
+  assert.throws(() =>
+    attempt(
+      state({
+        blocks: { [ids.block]: block },
+        objects: {
+          [ids.objectA]: {
+            ...object(ids.objectA),
+            geometry: {
+              type: "wall",
+              semanticVersion: 1,
+              start: { x: 0, y: 0 },
+              end: { x: 100, y: 0 },
+              thicknessMillimeters: 10,
+              heightMillimeters: 100,
+            },
+          },
+        },
+      }),
+      [ids.objectA],
+    ),
+  );
+  for (const patch of [{ visible: false }, { locked: true }])
+    assert.throws(() =>
+      attempt(
+        state({
+          blocks: { [ids.block]: block },
+          layers: {
+            ...structure().layers,
+            [ids.layer]: { ...structure().layers[ids.layer], ...patch },
+          },
+        }),
+        [ids.objectA],
+      ),
+    );
+});
+
+test("block authoring eligibility rejects semantic selections before the user submits", () => {
+  const current = state();
+  assert.equal(
+    canUseDrawingSelectionForBlock(current, [ids.objectA], ids.layer),
+    true,
+  );
+  assert.equal(
+    canUseDrawingSelectionForBlock(current, [], ids.layer),
+    false,
+  );
+  assert.equal(
+    canUseDrawingSelectionForBlock(
+      state({
+        objects: {
+          [ids.objectA]: {
+            ...object(ids.objectA),
+            geometry: {
+              type: "wall",
+              semanticVersion: 1,
+              start: { x: 0, y: 0 },
+              end: { x: 100, y: 0 },
+              thicknessMillimeters: 10,
+              heightMillimeters: 100,
+            },
+          },
+        },
+      }),
+      [ids.objectA],
+      ids.layer,
+    ),
+    false,
   );
 });
 

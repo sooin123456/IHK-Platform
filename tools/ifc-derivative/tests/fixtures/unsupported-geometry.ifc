@@ -1,0 +1,14 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [ReferenceView_V1.2]'),'2;1');
+FILE_NAME('unsupported-geometry.ifc','2026-08-28T00:00:00',('1HK'),('1HK'),'handwritten','1HK','test fixture');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCWALL('1HK_UNSUPPORTED_000001',$,'Unsupported',$,$,$,#2,$,.NOTDEFINED.);
+#2=IFCPRODUCTDEFINITIONSHAPE($,$,(#3));
+#3=IFCSHAPEREPRESENTATION($,'Body','AdvancedBrep',(#4));
+#4=IFCADVANCEDBREP(#5);
+#5=IFCCLOSEDSHELL(());
+ENDSEC;
+END-ISO-10303-21;

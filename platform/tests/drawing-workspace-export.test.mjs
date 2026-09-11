@@ -1055,6 +1055,90 @@ test("dimension export uses page calibration identity for direct and transformed
   );
 });
 
+test("native dimension export uses millimeter labels and resolved annotation font in SVG and PNG", async () => {
+  const document = exportFixture();
+  document.structure.objects[ids.objectSecond] = {
+    ...document.structure.objects[ids.objectSecond],
+    name: "Native dimension",
+    geometry: {
+      type: "dimension",
+      start: { x: 0, y: 0 },
+      end: { x: 6_000, y: 0 },
+      offset: 600,
+      calibrationId: null,
+    },
+    style: {
+      stroke: "#112233",
+      strokeWidth: 2,
+      fill: null,
+      fontSize: 140,
+    },
+  };
+
+  const svg = exportDrawingSvg(document, ids.canvasSecond);
+  assert.match(svg, /font-size="140"/);
+  assert.match(svg, />6000\.0 mm<\/tspan>/);
+  assert.match(svg, /<text[^>]*fill="#112233"[^>]*>[\s\S]*?6000\.0 mm/);
+  assert.doesNotMatch(svg, />미보정<\/tspan>/);
+
+  const canvas = fakeCanvas();
+  await exportDrawingPng(document, ids.canvasSecond, {
+    canvasFactory: () => canvas,
+    scale: 1,
+  });
+  assert.equal(canvas.context.font, "140px sans-serif");
+  assert.equal(canvas.context.fillStyle, "#112233");
+  assert.equal(
+    canvas.calls.some(
+      ([name, text]) => name === "fillText" && text === "6000.0 mm",
+    ),
+    true,
+  );
+});
+
+test("semantic SVG and PNG export share the resolved annotation font", async () => {
+  const document = exportFixture();
+  document.structure.objects[ids.objectSecond] = {
+    ...document.structure.objects[ids.objectSecond],
+    name: "회의실",
+    geometry: {
+      type: "space",
+      semanticVersion: 1,
+      boundary: [
+        { x: 0, y: 0 },
+        { x: 1_000, y: 0 },
+        { x: 1_000, y: 1_000 },
+        { x: 0, y: 1_000 },
+      ],
+      number: "101",
+      finishes: { floor: null, wall: null, ceiling: null },
+    },
+    style: {
+      stroke: "#112233",
+      strokeWidth: 2,
+      fill: null,
+      fontSize: 140,
+    },
+  };
+
+  const svg = exportDrawingSvg(document, ids.canvasSecond);
+  assert.match(svg, /font-size="140"/);
+  assert.match(svg, />101 · 회의실<\/tspan>/);
+
+  const canvas = fakeCanvas();
+  await exportDrawingPng(document, ids.canvasSecond, {
+    canvasFactory: () => canvas,
+    scale: 1,
+  });
+  assert.equal(canvas.context.font, "140px sans-serif");
+  assert.equal(
+    canvas.calls.some(
+      ([name, text]) => name === "fillText" && text === "101 · 회의실",
+    ),
+    true,
+  );
+});
+
 test("PNG export requires the matching PDF.js background canvas", async () => {
   const document = exportFixture();
   await assert.rejects(

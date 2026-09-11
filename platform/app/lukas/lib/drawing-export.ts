@@ -4,7 +4,11 @@ import {
   drawingCanvasRenderAdapter,
 } from "./drawing-blocks.ts";
 import type { DrawingDocumentState } from "./drawing-commands.ts";
-import { drawingDimensionLayout, drawingTextLayout } from "./drawing-layout.ts";
+import {
+  drawingDimensionContextForCanvas,
+  drawingDimensionLayout,
+  drawingTextLayout,
+} from "./drawing-layout.ts";
 import {
   DRAWING_SEMANTIC_RENDER_METRICS,
   drawingSemanticAccessibilityLabel,
@@ -14,14 +18,15 @@ import {
 } from "./drawing-geometry.ts";
 import { resolveDrawingOpening } from "./drawing-semantic-geometry.ts";
 import { resolveDrawingStyle } from "./drawing-structure.ts";
-import type {
-  DrawingCanvas,
-  DrawingGeometry,
-  DrawingPage,
-  DrawingStyle,
-  DrawingObject,
+import {
+  DrawingCanvasSchema,
+  type DrawingCanvas,
+  type DrawingGeometry,
+  type DrawingOutputProfile,
+  type DrawingPage,
+  type DrawingStyle,
+  type DrawingObject,
 } from "./drawing-workspace.types.ts";
-
 export type DrawingExportTransform = [
   number,
   number,
@@ -83,6 +88,54 @@ export class DrawingExportError extends Error {
     super(message);
     this.name = "DrawingExportError";
   }
+}
+
+export type DrawingExportSize = {
+  physicalWidthMillimeters: number;
+  physicalHeightMillimeters: number;
+  worldWidthMillimeters: number;
+  worldHeightMillimeters: number;
+  paper: string | null;
+  orientation: DrawingOutputProfile["orientation"] | null;
+  scaleDenominator: number | null;
+  rasterWidthPixels: number;
+  rasterHeightPixels: number;
+  rasterDpi: number;
+};
+
+/** Resolves physical output without changing the canonical millimeter world. */
+export function drawingExportSize(
+  canvas: DrawingCanvas,
+  rasterScale: 1 | 2 | 4 = 1,
+): DrawingExportSize {
+  const profile = canvas.outputProfile;
+  if (profile && !DrawingCanvasSchema.safeParse(canvas).success)
+    throw new DrawingExportError(
+      "Drawing canvas output dimensions are invalid.",
+    );
+  const physicalWidthMillimeters =
+    profile?.widthMillimeters ?? canvas.widthMillimeters;
+  const physicalHeightMillimeters =
+    profile?.heightMillimeters ?? canvas.heightMillimeters;
+  const pixelsPerMillimeter = profile ? 96 / 25.4 : 1;
+  return {
+    physicalWidthMillimeters,
+    physicalHeightMillimeters,
+    worldWidthMillimeters: canvas.widthMillimeters,
+    worldHeightMillimeters: canvas.heightMillimeters,
+    paper: profile?.paper ?? null,
+    orientation: profile?.orientation ?? null,
+    scaleDenominator: profile?.scaleDenominator ?? null,
+    rasterWidthPixels: Math.max(
+      1,
+      Math.round(physicalWidthMillimeters * pixelsPerMillimeter * rasterScale),
+    ),
+    rasterHeightPixels: Math.max(
+      1,
+      Math.round(physicalHeightMillimeters * pixelsPerMillimeter * rasterScale),
+    ),
+    rasterDpi: pixelsPerMillimeter * 25.4 * rasterScale,
+  };
 }
 
 function exportAbortError() {
@@ -185,10 +238,17 @@ export function collectExportPrimitives(
           `Drawing block ${instance.blockId} does not exist.`,
         );
       const model = blockInstanceRenderModel(block, instance, structure.styles);
-      return { ...model, bounds: blockRenderModelBounds(model) };
+      return {
+        ...model,
+        bounds: blockRenderModelBounds(
+          model,
+          drawingDimensionContextForCanvas(canvas),
+        ),
+      };
     });
   const items = drawingCanvasRenderAdapter({
     blockInstances,
+    dimensionContext: drawingDimensionContextForCanvas(canvas),
     layers,
     objects,
     zoom: 1,
@@ -274,21 +334,6 @@ function isSemanticGeometry(
 
 function svgStroke(style: DrawingStyle) {
   return `fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"`;
-}
-
-function dimensionCalibration(
-  canvas: DrawingCanvas,
-  geometry: Extract<DrawingGeometry, { type: "dimension" }>,
-) {
-  const calibration = canvas.background?.calibration;
-  return geometry.calibrationId && calibration
-    ? {
-        id: canvas.pageId,
-        millimetersPerNormalizedUnit: calibration.millimetersPerNormalizedUnit,
-        pageHeight: canvas.heightMillimeters,
-        pageWidth: canvas.widthMillimeters,
-      }
-    : null;
 }
 
 type FixedExportTextLayout = {
@@ -395,7 +440,8 @@ function svgGeometry(
     case "dimension": {
       const layout = drawingDimensionLayout(
         geometry,
-        dimensionCalibration(canvas, geometry),
+        drawingDimensionContextForCanvas(canvas),
+        style.fontSize,
       );
       const line = (
         start: { x: number; y: number },
@@ -416,7 +462,7 @@ function svgGeometry(
             x: layout.label.x,
             y: layout.label.y,
           }),
-          geometry.calibrationId === null ? "#dc2626" : style.stroke,
+          layout.warning ? "#dc2626" : style.stroke,
           clipId,
         ),
       ];
@@ -467,14 +513,22 @@ function svgGeometry(
       const points = geometry.boundary
         .map((p) => `${exportNumber(p.x)},${exportNumber(p.y)}`)
         .join(" ");
-      const label = drawingSemanticLabelLayout(geometry, primitive.name);
+      const label = drawingSemanticLabelLayout(
+        geometry,
+        primitive.name,
+        style.fontSize,
+      );
       return [
         `<polygon points="${points}" fill="${style.fill ?? (geometry.type === "space" ? DRAWING_SEMANTIC_RENDER_METRICS.spaceFill : DRAWING_SEMANTIC_RENDER_METRICS.areaFill)}" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}"/>`,
         ...svgSemanticLabel(label, style.stroke, clipId),
       ];
     }
     case "grid": {
-      const label = drawingSemanticLabelLayout(geometry, primitive.name);
+      const label = drawingSemanticLabelLayout(
+        geometry,
+        primitive.name,
+        style.fontSize,
+      );
       return [
         `<line x1="${exportNumber(geometry.start.x)}" y1="${exportNumber(geometry.start.y)}" x2="${exportNumber(geometry.end.x)}" y2="${exportNumber(geometry.end.y)}" fill="none" stroke="${style.stroke}" stroke-width="${exportNumber(style.strokeWidth)}" stroke-dasharray="${DRAWING_SEMANTIC_RENDER_METRICS.gridDash.join(" ")}"/>`,
         `<circle cx="${exportNumber(geometry.end.x)}" cy="${exportNumber(geometry.end.y)}" r="${DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleRadius}" fill="#ffffff" stroke="${style.stroke}" stroke-width="${DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleStrokeWidth}"/>`,
@@ -497,11 +551,14 @@ export function exportDrawingSvg(
 ): string {
   const traversal = collectExportPrimitives(document, canvasId);
   const { canvas } = traversal;
-  const width = exportNumber(canvas.widthMillimeters);
-  const height = exportNumber(canvas.heightMillimeters);
+  const size = drawingExportSize(canvas);
+  const width = exportNumber(size.worldWidthMillimeters);
+  const height = exportNumber(size.worldHeightMillimeters);
+  const physicalWidth = exportNumber(size.physicalWidthMillimeters);
+  const physicalHeight = exportNumber(size.physicalHeightMillimeters);
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${physicalWidth}mm" height="${physicalHeight}mm" viewBox="0 0 ${width} ${height}">`,
     `<rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>`,
   ];
   traversal.primitives.forEach((primitive, index) => {
@@ -678,13 +735,13 @@ function paintGeometry(
     case "dimension": {
       const layout = drawingDimensionLayout(
         geometry,
-        dimensionCalibration(canvas, geometry),
+        drawingDimensionContextForCanvas(canvas),
+        style.fontSize,
       );
       canvasLine(context, layout.displayStart, layout.displayEnd);
       canvasLine(context, geometry.start, layout.displayStart);
       canvasLine(context, geometry.end, layout.displayEnd);
-      context.fillStyle =
-        geometry.calibrationId === null ? "#dc2626" : style.stroke;
+      context.fillStyle = layout.warning ? "#dc2626" : style.stroke;
       context.font = `${exportNumber(layout.fontSize)}px sans-serif`;
       context.textBaseline = "top";
       paintClippedText(
@@ -740,7 +797,11 @@ function paintGeometry(
           : DRAWING_SEMANTIC_RENDER_METRICS.areaFill);
       context.fill();
       context.stroke();
-      const label = drawingSemanticLabelLayout(geometry, primitive.name);
+      const label = drawingSemanticLabelLayout(
+        geometry,
+        primitive.name,
+        style.fontSize,
+      );
       context.fillStyle = style.stroke;
       context.font = `${label.fontSize}px sans-serif`;
       context.textAlign = "center";
@@ -764,7 +825,11 @@ function paintGeometry(
       context.fill();
       context.lineWidth = DRAWING_SEMANTIC_RENDER_METRICS.gridBubbleStrokeWidth;
       context.stroke();
-      const label = drawingSemanticLabelLayout(geometry, primitive.name);
+      const label = drawingSemanticLabelLayout(
+        geometry,
+        primitive.name,
+        style.fontSize,
+      );
       context.fillStyle = style.stroke;
       context.font = `${label.fontSize}px sans-serif`;
       context.textAlign = "center";
@@ -827,20 +892,15 @@ export async function exportDrawingPng(
   if (options.scale !== 1 && options.scale !== 2 && options.scale !== 4)
     throw new DrawingExportError("PNG scale must be 1x, 2x, or 4x.");
   const traversal = collectExportPrimitives(documentState, canvasId);
+  const size = drawingExportSize(traversal.canvas, options.scale);
   const background = requireExportBackground(
     traversal.canvas,
     options.background,
     options.includeBackground ?? true,
   );
   const canvas = (options.canvasFactory ?? nativeCanvas)();
-  canvas.width = Math.max(
-    1,
-    Math.round(traversal.canvas.widthMillimeters * options.scale),
-  );
-  canvas.height = Math.max(
-    1,
-    Math.round(traversal.canvas.heightMillimeters * options.scale),
-  );
+  canvas.width = size.rasterWidthPixels;
+  canvas.height = size.rasterHeightPixels;
   const context = canvas.getContext("2d");
   if (!context)
     throw new DrawingExportError("PNG Canvas 2D context is unavailable.");
@@ -964,8 +1024,9 @@ export async function exportDrawingPdf(
     throwIfExportAborted(options.signal);
     const pngBytes = await abortable(png.arrayBuffer(), options.signal);
     const image = await abortable(pdf.embedPng(pngBytes), options.signal);
-    const width = (canvas.widthMillimeters * 72) / 25.4;
-    const height = (canvas.heightMillimeters * 72) / 25.4;
+    const size = drawingExportSize(canvas);
+    const width = (size.physicalWidthMillimeters * 72) / 25.4;
+    const height = (size.physicalHeightMillimeters * 72) / 25.4;
     const page = pdf.addPage([width, height]);
     page.drawImage(image, { x: 0, y: 0, width, height });
   }

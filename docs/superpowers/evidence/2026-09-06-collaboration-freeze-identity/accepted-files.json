@@ -1,0 +1,17 @@
+[
+  {
+    "path": "platform/collaboration/src/freeze.ts",
+    "baselineSha256": "462bb38c93f1573dfb4ddd0b6b0dba191be7e7bc3684934de957c4b7213c712d",
+    "candidateSha256": "c751afc3a5de9d8d0dc41de45c2d89014145014209dcc4cdd100751ee86faac0"
+  },
+  {
+    "path": "platform/collaboration/src/server.ts",
+    "baselineSha256": "6ff6fb588a2fd1712f5df9471ade75e0bb2e0103127e7dd477365809ad57b4c7",
+    "candidateSha256": "b1c8908502c1461be782fd4f4d883afa5e1dbe0843ccab5cf710d5caaf0e34fe"
+  },
+  {
+    "path": "platform/tests/drawing-review-freeze.test.mjs",
+    "baselineSha256": "1b55de93fd74bbc72d3205c9199bf15a80cc4a000decd3fc521f7246d8f402ba",
+    "candidateSha256": "52c3890f61b00dd127e3e573cacd6c58a82a1e50a61c0f2a3104838d78df277c"
+  }
+]

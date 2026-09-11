@@ -28,8 +28,10 @@ import {
   drawingGeometryHitTest,
   drawingOpeningMarkerSegments,
   drawingSemanticAccessibilityLabel,
+  drawingSemanticLabelHitTest,
   drawingSemanticLabelLayout,
   DRAWING_SEMANTIC_RENDER_METRICS,
+  DRAWING_MIN_ZOOM,
   drawingPanGestureTransition,
   geometryBounds,
   geometrySnapPoints,
@@ -64,6 +66,7 @@ import {
   drawingDimensionLabel,
   drawingDimensionLayout,
   drawingTextLayout,
+  type DrawingDimensionContext,
 } from "~/lukas/lib/drawing-layout";
 import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
 import {
@@ -101,6 +104,10 @@ import {
   defaultDrawingObjectName,
 } from "~/lukas/lib/drawing-workspace.types";
 import {
+  createDrawingTouchGestureState,
+  drawingTouchGestureTransition,
+} from "~/lukas/lib/drawing-touch-gesture";
+import {
   addDrawingSemanticNumbers,
   normalizeDrawingSemanticNumber,
   projectPointToDrawingWall,
@@ -109,6 +116,11 @@ import {
 import type { DrawingAwarenessPeerStore } from "~/lukas/lib/drawing-awareness";
 import { DrawingCollaborationOverlay } from "~/lukas/components/drawing-collaboration-overlay.client";
 import { useDrawingAwarenessPeers } from "~/lukas/components/drawing-collaboration-presence";
+
+export {
+  createDrawingTouchGestureState,
+  drawingTouchGestureTransition,
+} from "~/lukas/lib/drawing-touch-gesture";
 
 type DrawingPdfCleanupScheduler = {
   requestFrame(callback: () => void): number;
@@ -151,7 +163,6 @@ function drawingCanvasPngBlob(canvas: HTMLCanvasElement) {
   );
 }
 
-const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 32;
 const BASE_GRID_SIZE = 10;
 const SELECTION_HIT_TOLERANCE_PIXELS = 6;
@@ -1128,6 +1139,7 @@ export type DrawingSelectionContext = {
   layers: Record<string, DrawingLayer>;
   objects: Record<string, DrawingObject>;
   orderedCandidateIds?: readonly string[];
+  renderBoundsById?: Readonly<Record<string, Bounds>>;
   snap: { gridSize: number };
   viewport: Viewport;
   lockedEntityIds?: ReadonlySet<string>;
@@ -1199,22 +1211,44 @@ function drawingSelectionCandidateAtPoint(
     return undefined;
   const matches = (id: string) => {
     const object = selectableDrawingObject(context, id);
+    const renderBounds = context.renderBoundsById?.[id];
+    const tolerance = SELECTION_HIT_TOLERANCE_PIXELS / context.viewport.zoom;
+    const labelHit =
+      object &&
+      (object.geometry.type === "space" ||
+        object.geometry.type === "area" ||
+        object.geometry.type === "grid") &&
+      drawingSemanticLabelHitTest(
+        object.geometry,
+        object.name,
+        point,
+        tolerance,
+        object.style.fontSize,
+      );
     return object &&
       pointInBounds(
         point,
-        drawingSelectionHitBounds(
-          object.geometry,
-          context.viewport.zoom,
-          SELECTION_HIT_TOLERANCE_PIXELS,
-          context.objects,
-        ),
+        renderBounds
+          ? {
+              x: renderBounds.x - tolerance,
+              y: renderBounds.y - tolerance,
+              width: renderBounds.width + tolerance * 2,
+              height: renderBounds.height + tolerance * 2,
+            }
+          : drawingSelectionHitBounds(
+              object.geometry,
+              context.viewport.zoom,
+              SELECTION_HIT_TOLERANCE_PIXELS,
+              context.objects,
+            ),
       ) &&
-      drawingGeometryHitTest(
-        object.geometry,
-        point,
-        SELECTION_HIT_TOLERANCE_PIXELS / context.viewport.zoom,
-        context.objects,
-      )
+      (labelHit ||
+        drawingGeometryHitTest(
+          object.geometry,
+          point,
+          tolerance,
+          context.objects,
+        ))
       ? object
       : undefined;
   };
@@ -1477,6 +1511,48 @@ export function drawingSelectionPreview({
   return { objectIds, objects: previewObjects };
 }
 
+export function drawingSelectionPreviewRenderBounds({
+  dimensionContext,
+  layers,
+  objects,
+  previewObjects,
+  selectedIds,
+}: {
+  dimensionContext: DrawingDimensionContext;
+  layers: Record<string, DrawingLayer>;
+  objects: Array<DrawingObject & { style: DrawingStyle }>;
+  previewObjects: Record<string, DrawingObject>;
+  selectedIds: readonly string[];
+}) {
+  const originalById = new Map(objects.map((object) => [object.id, object]));
+  const included = new Map<string, DrawingObject & { style: DrawingStyle }>();
+  const include = (id: string) => {
+    const original = originalById.get(id);
+    const preview = previewObjects[id];
+    if (original && preview)
+      included.set(id, { ...preview, style: original.style });
+  };
+  for (const id of selectedIds) {
+    include(id);
+    const preview = previewObjects[id];
+    if (preview?.geometry.type === "opening")
+      include(preview.geometry.hostWallId);
+  }
+  const selected = new Set(selectedIds);
+  return Object.fromEntries(
+    drawingCanvasRenderItems({
+      blockInstances: [],
+      dimensionContext,
+      layers,
+      objects: [...included.values()],
+    }).flatMap((item) =>
+      item.kind === "object" && selected.has(item.id)
+        ? [[item.id, item.bounds]]
+        : [],
+    ),
+  );
+}
+
 /** Pure selection gesture adapter; renderer nodes are only candidate hints. */
 export function drawingSelectionEventTransition(
   state: DrawingSelectionState,
@@ -1631,7 +1707,8 @@ export function drawingSelectionEventTransition(
           selectableDrawingObject(context, object.id) &&
           boundsIntersect(
             marquee,
-            geometryBounds(object.geometry, context.objects),
+            context.renderBoundsById?.[object.id] ??
+              geometryBounds(object.geometry, context.objects),
           ),
       )
       .map((object) => object.id);
@@ -1687,10 +1764,12 @@ export function drawingSelectionHandleSize(zoom: number, pixels = 8) {
 
 export function dimensionLabel(
   geometry: Extract<DrawingGeometry, { type: "dimension" }>,
-  calibration?: DimensionCalibrationEvidence | null,
+  calibrationOrContext?:
+    | DimensionCalibrationEvidence
+    | DrawingDimensionContext
+    | null,
 ) {
-  if (geometry.calibrationId === null) return "미보정";
-  return drawingDimensionLabel(geometry, calibration);
+  return drawingDimensionLabel(geometry, calibrationOrContext);
 }
 
 export function dimensionDisplayPoints(
@@ -1715,6 +1794,173 @@ export type DrawingCalibrationCapture = {
   active: boolean;
   onPoint: (point: Point) => void;
 };
+
+export type DrawingCanvasRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type DrawingCanvasRegionAnnotation = DrawingCanvasRegion & {
+  id: string;
+  issueId: string;
+  label: string;
+  selected: boolean;
+};
+
+export function drawingCanvasRegionAnnotationScreenBounds(
+  annotation: Pick<
+    DrawingCanvasRegionAnnotation,
+    "x" | "y" | "width" | "height"
+  >,
+  viewport: Viewport,
+) {
+  const start = worldToScreen({ x: annotation.x, y: annotation.y }, viewport);
+  return {
+    left: start.x,
+    top: start.y,
+    width: annotation.width * viewport.zoom,
+    height: annotation.height * viewport.zoom,
+  };
+}
+
+export type DrawingCanvasRegionPickState =
+  | { kind: "idle" }
+  | {
+      kind: "dragging";
+      pointerId: number;
+      startScreen: Point;
+      currentScreen: Point;
+    };
+
+export type DrawingCanvasRegionPicker = {
+  identityKey: string;
+  onComplete: (region: DrawingCanvasRegion) => void;
+};
+
+type DrawingCanvasRegionPickEvent =
+  | {
+      type: "pointer_down";
+      button: number;
+      isPrimary?: boolean;
+      pointerId: number;
+      screenPoint: Point;
+    }
+  | {
+      type: "pointer_move" | "pointer_up";
+      pointerId: number;
+      screenPoint: Point;
+    }
+  | { type: "pointer_cancel"; pointerId: number };
+
+export function drawingCanvasRegionPickerPointerDisposition(input: {
+  activePointerId: number | null;
+  armed: boolean;
+  event: {
+    type: "pointer_down" | "pointer_move" | "pointer_up" | "pointer_cancel";
+    pointerId: number;
+    pointerType: string;
+    button?: number;
+    isPrimary?: boolean;
+  };
+}) {
+  if (!input.armed) return "pass" as const;
+  if (input.activePointerId !== null) {
+    if (input.activePointerId === input.event.pointerId)
+      return "owner" as const;
+    return input.event.type === "pointer_down" &&
+      input.event.pointerType === "touch"
+      ? ("cancel" as const)
+      : ("consume" as const);
+  }
+  if (input.event.type !== "pointer_down") return "consume" as const;
+  return input.event.button === 0 && input.event.isPrimary !== false
+    ? ("start" as const)
+    : ("consume" as const);
+}
+
+const drawingRegionPickIdleState: DrawingCanvasRegionPickState = {
+  kind: "idle",
+};
+
+function drawingRegionPickHasFinitePoint(point: Point) {
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function drawingRegionPickHasValidViewport(viewport: Viewport) {
+  return (
+    Number.isFinite(viewport.x) &&
+    Number.isFinite(viewport.y) &&
+    Number.isFinite(viewport.zoom) &&
+    viewport.zoom > 0
+  );
+}
+
+/** Captures one unsnapped, unbounded world-space rectangle from a screen drag. */
+export function drawingCanvasRegionPickTransition(
+  state: DrawingCanvasRegionPickState,
+  event: DrawingCanvasRegionPickEvent,
+  viewport: Viewport,
+): { state: DrawingCanvasRegionPickState; region: DrawingCanvasRegion | null } {
+  const pass = { state, region: null };
+  if (event.type === "pointer_down") {
+    if (
+      state.kind !== "idle" ||
+      event.button !== 0 ||
+      event.isPrimary === false ||
+      !drawingRegionPickHasFinitePoint(event.screenPoint) ||
+      !drawingRegionPickHasValidViewport(viewport)
+    )
+      return pass;
+    return {
+      state: {
+        kind: "dragging",
+        pointerId: event.pointerId,
+        startScreen: event.screenPoint,
+        currentScreen: event.screenPoint,
+      },
+      region: null,
+    };
+  }
+  if (state.kind !== "dragging" || state.pointerId !== event.pointerId)
+    return pass;
+  if (event.type === "pointer_cancel")
+    return { state: drawingRegionPickIdleState, region: null };
+  if (!drawingRegionPickHasFinitePoint(event.screenPoint))
+    return event.type === "pointer_up"
+      ? { state: drawingRegionPickIdleState, region: null }
+      : pass;
+  if (event.type === "pointer_move")
+    return {
+      state: { ...state, currentScreen: event.screenPoint },
+      region: null,
+    };
+  const screenWidth = Math.abs(event.screenPoint.x - state.startScreen.x);
+  const screenHeight = Math.abs(event.screenPoint.y - state.startScreen.y);
+  if (
+    screenWidth < 4 ||
+    screenHeight < 4 ||
+    !drawingRegionPickHasValidViewport(viewport)
+  )
+    return { state: drawingRegionPickIdleState, region: null };
+  const start = screenToWorld(state.startScreen, viewport);
+  const end = screenToWorld(event.screenPoint, viewport);
+  if (
+    !drawingRegionPickHasFinitePoint(start) ||
+    !drawingRegionPickHasFinitePoint(end)
+  )
+    return { state: drawingRegionPickIdleState, region: null };
+  return {
+    state: drawingRegionPickIdleState,
+    region: {
+      x: Math.min(start.x, end.x),
+      y: Math.min(start.y, end.y),
+      width: Math.abs(end.x - start.x),
+      height: Math.abs(end.y - start.y),
+    },
+  };
+}
 
 /** Maps a Stage-relative point to one normalized PDF page point. */
 export function drawingCanvasNormalizedBackgroundPoint(
@@ -1885,7 +2131,10 @@ type DrawingCanvasProps = {
   blockInstances: Array<DrawingBlockRenderModel & { bounds: Bounds }>;
   calibration: DimensionCalibrationEvidence | null;
   calibrationId: string | null;
+  dimensionContext: DrawingDimensionContext;
   calibrationCapture?: DrawingCalibrationCapture | null;
+  regionPicker?: DrawingCanvasRegionPicker | null;
+  regionAnnotations?: DrawingCanvasRegionAnnotation[];
   canEdit: boolean;
   layerId: string | null;
   layers: DrawingLayer[];
@@ -1898,6 +2147,7 @@ type DrawingCanvasProps = {
   selectedIds: string[];
   awarenessStore: DrawingAwarenessPeerStore;
   onCursorWorldChange: (point: Point | null) => void;
+  onRegionAnnotationSelect?: (issueId: string) => void;
   onSoftLockChange: (entityId: string | null) => void;
 };
 
@@ -1920,7 +2170,7 @@ export function drawingRemoteSelectionBounds(
 
 function clampZoom(zoom: number) {
   if (!Number.isFinite(zoom)) return 1;
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+  return Math.min(MAX_ZOOM, Math.max(DRAWING_MIN_ZOOM, zoom));
 }
 
 function safeViewport(viewport: Viewport): Viewport {
@@ -2012,7 +2262,7 @@ function geometryShape(
   geometry: DrawingGeometry,
   style: DrawingStyle,
   preview = false,
-  calibration?: DimensionCalibrationEvidence | null,
+  dimensionContext?: DrawingDimensionContext,
   objects: Readonly<Record<string, DrawingObject>> = {},
   objectName = "",
   semanticView?: {
@@ -2089,7 +2339,11 @@ function geometryShape(
       );
     }
     case "dimension": {
-      const layout = drawingDimensionLayout(geometry, calibration);
+      const layout = drawingDimensionLayout(
+        geometry,
+        dimensionContext,
+        style.fontSize,
+      );
       const { displayEnd, displayStart, label } = layout;
       return (
         <>
@@ -2121,7 +2375,7 @@ function geometryShape(
             ]}
           />
           <KonvaText
-            fill={geometry.calibrationId === null ? "#dc2626" : style.stroke}
+            fill={layout.warning ? "#dc2626" : style.stroke}
             fontSize={layout.fontSize}
             height={layout.height}
             lineHeight={layout.lineHeight}
@@ -2196,7 +2450,11 @@ function geometryShape(
     }
     case "space":
     case "area": {
-      const label = drawingSemanticLabelLayout(geometry, objectName);
+      const label = drawingSemanticLabelLayout(
+        geometry,
+        objectName,
+        style.fontSize,
+      );
       return (
         <>
           <Line
@@ -2234,7 +2492,11 @@ function geometryShape(
       );
     }
     case "grid": {
-      const label = drawingSemanticLabelLayout(geometry, objectName);
+      const label = drawingSemanticLabelLayout(
+        geometry,
+        objectName,
+        style.fontSize,
+      );
       return (
         <>
           <Line
@@ -2322,7 +2584,7 @@ export function semanticRenderView(
 }
 
 type CommittedDrawingLayerProps = {
-  calibration: DimensionCalibrationEvidence | null;
+  dimensionContext: DrawingDimensionContext;
   items: DrawingCanvasRenderItem[];
   objects: Readonly<Record<string, DrawingObject>>;
   viewportX: number;
@@ -2330,10 +2592,10 @@ type CommittedDrawingLayerProps = {
   viewportZoom: number;
 };
 
-// The workspace keeps `objects` and `calibration` identities stable. Passing
+// The workspace keeps `objects` and dimension context identities stable. Passing
 // viewport primitives limits this memo boundary to actual committed-layer work.
 const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
-  calibration,
+  dimensionContext,
   items,
   objects,
   viewportX,
@@ -2356,7 +2618,7 @@ const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
               item.object.geometry,
               item.object.style,
               false,
-              calibration,
+              dimensionContext,
               objects,
               item.object.name,
               semanticRenderView(item.object, objects),
@@ -2378,7 +2640,7 @@ const CommittedDrawingLayer = memo(function CommittedDrawingLayer({
                   primitive.geometry,
                   primitive.style,
                   false,
-                  calibration,
+                  dimensionContext,
                 )}
               </Group>
             ))}
@@ -2534,9 +2796,11 @@ export const DrawingCanvas = forwardRef<
     onPdfCompareState,
     onPdfPageTransform,
     blockInstances,
-    calibration,
     calibrationId,
+    dimensionContext,
     calibrationCapture = null,
+    regionPicker = null,
+    regionAnnotations = [],
     canEdit,
     layerId,
     layers,
@@ -2549,11 +2813,18 @@ export const DrawingCanvas = forwardRef<
     selectedIds,
     awarenessStore,
     onCursorWorldChange,
+    onRegionAnnotationSelect,
     onSoftLockChange,
   },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const regionPickRef = useRef<DrawingCanvasRegionPickState>(
+    drawingRegionPickIdleState,
+  );
+  const regionPickTargetRef = useRef<HTMLElement | null>(null);
+  const [regionPickState, setRegionPickState] =
+    useState<DrawingCanvasRegionPickState>(drawingRegionPickIdleState);
   const konvaMountFinishRef = useRef<null | (() => number)>(null);
   if (konvaMountFinishRef.current === null)
     konvaMountFinishRef.current = startDrawingWorkspaceStage("konva-mount");
@@ -2570,6 +2841,28 @@ export const DrawingCanvas = forwardRef<
   const viewportRef = useRef<Viewport>({ x: 40, y: 40, zoom: 1 });
   const fitPendingRef = useRef(true);
   const panGestureRef = useRef<DrawingPanGesture | null>(null);
+  const touchGestureRef = useRef(createDrawingTouchGestureState());
+  const deferredTouchDrawingRef = useRef<{
+    canvasId: string;
+    canEdit: boolean;
+    layerId: string | null;
+    pointerId: number;
+    screenPoint: Point;
+    tool: DrawingTool;
+  } | null>(null);
+  const deferredTouchCalibrationRef = useRef<{
+    pointerId: number;
+    screenPoint: Point;
+  } | null>(null);
+  const touchSingleOwnerRef = useRef<
+    | {
+        mode: "selection";
+        pointerId: number;
+        selectedIdsBefore: string[];
+      }
+    | { mode: "pan" | "deferred" | "calibration"; pointerId: number }
+    | null
+  >(null);
   const spacePressedRef = useRef(false);
   const capturedPointerTargetRef = useRef<HTMLElement | null>(null);
   const capturedSelectionTargetRef = useRef<HTMLElement | null>(null);
@@ -2607,13 +2900,22 @@ export const DrawingCanvas = forwardRef<
     try {
       return drawingCanvasRenderItems({
         blockInstances,
+        dimensionContext,
         layers: layersById,
         objects,
       });
     } finally {
       finish();
     }
-  }, [blockInstances, layersById, objects]);
+  }, [blockInstances, dimensionContext, layersById, objects]);
+  const renderBoundsById = useMemo(
+    () => Object.fromEntries(renderItems.map((item) => [item.id, item.bounds])),
+    [renderItems],
+  );
+  const renderItemById = useMemo(
+    () => new Map(renderItems.map((item) => [item.id, item])),
+    [renderItems],
+  );
   const viewportBounds = useMemo(
     () => drawingCanvasViewportBounds(size, viewport),
     [size, viewport],
@@ -2622,6 +2924,7 @@ export const DrawingCanvas = forwardRef<
     const finish = startDrawingWorkspaceStage("snap-hit-preparation");
     try {
       const projection = drawingCanvasViewportProjection({
+        dimensionContext,
         items: renderItems,
         layers: layersById,
         viewportBounds,
@@ -2638,7 +2941,14 @@ export const DrawingCanvas = forwardRef<
     } finally {
       finish();
     }
-  }, [layersById, objectsById, renderItems, viewport.zoom, viewportBounds]);
+  }, [
+    dimensionContext,
+    layersById,
+    objectsById,
+    renderItems,
+    viewport.zoom,
+    viewportBounds,
+  ]);
   const objectCandidates = viewportProjection.objectCandidates;
   const [controllerState, setControllerState] =
     useState<DrawingToolControllerState>(() =>
@@ -2735,6 +3045,7 @@ export const DrawingCanvas = forwardRef<
     canEdit,
     layers: layersById,
     objects: objectsById,
+    renderBoundsById,
     snap: { gridSize: BASE_GRID_SIZE },
     viewport: viewportRef.current,
     lockedEntityIds: remotelyLockedIds,
@@ -2744,6 +3055,7 @@ export const DrawingCanvas = forwardRef<
     canEdit,
     layers: layersById,
     objects: objectsById,
+    renderBoundsById,
     snap: { gridSize: BASE_GRID_SIZE },
     viewport,
     lockedEntityIds: remotelyLockedIds,
@@ -3314,6 +3626,10 @@ export const DrawingCanvas = forwardRef<
     () => () => {
       spacePressedRef.current = false;
       panGestureRef.current = null;
+      touchGestureRef.current = createDrawingTouchGestureState();
+      deferredTouchDrawingRef.current = null;
+      deferredTouchCalibrationRef.current = null;
+      touchSingleOwnerRef.current = null;
       const target = capturedPointerTargetRef.current;
       const pointerId = controllerRef.current.dragPointerId;
       if (pointerId !== null && target?.hasPointerCapture?.(pointerId))
@@ -3335,6 +3651,8 @@ export const DrawingCanvas = forwardRef<
   );
 
   useEffect(() => {
+    if (deferredTouchDrawingRef.current?.tool !== activeTool)
+      deferredTouchDrawingRef.current = null;
     applyToolControllerResult(
       drawingToolEventTransition(
         controllerRef.current,
@@ -3343,6 +3661,13 @@ export const DrawingCanvas = forwardRef<
       ),
     );
   }, [activeTool, applyToolControllerResult, canEdit, layerId, layersById]);
+
+  useEffect(() => {
+    if (calibrationCapture?.active && background.kind === "pdf") return;
+    deferredTouchCalibrationRef.current = null;
+    if (touchSingleOwnerRef.current?.mode === "calibration")
+      touchSingleOwnerRef.current = null;
+  }, [background.kind, calibrationCapture?.active]);
 
   useEffect(() => {
     const current = selectionRef.current;
@@ -3392,8 +3717,9 @@ export const DrawingCanvas = forwardRef<
   ]);
 
   const grid = useMemo(() => visibleGrid(size, viewport), [size, viewport]);
-  const cursor =
-    activeTool === "select" || activeTool === "pan"
+  const cursor = regionPicker
+    ? "crosshair"
+    : activeTool === "select" || activeTool === "pan"
       ? drawingCanvasCursor(activeTool, spacePressed, panGesture !== null)
       : spacePressed
         ? drawingCanvasCursor("select", true, panGesture !== null)
@@ -3450,8 +3776,10 @@ export const DrawingCanvas = forwardRef<
   });
   const selectedBlockInstances = selectionState.selectedIds.flatMap(
     (instanceId) => {
-      const model = blockInstancesById[instanceId];
-      return model ? [model] : [];
+      const item = renderItemById.get(instanceId);
+      return item?.kind === "block"
+        ? [{ ...item.model, bounds: item.bounds }]
+        : [];
     },
   );
   const marqueeBounds = selectionState.marquee
@@ -3460,6 +3788,17 @@ export const DrawingCanvas = forwardRef<
         selectionState.marquee.current,
       )
     : null;
+  const regionPickPreview = useMemo(() => {
+    if (
+      regionPickState.kind !== "dragging" ||
+      !drawingRegionPickHasValidViewport(viewport)
+    )
+      return null;
+    return normalizedBounds(
+      screenToWorld(regionPickState.startScreen, viewport),
+      screenToWorld(regionPickState.currentScreen, viewport),
+    );
+  }, [regionPickState, viewport]);
   const handleSize = drawingSelectionHandleSize(viewport.zoom);
   const selectionPreview = useMemo(
     () =>
@@ -3483,6 +3822,27 @@ export const DrawingCanvas = forwardRef<
     ],
   );
   const previewObjectsById = selectionPreview.objects;
+  const previewRenderBoundsById = useMemo(
+    () =>
+      selectionState.previewDelta.x !== 0 || selectionState.previewDelta.y !== 0
+        ? drawingSelectionPreviewRenderBounds({
+            dimensionContext,
+            layers: layersById,
+            objects,
+            previewObjects: previewObjectsById,
+            selectedIds: selectionState.selectedIds,
+          })
+        : {},
+    [
+      dimensionContext,
+      layersById,
+      objects,
+      previewObjectsById,
+      selectionState.previewDelta.x,
+      selectionState.previewDelta.y,
+      selectionState.selectedIds,
+    ],
+  );
 
   function runToolEvent(
     event: DrawingToolControllerEvent,
@@ -3542,6 +3902,111 @@ export const DrawingCanvas = forwardRef<
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
+  function releaseRegionPickPointer(pointerId: number) {
+    const target = regionPickTargetRef.current;
+    if (target?.hasPointerCapture?.(pointerId))
+      target.releasePointerCapture(pointerId);
+    regionPickTargetRef.current = null;
+  }
+
+  function applyRegionPickEvent(
+    event: DrawingCanvasRegionPickEvent,
+    target: HTMLElement,
+  ) {
+    const prior = regionPickRef.current;
+    const result = drawingCanvasRegionPickTransition(
+      prior,
+      event,
+      viewportRef.current,
+    );
+    regionPickRef.current = result.state;
+    if (result.state !== prior) setRegionPickState(result.state);
+    if (event.type === "pointer_down" && result.state.kind === "dragging") {
+      target.setPointerCapture?.(event.pointerId);
+      regionPickTargetRef.current = target;
+    }
+    if (result.state.kind === "idle" && prior.kind === "dragging")
+      releaseRegionPickPointer(prior.pointerId);
+    if (result.region) regionPicker?.onComplete(result.region);
+  }
+
+  function cancelRegionPick() {
+    const prior = regionPickRef.current;
+    if (prior.kind !== "dragging") return;
+    applyRegionPickEvent(
+      { type: "pointer_cancel", pointerId: prior.pointerId },
+      regionPickTargetRef.current ?? hostRef.current!,
+    );
+  }
+
+  function handleRegionPickerPointer(
+    event: ReactPointerEvent<HTMLDivElement>,
+    type: "pointer_down" | "pointer_move" | "pointer_up" | "pointer_cancel",
+  ) {
+    if (
+      !regionPicker ||
+      (calibrationCapture?.active && background.kind === "pdf")
+    )
+      return false;
+    const active = regionPickRef.current;
+    const disposition = drawingCanvasRegionPickerPointerDisposition({
+      activePointerId: active.kind === "dragging" ? active.pointerId : null,
+      armed: true,
+      event: {
+        type,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        ...(type === "pointer_down"
+          ? { button: event.button, isPrimary: event.isPrimary }
+          : {}),
+      },
+    });
+    if (disposition === "pass") return false;
+    event.preventDefault();
+    event.stopPropagation();
+    if (disposition === "cancel") {
+      cancelRegionPick();
+      return true;
+    }
+    if (disposition === "consume") return true;
+    if (disposition === "start") {
+      event.currentTarget.focus();
+      applyRegionPickEvent(
+        {
+          type,
+          button: event.button,
+          isPrimary: event.isPrimary,
+          pointerId: event.pointerId,
+          screenPoint: pointerForHostEvent(event, event.currentTarget),
+        },
+        event.currentTarget,
+      );
+      return true;
+    }
+    if (type === "pointer_down") return true;
+    applyRegionPickEvent(
+      type === "pointer_cancel"
+        ? { type, pointerId: event.pointerId }
+        : {
+            type: type as "pointer_move" | "pointer_up",
+            pointerId: event.pointerId,
+            screenPoint: pointerForHostEvent(event, event.currentTarget),
+          },
+      event.currentTarget,
+    );
+    return true;
+  }
+
+  useEffect(() => {
+    if (!regionPicker) return;
+    const cancel = () => cancelRegionPick();
+    window.addEventListener("blur", cancel);
+    return () => {
+      cancel();
+      window.removeEventListener("blur", cancel);
+    };
+  }, [activeCanvasId, regionPicker?.identityKey, Boolean(regionPicker)]);
+
   const routeCalibrationInput = createDrawingCalibrationInputRouter(() => ({
     active: calibrationCapture?.active ?? false,
     background,
@@ -3573,6 +4038,298 @@ export const DrawingCanvas = forwardRef<
       screenPoint: pointer,
       shiftKey: event.shiftKey,
     });
+  }
+
+  function applyTouchSingleEvent(
+    event: NonNullable<
+      ReturnType<typeof drawingTouchGestureTransition>["singleEvent"]
+    >,
+    target: HTMLDivElement,
+    mode: "selection" | "pan",
+  ) {
+    if (mode === "selection") {
+      if (event.type === "pointer_down") {
+        capturedSelectionTargetRef.current = target;
+        runSelectionPointerDown({
+          type: "pointer_down",
+          candidateId: candidateIdFor(event.screenPoint),
+          pointerId: event.pointerId,
+          screenPoint: event.screenPoint,
+          shiftKey: false,
+        });
+      } else if (
+        selectionRef.current.drag?.pointerId === event.pointerId ||
+        selectionRef.current.marquee?.pointerId === event.pointerId
+      ) {
+        if (event.type === "pointer_cancel")
+          runSelectionEvent({
+            type: "pointer_cancel",
+            pointerId: event.pointerId,
+          });
+        else if (event.type === "pointer_move")
+          runSelectionEvent({
+            type: "pointer_move",
+            pointerId: event.pointerId,
+            screenPoint: event.screenPoint,
+          });
+        else
+          runSelectionEvent({
+            type: "pointer_up",
+            pointerId: event.pointerId,
+            screenPoint: event.screenPoint,
+          });
+      }
+      return;
+    }
+    const panEvent =
+      event.type === "pointer_down"
+        ? {
+            type: "begin" as const,
+            activeTool: "pan" as const,
+            spacePressed: false,
+            button: 0,
+            pointerId: event.pointerId,
+            pointer: event.screenPoint,
+            viewport: viewportRef.current,
+          }
+        : event.type === "pointer_move"
+          ? {
+              type: "move" as const,
+              pointerId: event.pointerId,
+              pointer: event.screenPoint,
+            }
+          : {
+              type:
+                event.type === "pointer_up"
+                  ? ("end" as const)
+                  : ("cancel" as const),
+              pointerId: event.pointerId,
+            };
+    const pan = drawingPanGestureTransition(panGestureRef.current, panEvent);
+    panGestureRef.current = pan.gesture;
+    setPanGesture(pan.gesture);
+    if (pan.viewport) setViewport(pan.viewport);
+  }
+
+  function cancelTouchSelection(pointerId: number, selectedIds: string[]) {
+    if (
+      selectionRef.current.drag?.pointerId === pointerId ||
+      selectionRef.current.marquee?.pointerId === pointerId
+    )
+      runSelectionEvent({ type: "pointer_cancel", pointerId });
+    const current = selectionRef.current;
+    applySelectionResult({
+      command: null,
+      softLockId: null,
+      state: {
+        ...current,
+        selectedIds: [...selectedIds],
+        drag: null,
+        marquee: null,
+        previewDelta: { x: 0, y: 0 },
+      },
+    });
+  }
+
+  function handleTouchPointer(
+    event: ReactPointerEvent<HTMLDivElement>,
+    type: "pointer_down" | "pointer_move" | "pointer_up" | "pointer_cancel",
+  ) {
+    if (event.pointerType !== "touch") return false;
+    const target = event.currentTarget;
+    const screenPoint = pointerForHostEvent(event, target);
+    const previousTouch = touchGestureRef.current;
+    const calibrationOwnsSingle =
+      calibrationCapture?.active && background.kind === "pdf";
+    const shouldDeferCalibration =
+      calibrationOwnsSingle &&
+      !spacePressedRef.current &&
+      type === "pointer_down" &&
+      previousTouch.pointers.length === 0;
+    const shouldDeferDrawing =
+      !calibrationOwnsSingle &&
+      !spacePressedRef.current &&
+      type === "pointer_down" &&
+      previousTouch.pointers.length === 0 &&
+      (activeTool === "opening" ||
+        ((
+          ["line", "dimension", "wall", "grid", "arc"] as DrawingTool[]
+        ).includes(activeTool) &&
+          controllerRef.current.session.tool === activeTool));
+    if (shouldDeferDrawing)
+      deferredTouchDrawingRef.current = {
+        canvasId: activeCanvasId,
+        canEdit,
+        layerId,
+        pointerId: event.pointerId,
+        screenPoint,
+        tool: activeTool,
+      };
+    if (shouldDeferCalibration) {
+      deferredTouchCalibrationRef.current = {
+        pointerId: event.pointerId,
+        screenPoint,
+      };
+      touchSingleOwnerRef.current = {
+        mode: "calibration",
+        pointerId: event.pointerId,
+      };
+    }
+    if (
+      type === "pointer_down" &&
+      previousTouch.pointers.length === 0 &&
+      !calibrationOwnsSingle
+    ) {
+      if (shouldDeferDrawing)
+        touchSingleOwnerRef.current = {
+          mode: "deferred",
+          pointerId: event.pointerId,
+        };
+      else if (activeTool === "select" && !spacePressedRef.current)
+        touchSingleOwnerRef.current = {
+          mode: "selection",
+          pointerId: event.pointerId,
+          selectedIdsBefore: [...selectionRef.current.selectedIds],
+        };
+      else if (activeTool === "pan" || spacePressedRef.current)
+        touchSingleOwnerRef.current = {
+          mode: "pan",
+          pointerId: event.pointerId,
+        };
+    }
+    const touch = drawingTouchGestureTransition(touchGestureRef.current, {
+      type,
+      pointerId: event.pointerId,
+      screenPoint,
+      viewport: viewportRef.current,
+    });
+    touchGestureRef.current = touch.state;
+    const singleOwner = touchSingleOwnerRef.current;
+    const deferredDrawing =
+      deferredTouchDrawingRef.current?.pointerId === event.pointerId;
+    const ownsEvent =
+      singleOwner?.pointerId === event.pointerId ||
+      deferredDrawing ||
+      previousTouch.suppressSingle ||
+      touch.state.suppressSingle;
+    if (!ownsEvent) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    if (type === "pointer_down") {
+      target.focus();
+      target.setPointerCapture?.(event.pointerId);
+    }
+    if (touch.cancelSinglePointerId !== null) {
+      const cancelledPointerId = touch.cancelSinglePointerId;
+      const cancelledOwner =
+        touchSingleOwnerRef.current?.pointerId === cancelledPointerId
+          ? touchSingleOwnerRef.current
+          : null;
+      if (deferredTouchDrawingRef.current?.pointerId === cancelledPointerId)
+        deferredTouchDrawingRef.current = null;
+      if (deferredTouchCalibrationRef.current?.pointerId === cancelledPointerId)
+        deferredTouchCalibrationRef.current = null;
+      if (cancelledOwner?.mode === "selection")
+        cancelTouchSelection(
+          cancelledPointerId,
+          cancelledOwner.selectedIdsBefore,
+        );
+      else if (
+        selectionRef.current.drag?.pointerId === cancelledPointerId ||
+        selectionRef.current.marquee?.pointerId === cancelledPointerId
+      )
+        runSelectionEvent({
+          type: "pointer_cancel",
+          pointerId: cancelledPointerId,
+        });
+      if (controllerRef.current.dragPointerId === cancelledPointerId)
+        runToolEvent({
+          type: "pointer_cancel",
+          pointerId: cancelledPointerId,
+        });
+      else if (controllerRef.current.session.tool !== "idle")
+        runToolEvent({ type: "pointer_cancel", pointerId: cancelledPointerId });
+      const pan = drawingPanGestureTransition(panGestureRef.current, {
+        type: "cancel",
+        pointerId: cancelledPointerId,
+      });
+      panGestureRef.current = pan.gesture;
+      setPanGesture(pan.gesture);
+      if (cancelledOwner) touchSingleOwnerRef.current = null;
+      target.setPointerCapture?.(cancelledPointerId);
+    }
+    if (touch.viewport) setViewport(touch.viewport);
+    const deferredCalibration = deferredTouchCalibrationRef.current;
+    if (
+      deferredCalibration?.pointerId === event.pointerId &&
+      (type === "pointer_up" || type === "pointer_cancel")
+    ) {
+      deferredTouchCalibrationRef.current = null;
+      if (
+        type === "pointer_up" &&
+        calibrationCapture?.active &&
+        background.kind === "pdf"
+      )
+        routeCalibrationInput(
+          {
+            type: "pointer_down",
+            activeTool,
+            button: 0,
+            spacePressed: false,
+            screenPoint: deferredCalibration.screenPoint,
+          },
+          {},
+        );
+    }
+    const deferred = deferredTouchDrawingRef.current;
+    if (
+      deferred?.pointerId === event.pointerId &&
+      (type === "pointer_up" || type === "pointer_cancel")
+    ) {
+      deferredTouchDrawingRef.current = null;
+      if (type === "pointer_cancel")
+        runToolEvent({ type: "pointer_cancel", pointerId: event.pointerId });
+      else if (
+        deferred.tool === activeTool &&
+        deferred.canvasId === activeCanvasId &&
+        deferred.canEdit === canEdit &&
+        deferred.layerId === layerId &&
+        !calibrationOwnsSingle &&
+        !spacePressedRef.current
+      )
+        runToolEvent(
+          {
+            type: "pointer_down",
+            button: 0,
+            pointerId: event.pointerId,
+            screenPoint: deferred.screenPoint,
+            shiftKey: false,
+          },
+          target,
+        );
+    } else if (
+      touch.singleEvent &&
+      singleOwner?.pointerId === event.pointerId &&
+      (singleOwner.mode === "selection" || singleOwner.mode === "pan")
+    )
+      applyTouchSingleEvent(touch.singleEvent, target, singleOwner.mode);
+    if (
+      (type === "pointer_up" || type === "pointer_cancel") &&
+      touchSingleOwnerRef.current?.pointerId === event.pointerId
+    )
+      touchSingleOwnerRef.current = null;
+    if (
+      (type === "pointer_up" || type === "pointer_cancel") &&
+      target.hasPointerCapture?.(event.pointerId)
+    )
+      target.releasePointerCapture(event.pointerId);
+    if (
+      (type === "pointer_up" || type === "pointer_cancel") &&
+      !selectionRef.current.drag &&
+      !selectionRef.current.marquee
+    )
+      capturedSelectionTargetRef.current = null;
+    return true;
   }
 
   function continueNativeSelection(event: ReactPointerEvent<HTMLDivElement>) {
@@ -3798,8 +4555,8 @@ export const DrawingCanvas = forwardRef<
   return (
     <div
       aria-describedby="drawing-canvas-input-description"
-      aria-label="도면 화면. 스페이스 키와 드래그 또는 가운데 단추 드래그로 이동합니다."
-      className="relative h-full min-h-[32rem] w-full overflow-hidden bg-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      aria-label="도면 화면. 한 손가락으로 선택하고 두 손가락으로 확대하거나 이동합니다."
+      className="relative h-full min-h-[32rem] w-full touch-none overflow-hidden bg-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       data-active-canvas-id={activeCanvasId}
       data-pdf-current-mounted={pdfSource ? "true" : "false"}
       data-pdf-raster-authority={pdfRasterEvidence.authority}
@@ -3834,7 +4591,21 @@ export const DrawingCanvas = forwardRef<
       data-viewport-y={viewport.y}
       data-viewport-zoom={viewport.zoom}
       onBlur={() => {
+        cancelRegionPick();
+        const touchPointerId =
+          deferredTouchDrawingRef.current?.pointerId ??
+          touchSingleOwnerRef.current?.pointerId ??
+          touchGestureRef.current.singlePointerId;
+        if (
+          touchPointerId !== null &&
+          controllerRef.current.session.tool !== "idle"
+        )
+          runToolEvent({ type: "pointer_cancel", pointerId: touchPointerId });
         spacePressedRef.current = false;
+        touchGestureRef.current = createDrawingTouchGestureState();
+        deferredTouchDrawingRef.current = null;
+        deferredTouchCalibrationRef.current = null;
+        touchSingleOwnerRef.current = null;
         const result = drawingPanGestureTransition(panGestureRef.current, {
           type: "blur",
         });
@@ -3851,6 +4622,15 @@ export const DrawingCanvas = forwardRef<
           });
       }}
       onKeyDown={(event) => {
+        if (
+          event.key === "Escape" &&
+          regionPickRef.current.kind === "dragging"
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          cancelRegionPick();
+          return;
+        }
         const handled = routeCalibrationInput(
           { type: "key_down", activeTool, key: event.key },
           {
@@ -3880,18 +4660,47 @@ export const DrawingCanvas = forwardRef<
         spacePressedRef.current = false;
         setSpacePressed(false);
       }}
-      onPointerCancelCapture={(event) =>
-        finishNativeSelection(event, "pointer_cancel")
-      }
-      onPointerDownCapture={beginNativeSelection}
+      onPointerCancelCapture={(event) => {
+        if (
+          !handleRegionPickerPointer(event, "pointer_cancel") &&
+          !handleTouchPointer(event, "pointer_cancel")
+        )
+          finishNativeSelection(event, "pointer_cancel");
+      }}
+      onPointerDownCapture={(event) => {
+        if (
+          (event.target as Element | null)?.closest?.(
+            "[data-drawing-region-anchor-id]",
+          )
+        )
+          return;
+        if (
+          !handleRegionPickerPointer(event, "pointer_down") &&
+          !handleTouchPointer(event, "pointer_down")
+        )
+          beginNativeSelection(event);
+      }}
       onPointerLeave={() => onCursorWorldChange(null)}
-      onPointerMoveCapture={continueNativeSelection}
-      onPointerUpCapture={(event) => finishNativeSelection(event, "pointer_up")}
+      onPointerMoveCapture={(event) => {
+        if (
+          !handleRegionPickerPointer(event, "pointer_move") &&
+          !handleTouchPointer(event, "pointer_move")
+        )
+          continueNativeSelection(event);
+      }}
+      onPointerUpCapture={(event) => {
+        if (
+          !handleRegionPickerPointer(event, "pointer_up") &&
+          !handleTouchPointer(event, "pointer_up")
+        )
+          finishNativeSelection(event, "pointer_up");
+      }}
       ref={hostRef}
       tabIndex={0}
     >
       <p className="sr-only" id="drawing-canvas-input-description">
-        휠로 확대하고 이동 도구 또는 스페이스 키와 드래그로 화면을 이동합니다.
+        휠 또는 두 손가락으로 확대하고, 이동 도구·스페이스 키·두 손가락 드래그로
+        화면을 이동합니다.
       </p>
       {size.width > 0 && size.height > 0 ? (
         <Stage
@@ -4055,7 +4864,7 @@ export const DrawingCanvas = forwardRef<
             </Group>
           </Layer>
           <CommittedDrawingLayer
-            calibration={calibration}
+            dimensionContext={dimensionContext}
             items={viewportProjection.projectedItems}
             objects={objectsById}
             viewportX={viewport.x}
@@ -4094,9 +4903,12 @@ export const DrawingCanvas = forwardRef<
                       <Group key={`preview-${object.id}`} listening={false}>
                         {geometryShape(
                           previewObjectsById[object.id].geometry,
-                          previewStyle,
+                          {
+                            ...previewStyle,
+                            fontSize: object.style.fontSize,
+                          },
                           true,
-                          calibration,
+                          dimensionContext,
                           previewObjectsById,
                           object.name,
                         )}
@@ -4105,12 +4917,15 @@ export const DrawingCanvas = forwardRef<
                   })
                 : null}
               {selectedObjects.map((object) => {
-                const geometry =
+                const previewing =
                   selectionState.previewDelta.x !== 0 ||
-                  selectionState.previewDelta.y !== 0
-                    ? previewObjectsById[object.id].geometry
-                    : object.geometry;
-                const bounds = geometryBounds(geometry, previewObjectsById);
+                  selectionState.previewDelta.y !== 0;
+                const baseBounds =
+                  renderBoundsById[object.id] ??
+                  geometryBounds(object.geometry, previewObjectsById);
+                const bounds = previewing
+                  ? (previewRenderBoundsById[object.id] ?? baseBounds)
+                  : baseBounds;
                 const corners = [
                   { x: bounds.x, y: bounds.y },
                   { x: bounds.x + bounds.width, y: bounds.y },
@@ -4173,12 +4988,24 @@ export const DrawingCanvas = forwardRef<
               ) : null}
             </Group>
             <Group listening={false} name="drawing-preview">
+              {regionPickPreview ? (
+                <Rect
+                  fill="rgba(245,158,11,0.16)"
+                  height={regionPickPreview.height}
+                  listening={false}
+                  stroke="#f59e0b"
+                  strokeWidth={2 / viewport.zoom}
+                  width={regionPickPreview.width}
+                  x={regionPickPreview.x}
+                  y={regionPickPreview.y}
+                />
+              ) : null}
               {preview
                 ? geometryShape(
                     preview,
                     previewStyle,
                     true,
-                    calibration,
+                    dimensionContext,
                     objectsById,
                   )
                 : null}
@@ -4186,6 +5013,48 @@ export const DrawingCanvas = forwardRef<
           </Layer>
         </Stage>
       ) : null}
+      {regionAnnotations.map((annotation) => {
+        const bounds = drawingCanvasRegionAnnotationScreenBounds(
+          annotation,
+          viewport,
+        );
+        const interactive =
+          activeTool === "select" &&
+          !regionPicker &&
+          !(calibrationCapture?.active && background.kind === "pdf") &&
+          !spacePressed;
+        return (
+          <div
+            className={`pointer-events-none absolute z-10 border-2 ${
+              annotation.selected
+                ? "border-amber-300 bg-amber-300/10"
+                : "border-indigo-300 bg-indigo-300/10"
+            }`}
+            key={annotation.id}
+            style={bounds}
+          >
+            <button
+              aria-disabled={!interactive}
+              aria-label={`이슈 영역: ${annotation.label}`}
+              aria-pressed={annotation.selected}
+              className={`absolute left-0 top-0 max-w-48 truncate rounded-br-md px-2 py-1 text-left text-xs font-bold text-slate-950 shadow ${
+                annotation.selected ? "bg-amber-300" : "bg-indigo-200"
+              } ${interactive ? "pointer-events-auto" : "pointer-events-none"}`}
+              data-drawing-region-anchor-id={annotation.id}
+              onClick={() => {
+                if (interactive) onRegionAnnotationSelect?.(annotation.issueId);
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
+              onKeyUp={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              tabIndex={interactive ? 0 : -1}
+              type="button"
+            >
+              {annotation.label}
+            </button>
+          </div>
+        );
+      })}
       {controllerState.validationMessage ? (
         <p
           className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md bg-red-950 px-3 py-2 text-sm text-red-100 shadow-lg"

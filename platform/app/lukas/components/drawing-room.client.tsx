@@ -10,6 +10,8 @@ import IfcPropertyBrowser, {
 import PdfDrawingViewer from "~/lukas/components/pdf-drawing-viewer.client";
 import type { DrawingProjectRole } from "~/lukas/lib/drawing-collaboration-policy";
 import {
+  mergeFocusedIssue,
+  mergeFocusedRevisionReview,
   reconcileDrawingIssueSelection,
   type DrawingIssuePageInfo,
 } from "~/lukas/lib/drawing-pagination";
@@ -57,6 +59,8 @@ export default function DrawingRoomClient({
   initialGlobalId,
   initialIssueId,
   revisionReview,
+  revisionReviewNextHref,
+  revisionReviewPreviousHref,
   assignees,
   anchors,
   activeAnchor,
@@ -77,6 +81,8 @@ export default function DrawingRoomClient({
   initialGlobalId: string | null;
   initialIssueId: string | null;
   revisionReview: DrawingRevisionReviewItem[];
+  revisionReviewNextHref: string | null;
+  revisionReviewPreviousHref: string | null;
   assignees: DrawingAssignee[];
   anchors: DrawingAnchorRow[];
   activeAnchor: DrawingViewerAnchor | null;
@@ -96,23 +102,32 @@ export default function DrawingRoomClient({
   const [pendingAnchor, setPendingAnchor] = useState<object | null>(null);
   const [relinkSelection, setRelinkSelection] = useState<{
     candidate: DrawingRevisionReviewItem;
+    issue: DrawingIssue | null;
     newAnchorId: string;
   } | null>(null);
   const [ifcFocusRequest, setIfcFocusRequest] =
     useState<IfcFocusRequest | null>(null);
   const [realtimeState, setRealtimeState] =
     useState<DrawingRealtimeState | null>(null);
+  const visibleIssues = mergeFocusedIssue(
+    issues,
+    relinkSelection?.issue ?? null,
+  );
+  const visibleRevisionReview = mergeFocusedRevisionReview(
+    revisionReview,
+    relinkSelection?.candidate ?? null,
+  );
 
   useEffect(() => {
     const next = reconcileDrawingIssueSelection(
-      issues,
+      visibleIssues,
       selectedIssueId,
       initialIssueId,
       previousInitialIssueId.current,
     );
     previousInitialIssueId.current = initialIssueId;
     if (next !== selectedIssueId) setSelectedIssueId(next);
-  }, [initialIssueId, issues, selectedIssueId]);
+  }, [initialIssueId, selectedIssueId, visibleIssues]);
 
   useEffect(() => {
     const url = import.meta.env.VITE_SUPABASE_URL;
@@ -216,7 +231,7 @@ export default function DrawingRoomClient({
           onClick={() => setMobileTab("issues")}
           type="button"
         >
-          이슈 {issues.length}
+          이슈 {visibleIssues.length}
         </button>
       </div>
 
@@ -260,6 +275,7 @@ export default function DrawingRoomClient({
               derivative={ifcDerivative}
               fileName={file.original_filename}
               focusRequest={ifcFocusRequest}
+              onDerivativeRefresh={revalidator.revalidate}
               sourceKey={file.id}
               initialGlobalId={
                 activeAnchor?.kind === "ifc_element"
@@ -300,20 +316,42 @@ export default function DrawingRoomClient({
         <aside
           className={`${mobileTab === "issues" ? "block" : "hidden"} order-3 lg:block`}
         >
+          {revisionReviewNextHref || revisionReviewPreviousHref ? (
+            <nav aria-label="개정 검토 후보 페이지" className="mb-2 flex gap-2">
+              {revisionReviewPreviousHref ? (
+                <Link
+                  className="min-h-9 rounded-md border px-2 py-2 text-xs font-semibold"
+                  preventScrollReset
+                  to={revisionReviewPreviousHref}
+                >
+                  이전 후보
+                </Link>
+              ) : null}
+              {revisionReviewNextHref ? (
+                <Link
+                  className="min-h-9 rounded-md border px-2 py-2 text-xs font-semibold"
+                  preventScrollReset
+                  to={revisionReviewNextHref}
+                >
+                  다음 후보
+                </Link>
+              ) : null}
+            </nav>
+          ) : null}
           <DrawingIssuePanel
             assignees={assignees}
             anchors={anchors}
             approvals={approvals}
             comments={comments}
             currentUserId={currentUserId}
-            issues={issues}
+            issues={visibleIssues}
             issuePage={issuePage}
             onSelectIssue={setSelectedIssueId}
             pendingAnchor={pendingAnchor}
             projectId={projectId}
             currentFileId={file.id}
             events={events}
-            revisionReview={revisionReview}
+            revisionReview={visibleRevisionReview}
             relinkCandidate={relinkSelection?.candidate ?? null}
             relinkNewAnchorId={relinkSelection?.newAnchorId ?? null}
             onCancelRelinkCandidate={() => {
@@ -326,6 +364,9 @@ export default function DrawingRoomClient({
               setPendingAnchor(null);
               setRelinkSelection({
                 candidate,
+                issue:
+                  issues.find((issue) => issue.id === candidate.issueId) ??
+                  null,
                 newAnchorId: crypto.randomUUID(),
               });
               setIfcFocusRequest(

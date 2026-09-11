@@ -46,6 +46,126 @@ async function changedPixelRatio(page: Page, screenshot: Buffer) {
 
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
+test("canonical workspace explicitly reselects a PDF revision anchor before atomic replacement", async ({
+  page,
+}) => {
+  await page.goto(
+    "/workspace-preview/drawing-workspace?p5RevisionRelinkTest=1&view=2d",
+    { waitUntil: "domcontentloaded" },
+  );
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+  await page.getByRole("tab", { name: "댓글·이슈" }).click();
+  await expect(page.getByText("개정 도면 재검토 1건")).toBeVisible();
+  await expect(
+    page.getByText(
+      "이전 좌표를 복사하지 않고 새 원본에서 직접 확인한 뒤 교체합니다.",
+    ),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "후보 검토" }).click();
+  await expect(
+    page.getByText(
+      "PDF 좌표는 자동 복사하지 않습니다. 새 도면에서 영역을 다시 선택하세요.",
+    ),
+  ).toBeVisible();
+  const regionButton = page.getByRole("button", { name: "영역 지정" });
+  await expect(regionButton).toBeEnabled();
+  await regionButton.click();
+
+  const canvas = page.getByLabel(/도면 화면/);
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width * 0.4, box!.y + box!.height * 0.35);
+  await page.mouse.down();
+  await page.mouse.move(
+    box!.x + box!.width * 0.58,
+    box!.y + box!.height * 0.52,
+  );
+  await page.mouse.up();
+
+  const form = page.getByRole("form", { name: "개정 근거 원자적 교체" });
+  await expect(form.locator('input[name="intent"]')).toHaveValue(
+    "relink_anchor",
+  );
+  await expect(form.locator('input[name="current_file_id"]')).toHaveValue(
+    "00000000-0000-4000-8000-000000000002",
+  );
+  await expect(form.locator('input[name="anchor_json"]')).toHaveValue(
+    /"kind":"pdf_region"/,
+  );
+  await page
+    .getByLabel("교체 검토 메모")
+    .fill("개정본에서 새 영역을 직접 확인함");
+  const posted = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.postData()?.includes("intent=relink_anchor") === true,
+  );
+  await page.getByRole("button", { name: "원자적으로 근거 교체 확인" }).click();
+  await posted;
+  await expect(page.getByText(/새 개정본의 근거로 교체했습니다/)).toBeVisible();
+});
+
+test("keyboard-only review can enter a normalized PDF region before atomic replacement", async ({
+  page,
+}) => {
+  await page.goto(
+    "/workspace-preview/drawing-workspace?p5RevisionRelinkTest=1&view=2d",
+    { waitUntil: "domcontentloaded" },
+  );
+  await expect(page.getByLabel("미리보기 hydration 상태")).toHaveText("준비됨");
+
+  const collaborationTab = page.getByRole("tab", { name: "댓글·이슈" });
+  await collaborationTab.focus();
+  await page.keyboard.press("Enter");
+  const reviewButton = page.getByRole("button", { name: "후보 검토" });
+  await reviewButton.focus();
+  await page.keyboard.press("Enter");
+
+  const coordinates = page.getByRole("group", {
+    name: "PDF 근거 영역 좌표 입력",
+  });
+  for (const [label, value] of [
+    ["왼쪽 위치 (%)", "10"],
+    ["위쪽 위치 (%)", "20"],
+    ["너비 (%)", "30"],
+    ["높이 (%)", "40"],
+  ] as const) {
+    const input = coordinates.getByLabel(label);
+    await input.focus();
+    await input.pressSequentially(value);
+  }
+  const applyCoordinates = coordinates.getByRole("button", {
+    name: "입력 좌표 적용",
+  });
+  await expect(applyCoordinates).toBeEnabled();
+  await applyCoordinates.focus();
+  await page.keyboard.press("Enter");
+
+  const form = page.getByRole("form", { name: "개정 근거 원자적 교체" });
+  const anchor = JSON.parse(
+    await form.locator('input[name="anchor_json"]').inputValue(),
+  );
+  expect(anchor).toMatchObject({
+    kind: "pdf_region",
+    pageNumber: 1,
+    x: 0.1,
+    y: 0.2,
+    width: 0.3,
+    height: 0.4,
+  });
+
+  const note = form.getByLabel("교체 검토 메모");
+  await note.focus();
+  await note.pressSequentially("키보드 좌표로 새 영역 확인");
+  const submit = form.getByRole("button", {
+    name: "원자적으로 근거 교체 확인",
+  });
+  await submit.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/새 개정본의 근거로 교체했습니다/)).toBeVisible();
+});
+
 test("manual P5 PDF preview serves current and opt-in predecessor bytes without interception", async ({
   page,
 }) => {
@@ -93,7 +213,7 @@ test("active PDF page compares only its exact predecessor with transient non-lis
   });
   const source = await readFile(
     path.resolve(
-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+      "tests/fixtures/p5-current-revision.pdf",
     ),
   );
   const changedDocument = await PDFDocument.load(source);
@@ -262,12 +382,19 @@ test("active PDF page compares only its exact predecessor with transient non-lis
   await expect(
     page.getByRole("group", { name: "PDF 개정 비교" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("tab", { name: "결과", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
   const objectTab = page.getByRole("tab", { name: "객체", exact: true });
+  const resultTab = page.getByRole("tab", { name: "결과", exact: true });
+  await expect(objectTab).toHaveAttribute("aria-selected", "true");
+  await expect(resultTab).toHaveAttribute("aria-selected", "false");
+  await resultTab.click();
+  await expect(resultTab).toHaveAttribute("aria-selected", "true");
+  await expect(objectTab).toHaveAttribute("aria-selected", "false");
+  await expect(
+    page.getByRole("tabpanel", { name: "결과", exact: true }),
+  ).toBeVisible();
   await objectTab.click();
   await expect(objectTab).toHaveAttribute("aria-selected", "true");
+  await expect(resultTab).toHaveAttribute("aria-selected", "false");
   await expect(
     page.getByRole("region", { name: "선택 객체 원본 근거" }),
   ).toContainText("조회 전용");
@@ -289,7 +416,7 @@ test("a non-current PDF mode queues one fresh capability while cancellation is p
   page.setDefaultTimeout(15_000);
   const source = await readFile(
     path.resolve(
-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+      "tests/fixtures/p5-current-revision.pdf",
     ),
   );
   let loadRequests = 0;
@@ -405,7 +532,7 @@ test("a failed PDF capability settles until a new user selection retries", async
   page.setDefaultTimeout(15_000);
   const source = await readFile(
     path.resolve(
-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+      "tests/fixtures/p5-current-revision.pdf",
     ),
   );
   let loadRequests = 0;
@@ -473,7 +600,7 @@ test("disabling PDF compare cancels pending predecessor work and clears transien
 }) => {
   const source = await readFile(
     path.resolve(
-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+      "tests/fixtures/p5-current-revision.pdf",
     ),
   );
   let releasePrevious!: () => void;
@@ -513,7 +640,7 @@ test("mounted PDF inspector uses operation commands for exact link and unlink", 
   page.on("pageerror", (error) => pageErrors.push(error.message));
   const source = await readFile(
     path.resolve(
-      "../.superpowers/sdd/2026-08-25-drawing-workspace-p2/task-10-artifacts/representative-drawing.pdf",
+      "tests/fixtures/p5-current-revision.pdf",
     ),
   );
   const hash = createHash("sha256").update(source).digest("hex");
@@ -533,12 +660,22 @@ test("mounted PDF inspector uses operation commands for exact link and unlink", 
   await expect(snapshot).toContainText(
     '"selectedIds":["00000000-0000-4000-8000-000000000071"]',
   );
-  await expect(
-    page.getByRole("tab", { name: "결과", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
   const objectTab = page.getByRole("tab", { name: "객체", exact: true });
+  const resultTab = page.getByRole("tab", { name: "결과", exact: true });
+  await expect(objectTab).toHaveAttribute("aria-selected", "true");
+  await expect(resultTab).toHaveAttribute("aria-selected", "false");
+  await resultTab.click();
+  await expect(resultTab).toHaveAttribute("aria-selected", "true");
+  await expect(objectTab).toHaveAttribute("aria-selected", "false");
+  await expect(
+    page.getByRole("tabpanel", { name: "결과", exact: true }),
+  ).toBeVisible();
   await objectTab.click();
   await expect(objectTab).toHaveAttribute("aria-selected", "true");
+  await expect(resultTab).toHaveAttribute("aria-selected", "false");
+  await expect(snapshot).toContainText(
+    '"selectedIds":["00000000-0000-4000-8000-000000000071"]',
+  );
   await page.getByRole("button", { name: "PDF 영역 원본 근거 연결" }).click();
   expect(pageErrors).toEqual([]);
   await expect(snapshot).toContainText('"sourceKind":"pdf_region"');
@@ -755,14 +892,22 @@ test("drawing and IFC GlobalId focus is bidirectional while remote selections st
       waitUntil: "domcontentloaded",
     }),
   ]);
+  await expect(
+    local.getByRole("region", { name: "도면 캔버스" }),
+  ).toHaveAttribute("data-edit-ready", "true");
   await local.getByRole("button", { name: "P5 연결 객체 선택" }).click();
   await expect(local.getByLabel("P5 mounted workspace snapshot")).toContainText(
     "00000000-0000-4000-8000-000000000070",
   );
   await local.getByRole("button", { name: "IFC 3D" }).click();
+  await expect(local).toHaveURL(/view=3d/);
+  await expect(local.getByLabel("P5 mounted workspace snapshot")).toContainText(
+    "00000000-0000-4000-8000-000000000070",
+  );
   await expect(local.getByTitle("0VNYAWfXv8JvIRVfOzYH1j")).toBeVisible({
     timeout: 60_000,
   });
+  await expect(local.getByText("선택한 요소: #2863 IfcBeam")).toBeVisible();
   const elementList = local
     .locator('section:has(input[aria-label="IFC 요소 검색"])')
     .last();

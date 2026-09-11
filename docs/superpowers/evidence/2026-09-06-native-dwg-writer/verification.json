@@ -1,0 +1,383 @@
+{
+  "generatedAt": "2026-09-05T16:51:18.856Z",
+  "unit": "canonical native manifest → actual AC1024 DWG → independent implementation inventory checks",
+  "unitComplete": true,
+  "overallObjectiveComplete": false,
+  "qualification": "experimental-unqualified",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "canonicalSourceValidation": "producer-required",
+  "syntheticScope": true,
+  "authenticatedSnapshot": false,
+  "engine": {
+    "package": "ACadSharp",
+    "version": "3.7.1",
+    "framework": ".NET8",
+    "newDependencies": 0
+  },
+  "sourceHashes": {
+    "tools/dwg-engine-qualification/NativeCadManifest.cs": "e7fb566f6d2c59e7c66adda0dff02f765592f3d7754a5a7a47421542d697c422",
+    "tools/dwg-engine-qualification/NativeDwgWriter.cs": "4153be37975daca810378a5ed5bca03e5a08e681887f9a0e59fd42972f74f175",
+    "tools/dwg-engine-qualification/NativeDwgVerification.cs": "047c1d6f9dce7d4de729f64b83f588fba51d9f62374014ca1c584a5a27aa86aa",
+    "tools/dwg-engine-qualification/NativeDwgSelfTests.cs": "c3b7155ded172d4d3a87b84cccbabf9f7e705ae1457a1ae03cbf2f0fbb633713",
+    "tools/dwg-engine-qualification/Program.cs": "76b33b2fbda75f9fed0b7c10778afb2f6619954f7acfb23a5f53d6b9b236f4c2",
+    "tools/dwg-engine-qualification/README.md": "3a9a2756c395ad067b4e65cb8e93da6a4de2341b50ca4460f42c0344dc7dc046"
+  },
+  "unchangedBaselineHashes": {
+    "tools/dwg-engine-qualification/QualificationCore.cs": "65025e6f7ef8057fedfa422af3ac6d3bd625b01167568d342cc659179b6fd09d",
+    "tools/dwg-engine-qualification/QualificationRunner.cs": "9fe3c9db973c8269bade36b713c78957fd6db4fcd9e45dfbd1ab396786d27589",
+    "tools/dwg-engine-qualification/SelfTests.cs": "5f7969b07b02153aaedd04e257301aedfa4521f1dcd2a5f3f7f52dc710986482",
+    "tools/dwg-engine-qualification/DwgEngineQualification.csproj": "ff954dc270832be5cf2086afc09c6f5f6e311930a491ae256aa47a1ca6306a02",
+    "tools/dwg-engine-qualification/packages.lock.json": "551793ff12f9558a92d6579b9ca0147da28adc1cb7abd30262a5ce055331f50c"
+  },
+  "unchangedOriginalContentHashes": {
+    "platform/app/lukas/lib/drawing-native-assets.ts": "cb9ebb80091df43e907405444f4851235d90fb6a5bd6810062099037afa75b31",
+    "platform/app/lukas/lib/drawing-native-symbols.ts": "84408d4e2b57a71dc2bcfc223bf25a786aa0d04c495bd820ef75bad7b4c004c2",
+    "platform/app/lukas/lib/drawing-native-templates.ts": "7d4778b603e8e2e93c1b0218b7f022634d13b68b3a0b9d828c534f1c87b19911"
+  },
+  "checks": {
+    "build": {
+      "exitCode": 0,
+      "warnings": 0,
+      "errors": 0
+    },
+    "native": {
+      "passed": 13,
+      "failed": 0
+    },
+    "legacy": {
+      "passed": 9,
+      "failed": 0
+    },
+    "independentActualDwg": {
+      "passed": 7,
+      "failed": 0
+    },
+    "repeatedSavedSemantics": {
+      "passed": 7,
+      "failed": 0,
+      "comparison": "7/7 identical independent inventories; DWG byte identity not required"
+    },
+    "transformRejection": {
+      "passed": 3,
+      "failed": 0,
+      "cases": [
+        {
+          "key": "multiplication",
+          "exitCode": 2,
+          "outputCreated": false,
+          "inputUnchanged": true
+        },
+        {
+          "key": "translation-addition",
+          "exitCode": 2,
+          "outputCreated": false,
+          "inputUnchanged": true
+        },
+        {
+          "key": "curved-extent",
+          "exitCode": 2,
+          "outputCreated": false,
+          "inputUnchanged": true
+        }
+      ]
+    }
+  },
+  "review": {
+    "spec": "approved",
+    "quality": "approved",
+    "openCritical": 0,
+    "openImportant": 0,
+    "openMinor": 0,
+    "fixRounds": 2,
+    "scope": "six-file unit; not unrelated dirty worktree"
+  },
+  "verification": {
+    "status": "internal-native-generation-verified",
+    "productionDwgDeliveryQualification": "not-qualified",
+    "independentCadVerification": "not-performed",
+    "artifacts": [
+      {
+        "key": "measured-plan",
+        "dwgSha256": "a5c2b3999db695030d130684fc39a170514b81ff08ddd8b7d6b993a13041e2d7",
+        "dwgBytes": 12810,
+        "sourceSha256": "4c8723209a2cf98c0d3d7ac095b96d4b0aa858608d6eea76ea4deffbb4863c24",
+        "modelEntities": 19,
+        "blocks": 1,
+        "notifications": [
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle"
+        ],
+        "failures": [],
+        "independentImplementationCheck": "passed",
+        "independentCadProductCheck": "not-performed"
+      },
+      {
+        "key": "office-layout",
+        "dwgSha256": "c14aa5b83339d776ac47b88483c33952349aef107ed5420154c4d9f5871275b8",
+        "dwgBytes": 12394,
+        "sourceSha256": "bb8cf4197c5e0197e5edd7df709245823638a4bc34ee70e7a22205c34f4870d7",
+        "modelEntities": 10,
+        "blocks": 2,
+        "notifications": [
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle"
+        ],
+        "failures": [],
+        "independentImplementationCheck": "passed",
+        "independentCadProductCheck": "not-performed"
+      },
+      {
+        "key": "remodel-phases",
+        "dwgSha256": "9e1284c67632fcbacac26fa2edc26dda67a6bdbf44e765fd80cb169666c43f91",
+        "dwgBytes": 12458,
+        "sourceSha256": "d99f738478c5a8f2cedf7db9221e66e9e513a71eb58287385fd2f65ba1d030bc",
+        "modelEntities": 16,
+        "blocks": 1,
+        "notifications": [
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle"
+        ],
+        "failures": [],
+        "independentImplementationCheck": "passed",
+        "independentCadProductCheck": "not-performed"
+      },
+      {
+        "key": "finishes-takeoff",
+        "dwgSha256": "7c598e8abc539eaf6543f3b9139a46678f0b97f9f30b4c25bc048ba35814b57b",
+        "dwgBytes": 11948,
+        "sourceSha256": "ea88bceecb49b2142cdce12313998f1915f38bcace5551fe14ab12e042b2ad80",
+        "modelEntities": 6,
+        "blocks": 1,
+        "notifications": [
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle"
+        ],
+        "failures": [],
+        "independentImplementationCheck": "passed",
+        "independentCadProductCheck": "not-performed"
+      },
+      {
+        "key": "all-symbols",
+        "dwgSha256": "b68154a16f85aef4facbe242174bd1c1d268b05d0a4b5e178cdc83f428bd92aa",
+        "dwgBytes": 16938,
+        "sourceSha256": "d230f96abfb7bc2fa6f04594d94ed4ad1f5ea31fdc629db7226c122eb55647c3",
+        "modelEntities": 24,
+        "blocks": 24,
+        "notifications": [
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle"
+        ],
+        "failures": [],
+        "independentImplementationCheck": "passed",
+        "independentCadProductCheck": "not-performed"
+      },
+      {
+        "key": "edge-cases",
+        "dwgSha256": "703c87ecec6ba4af0fcbafa30a9c0e8fde6ea621917b818a12bef64468a54fe2",
+        "dwgBytes": 12042,
+        "sourceSha256": "a0eff634a3a3914e6205cb32e7bd28122dd9ac8f1756e47545fdf1f7535ca1dd",
+        "modelEntities": 6,
+        "blocks": 0,
+        "notifications": [
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle"
+        ],
+        "failures": [],
+        "independentImplementationCheck": "passed",
+        "independentCadProductCheck": "not-performed"
+      },
+      {
+        "key": "blank-custom-paper",
+        "dwgSha256": "92af413e0e241cdc2af7a4786f9161a79a01fb6dac29e4d49dab3806962303e7",
+        "dwgBytes": 10731,
+        "sourceSha256": "8cde32e0a500aa695b1f2963407372f6ebc9abe653d074006b23b5ec176e971c",
+        "modelEntities": 0,
+        "blocks": 0,
+        "notifications": [
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle",
+          "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle+CellStyle"
+        ],
+        "failures": [],
+        "independentImplementationCheck": "passed",
+        "independentCadProductCheck": "not-performed"
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "measured-plan/native.dwg",
+      "bytes": 12810,
+      "sha256": "a5c2b3999db695030d130684fc39a170514b81ff08ddd8b7d6b993a13041e2d7"
+    },
+    {
+      "path": "measured-plan/source-manifest.json",
+      "bytes": 21292,
+      "sha256": "4c8723209a2cf98c0d3d7ac095b96d4b0aa858608d6eea76ea4deffbb4863c24"
+    },
+    {
+      "path": "measured-plan/native-report.json",
+      "bytes": 18457,
+      "sha256": "3017898c40071c046db09a23dbd038f9511f820210db445f4e1d928e733c9c46"
+    },
+    {
+      "path": "measured-plan/actual-inventory.json",
+      "bytes": 11502,
+      "sha256": "009a8c956024a918ca71558c2603a8890c886decba49178cd57f581df7a7a5b0"
+    },
+    {
+      "path": "office-layout/native.dwg",
+      "bytes": 12394,
+      "sha256": "c14aa5b83339d776ac47b88483c33952349aef107ed5420154c4d9f5871275b8"
+    },
+    {
+      "path": "office-layout/source-manifest.json",
+      "bytes": 20786,
+      "sha256": "bb8cf4197c5e0197e5edd7df709245823638a4bc34ee70e7a22205c34f4870d7"
+    },
+    {
+      "path": "office-layout/native-report.json",
+      "bytes": 18374,
+      "sha256": "b81d55821f3110e7d9c963095546874624eb92115124ab89a515b1edcc30fb63"
+    },
+    {
+      "path": "office-layout/actual-inventory.json",
+      "bytes": 9874,
+      "sha256": "5962ab60ae6852d2c18bc42cbfb49b579b8140375bff4730c539452306d07228"
+    },
+    {
+      "path": "remodel-phases/native.dwg",
+      "bytes": 12458,
+      "sha256": "9e1284c67632fcbacac26fa2edc26dda67a6bdbf44e765fd80cb169666c43f91"
+    },
+    {
+      "path": "remodel-phases/source-manifest.json",
+      "bytes": 20764,
+      "sha256": "d99f738478c5a8f2cedf7db9221e66e9e513a71eb58287385fd2f65ba1d030bc"
+    },
+    {
+      "path": "remodel-phases/native-report.json",
+      "bytes": 17223,
+      "sha256": "c7112b7ac74e09ac5cba87eab1f65a65f8869f3d267315f72a6daf57578dea40"
+    },
+    {
+      "path": "remodel-phases/actual-inventory.json",
+      "bytes": 9050,
+      "sha256": "a837f9a0e1e5e79be405bd42147277a57a38f5ca1d729c80fcafba9d424975f2"
+    },
+    {
+      "path": "finishes-takeoff/native.dwg",
+      "bytes": 11948,
+      "sha256": "7c598e8abc539eaf6543f3b9139a46678f0b97f9f30b4c25bc048ba35814b57b"
+    },
+    {
+      "path": "finishes-takeoff/source-manifest.json",
+      "bytes": 12149,
+      "sha256": "ea88bceecb49b2142cdce12313998f1915f38bcace5551fe14ab12e042b2ad80"
+    },
+    {
+      "path": "finishes-takeoff/native-report.json",
+      "bytes": 10478,
+      "sha256": "2477bbe77662e1926c1097e836d52dca2c89f8ca951bd90639dfd2077cd7749a"
+    },
+    {
+      "path": "finishes-takeoff/actual-inventory.json",
+      "bytes": 6021,
+      "sha256": "3d62af5587842f5f63c2145af3c33aaf0cd574ee6a022c1cc6b59baada35a3d8"
+    },
+    {
+      "path": "all-symbols/native.dwg",
+      "bytes": 16938,
+      "sha256": "b68154a16f85aef4facbe242174bd1c1d268b05d0a4b5e178cdc83f428bd92aa"
+    },
+    {
+      "path": "all-symbols/source-manifest.json",
+      "bytes": 106492,
+      "sha256": "d230f96abfb7bc2fa6f04594d94ed4ad1f5ea31fdc629db7226c122eb55647c3"
+    },
+    {
+      "path": "all-symbols/native-report.json",
+      "bytes": 102915,
+      "sha256": "97d4238ecac14f9a25b16165f3c3b73c90f03bb92ec0bb0d1cb450b70bc0485c"
+    },
+    {
+      "path": "all-symbols/actual-inventory.json",
+      "bytes": 44434,
+      "sha256": "ff3ed9cf78b3ffcea54c10db9e177ea0d0ee5cdd9c5d2f592dead7c6d2fd87a4"
+    },
+    {
+      "path": "edge-cases/native.dwg",
+      "bytes": 12042,
+      "sha256": "703c87ecec6ba4af0fcbafa30a9c0e8fde6ea621917b818a12bef64468a54fe2"
+    },
+    {
+      "path": "edge-cases/source-manifest.json",
+      "bytes": 8546,
+      "sha256": "a0eff634a3a3914e6205cb32e7bd28122dd9ac8f1756e47545fdf1f7535ca1dd"
+    },
+    {
+      "path": "edge-cases/native-report.json",
+      "bytes": 8560,
+      "sha256": "1e71dfc4264d841075f7cd58bcf3332e1d7f54044062049ca3a1e171079464a2"
+    },
+    {
+      "path": "edge-cases/actual-inventory.json",
+      "bytes": 6547,
+      "sha256": "666accee3a6d39ccf3cbd1a482b99bf49af8a65f6efd80f98cfd988dc670f1e3"
+    },
+    {
+      "path": "blank-custom-paper/native.dwg",
+      "bytes": 10731,
+      "sha256": "92af413e0e241cdc2af7a4786f9161a79a01fb6dac29e4d49dab3806962303e7"
+    },
+    {
+      "path": "blank-custom-paper/source-manifest.json",
+      "bytes": 3384,
+      "sha256": "8cde32e0a500aa695b1f2963407372f6ebc9abe653d074006b23b5ec176e971c"
+    },
+    {
+      "path": "blank-custom-paper/native-report.json",
+      "bytes": 4718,
+      "sha256": "771a1d4abe0a954ed5a0597a813181a0dc93af0d50705afd6d8322101d3341dd"
+    },
+    {
+      "path": "blank-custom-paper/actual-inventory.json",
+      "bytes": 1007,
+      "sha256": "d2e4ab164aedb6c80ebd812b53478c0061f9ef7aa1d852cee9cf59edd8163d2f"
+    },
+    {
+      "path": "input-index.json",
+      "bytes": 4605,
+      "sha256": "051a010cf374ca50dc27405dc341466baa21fc51a8a629b1348dba188f030404"
+    }
+  ],
+  "limits": [
+    "Same CAD engine used for write/read; independent implementation is not an independent recipient CAD product.",
+    "Font is named only; no font read, embedding, redistribution or visual qualification.",
+    "Requested/stored lineweight and opacity differences are explicitly reported.",
+    "Four exact pinned TableStyle.CellStyle reader notifications retained; writer notifications must be zero.",
+    "Conservative block extents can reject extreme near-domain-limit inputs.",
+    "No app UI, DB, worker authority, existing-DWG editing, recipient delivery or deployment completed by this unit."
+  ],
+  "remaining": [
+    "Host-opening index before high-volume projection",
+    "Approved immutable snapshot and authorized idempotent worker/lease/output receipt",
+    "Existing-DWG edit/re-save with untouched unsupported-object preservation",
+    "Licensed 30-file corpus and independent recipient CAD open/save/print acceptance",
+    "DWG+PDF+permitted dependencies+change/compatibility delivery package"
+  ]
+}

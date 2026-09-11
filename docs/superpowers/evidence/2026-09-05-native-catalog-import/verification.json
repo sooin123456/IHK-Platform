@@ -1,0 +1,158 @@
+{
+  "status": "native_catalog_unit_verified_locally",
+  "overallGoal": "active",
+  "operatingDeployment": false,
+  "sourceFreeze": {
+    "platform/supabase/migrations/20260905091919_native_drawing_catalog_import.sql": "aa72231277f02fc665d06598b3e47435125e3459b3599a645cc9c6c453ac4514",
+    "platform/scripts/generate-native-catalog-migration.mjs": "bea3407b5b934a11ad1b0449dd89b3ea9c325994c8c84a66e8bcc78f4f1d39ac",
+    "platform/tests/drawing-native-catalog-real-database.test.mjs": "8abd0fd2e6c0e0956babb863bcf61a90a85d2e2f16f79d1734b9c0c85a0ae328",
+    "platform/tests/fixtures/drawing-output-profiles.json": "1f57f89e1f08dfb5915c669a935df91f30ede03cccb3dfd2322a0c21d53700d2",
+    "platform/app/lukas/lib/drawing-workspace.types.ts": "8ef7ea273c33ab62c8192cad4ab6dee265d6cb0a3fd8f9b1eda8777c4d2d4aca",
+    "platform/app/lukas/lib/drawing-workspace.server.ts": "19beb6be33cf50d9ebe7fb67618ea84b48ad11df541f60625028fa8161186583",
+    "platform/app/lukas/lib/drawing-export.ts": "84f4be0b7d0c6708645499ce1e654101f6358e93b5c26e3691959c2eb207d7ea",
+    "platform/app/lukas/components/drawing-export-dialog.tsx": "1485c39a54ba607b5a1a48a210e0ad9722a40f127c1abbd3ad6d0e0853ca5570",
+    "platform/tests/drawing-output-profile.test.mjs": "6f323484b0edafa2adaa241331e04d2e0d476a6c47a9aa8fd1c67a64085343c1",
+    "platform/app/lukas/lib/drawing-native-catalog.server.ts": "3fcd4ca59d38e65b0d4ac95542769581c9347b1a9c02aba42838d8919c3edb07",
+    "platform/app/lukas/lib/organization-drawing-library.server.ts": "0088a863b156de4d9f23d28a1187f5353685b66fc848a680b7ff874c61d9ae6a",
+    "platform/app/lukas/screens/drawing-native-assets.ts": "3c099d4bb1eaac014569343b084ade128e81bd83b5f408e9218d8ee9ad2ea899",
+    "platform/app/lukas/screens/drawing-workspace-new.tsx": "eda9e226e3c81667147a9e375f94e515113d687b89c607ecd6467bf6ed074f5d",
+    "platform/app/lukas/screens/drawing-workspace.tsx": "da9930998a92ff9199c39a69db7a5a5ebd8ae1dcf7c247af44a1e38584b3f5e8",
+    "platform/app/lukas/screens/organization-drawing-library.tsx": "da8ca0b3d6c8af63f0291a5eae157fda4b50abdaf2d26b26eba8b239f2d0186b",
+    "platform/app/lukas/components/drawing-workspace-start.tsx": "ae18641ce666a7cc4f1ce89c2fb540dcc6231819682fa56306f649946f12f5b3",
+    "platform/app/lukas/components/drawing-blocks-panel.tsx": "48cca6b34bb0edacb2fd5b812e057e11b897b70e5504f4784b89aa0d8dc2eb45",
+    "platform/app/lukas/components/drawing-workspace.tsx": "389e826ddb972ecc7f25f63dbe0b75737c3f7bb77fba94241d6fa22722399a5b",
+    "platform/app/routes.ts": "4c6cb6d507c002bbed20f9961f85f7127a8e36366d8f3254375b06878f73fa05",
+    "platform/tests/drawing-native-catalog-server.test.mjs": "ee19734842a95cdd7ec21041704f2ed7132fc5149ffa56751fb600ff820ad039",
+    "platform/tests/drawing-native-catalog-ui.test.mjs": "f546490b54f8e1ac4717162a26166be6d1ce48f78e2c4e7dfad107abaed6acf4",
+    "platform/tests/drawing-workspace-p7-library-route.test.mjs": "e76eb5e83d114c38032175a8ae29a077f03a3f9c9f91669def13bbe46f60650a",
+    "platform/e2e/drawing-workspace-m1-estimator.spec.ts": "da15e7ece5a7a4d98ed3fe1922fc6d7da4d5883479aab931ea75930fc4252205",
+    "platform/tests/drawing-export-approval-ui.test.mjs": "b64d6173ede61f795db0b8a828f926be8d36234933039670d0fcd26c2ee30518",
+    "platform/tests/drawing-native-viewport.test.mjs": "8f54f03554faf14805d4f10e50d95d478e53ae99c36faabbcfa58d39b8e53dfe",
+    "platform/tests/drawing-workspace-geometry.test.mjs": "d5126b939dbb4da4bebcfa82c81ab7f761b6133967473da8f058c9e48531f542",
+    "platform/app/lukas/components/drawing-canvas.client.tsx": "9fe18d5e4b70b582f3c551e78539e777179118128df54cf1647e8dc4f51b9b19",
+    "platform/app/lukas/lib/drawing-geometry.ts": "b8688a96cf92856dfe93dc35a8ca1212942360560ac0e6539dcd01ddd71c6cc5",
+    "platform/app/lukas/lib/drawing-workspace-view.ts": "df5d75bf829d9354ae7081c898527674c3069e2771c6c9195ecb921e21796625",
+    "platform/collaboration/src/server.ts": "6ff6fb588a2fd1712f5df9471ade75e0bb2e0103127e7dd477365809ad57b4c7",
+    "platform/collaboration/src/storage.ts": "d5c37967a28eb668f7e421a378d474b9186f7f1913320bc39ca7a967c4e52d32",
+    "platform/supabase/migrations/20260905103705_native_drawing_collaboration_bridge.sql": "004af666b7dec0cce7ab0b4136759968e4f47efcd2e27a0aeceaae0685a23cb4",
+    "platform/tests/drawing-native-collaboration.test.mjs": "ad272772b287d917c3b8ef44b09e012685d77ee49ac3fe14aec85cd99a03527a",
+    "platform/app/lukas/lib/drawing-measurement-evidence-hydration.ts": "91d7b9a8dd464f9fe4411d43ce28076e95173b8a37e36f385ca717f10c757618",
+    "platform/tests/drawing-measurement-evidence-hydration.test.mjs": "a621f2dd938244af7bf92f04d73ebd16bad69baa995c7e20f2fc787aabc97888"
+  },
+  "nativeSourceBytes": {
+    "platform/app/lukas/lib/drawing-native-assets.ts": {
+      "sha256": "cb9ebb80091df43e907405444f4851235d90fb6a5bd6810062099037afa75b31",
+      "unchanged": true
+    },
+    "platform/app/lukas/lib/drawing-native-symbols.ts": {
+      "sha256": "84408d4e2b57a71dc2bcfc223bf25a786aa0d04c495bd820ef75bad7b4c004c2",
+      "unchanged": true
+    },
+    "platform/app/lukas/lib/drawing-native-templates.ts": {
+      "sha256": "7d4778b603e8e2e93c1b0218b7f022634d13b68b3a0b9d828c534f1c87b19911",
+      "unchanged": true
+    }
+  },
+  "checks": {
+    "fullM1": {
+      "run": 7,
+      "exitCode": 0,
+      "build": true,
+      "collaborationBuild": true,
+      "browser": {
+        "passed": 23,
+        "failed": 0,
+        "skipped": 0
+      },
+      "database": {
+        "passed": 5,
+        "failed": 0,
+        "expectedConfigurationGuardSkips": 2
+      }
+    },
+    "rootFocused": {
+      "passed": 345,
+      "failed": 0,
+      "skipped": 0
+    },
+    "rootSemantic": {
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0
+    },
+    "realNativeDatabase": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "generatorReproducible": true,
+    "independentMeasurementGateReview": "approved"
+  },
+  "measurement": {
+    "requestsBeforeConsumer": 0,
+    "totalObservedRequests": 1,
+    "checkpoint": {
+      "documentId": "0a3d4899-c72f-454d-94c4-4d3c049a036d",
+      "revisionId": "fc674b58-b629-4fd3-a1ca-94bd26b5e28f",
+      "revisionVersion": 1,
+      "snapshotSha256": "143cacc1411abe0d7c1bfc295f7fcd1f2d3538912862e4ff17018da88ba51775",
+      "operationCheckpoint": 3,
+      "ruleVersion": "P4_MEASUREMENT_V1"
+    },
+    "confirmedDom": true,
+    "matchesApprovedSnapshot": true
+  },
+  "pdf": {
+    "pageCount": 1,
+    "millimeters": {
+      "width": 420,
+      "height": 297
+    },
+    "sha256": "843543733b70d80a4fb73a75cb874a7a460fa2fe1a7dd6e9520bae63e5c603aa",
+    "byteSize": 47762,
+    "auditMatched": true,
+    "visualInspection": "Poppler144dpi: symbols inside paper; Korean example annotations and dimensions readable"
+  },
+  "browserEvidence": {
+    "editor": {
+      "consoleErrors": [],
+      "pageErrors": [],
+      "requestFailures": [
+        "GET http://127.0.0.1:4000/projects/065a25b1-64a2-4771-81b1-4a9da4b88464/workspaces/0a3d4899-c72f-454d-94c4-4d3c049a036d.data net::ERR_ABORTED"
+      ],
+      "responseErrors": []
+    },
+    "viewer": {
+      "consoleErrors": [],
+      "pageErrors": [],
+      "requestFailures": [],
+      "responseErrors": []
+    },
+    "reviewer": {
+      "consoleErrors": [],
+      "pageErrors": [],
+      "requestFailures": [],
+      "responseErrors": []
+    },
+    "approver": {
+      "consoleErrors": [],
+      "pageErrors": [],
+      "requestFailures": [],
+      "responseErrors": []
+    }
+  },
+  "preview": {
+    "url": "http://127.0.0.1:4173/workspace-preview/drawing-workspace?awarenessTest=1",
+    "status": 200,
+    "errors": [],
+    "canvases": 3,
+    "overlays": 0
+  },
+  "limitations": [
+    "Local disposable identities only, not customer acceptance",
+    "Editor recorded one .data GET net::ERR_ABORTED; no console/page/5xx errors; raw event retained",
+    "Unsigned theme preference cookie, empty resource chunks, color warnings and intentional protected-state rejection logs retained",
+    "DWG production round-trip/corpus/recipient CAD qualification remains incomplete",
+    "Separate inherited released-room reload request-ID bug is planned, not fixed in this unit"
+  ]
+}

@@ -1,11 +1,13 @@
 {
   "schemaVersion": 1,
   "phase": "production",
-  "commit": "d7e62ba13e769e4e7edb6da80cdcfdd2dd454dcb",
+  "commit": "9f5f56d93db325ff935772252f9d4fb64d69f98c",
   "migrationIds": [
-    "20260827210000"
+    "20260827210000",
+    "20260902080000",
+    "20260902080100"
   ],
-  "generatedAt": "2026-08-31T02:27:50.611Z",
+  "generatedAt": "2026-09-05T08:07:37.440Z",
   "authorities": {
     "advisors": "UNEXECUTED",
     "attacker": "UNEXECUTED",

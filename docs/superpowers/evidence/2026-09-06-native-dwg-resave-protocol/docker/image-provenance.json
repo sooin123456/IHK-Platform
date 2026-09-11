@@ -1,0 +1,14 @@
+{
+  "imageId": "sha256:c921c67ddb37d2a57969d04c7a4983f6d847e0b89901403e3b015ac25bf566ae",
+  "imageTag": "1hk-task2-resave-20260906-7ac831:latest",
+  "nativeSourceBuildSha256": "0d9e421cf1765fadc84c4f290839fdca13a72a3e40f4814fd91f05bf911fe168",
+  "publishedBuildSha256": "777c549785783ad0d2c4c8f01752cf1975d407410005dc373470501df1e4c52a",
+  "releaseEngineDllSha256": "535b03b674d7bec7422df0c8f96c02d24b11cbe98a322c3f0ddc4cb059a9b17f",
+  "syntheticFixtureDebugEngineDllSha256": "51b2f0f6bda21b5dd1dfcb93cb7a06ad3b6b382cfdb4bfa9a7051734f383132a",
+  "ownedImageCopyContainer": {"name": "1hk-dwg-resave-ef1b0268729d1ab6374a6fb7d8f8d6e7", "id": "d246c63859c2cb05aa17afb17de6817ef0835da70b419b986c22c00bea40bb2e", "createdOnly": true, "removedAfterOwnershipInspection": true},
+  "buildNetwork": "none",
+  "pull": false,
+  "restore": "cached locked-mode layer 3487ed3a97d0",
+  "sdkBase": "sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8",
+  "runtimeBase": "sha256:9d94ecf60a21c6e7a784cf0761fbd4a8391646617a0ff2f39621443d580cc2c3"
+}

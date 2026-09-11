@@ -16,13 +16,17 @@ import {
   exportDrawingPdf,
   exportDrawingPng,
   exportDrawingSvg,
+  drawingExportSize,
   type DrawingExportBackground,
 } from "~/lukas/lib/drawing-export";
 import { drawingPdfImagePlacement } from "~/lukas/lib/drawing-workspace-view";
 import { drawingWorkspaceExportPath } from "~/lukas/lib/drawing-workspace-paths";
+import type { DrawingWorkspaceDocument } from "~/lukas/lib/drawing-workspace.server";
 import type { DrawingCanvas } from "~/lukas/lib/drawing-workspace.types";
+import { NativeDrawingDwgExportControl } from "./drawing-native-dwg-export";
+import { NativeDrawingDwgResaveControl } from "./drawing-native-dwg-resave-control";
 
-type ExportFormat = "pdf" | "png" | "svg";
+type ExportFormat = "pdf" | "png" | "svg" | "dwg";
 type ExportStatus =
   | { kind: "idle" }
   | { kind: "working"; message: string }
@@ -31,13 +35,20 @@ type ExportStatus =
 
 export type DrawingExportDialogProps = {
   auditRequired?: boolean;
+  currentUserId?: string | null;
+  checkpointSha256: string | null;
   createdAt: string;
   documentState: DrawingDocumentSnapshot;
   hideTrigger?: boolean;
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
+  operationCheckpoint: number | null;
+  outboxReady: boolean;
   projectId: string;
   revisionId: string;
+  revisionStatus?: DrawingWorkspaceDocument["revision"]["status"];
+  revisionVersion: number;
+  saveStatus: "저장됨" | "저장 중" | "오프라인 저장" | "충돌 검토 필요";
   sourceUrl: string | null;
   title: string;
   workspaceId: string;
@@ -71,6 +82,52 @@ type DrawingExportDownload = {
   blob: Blob;
   filename: string;
 };
+
+type DrawingExportAuditRequestIdentity = {
+  key: string;
+  requestId: string;
+};
+
+export function drawingExportSizeDescription(
+  canvas: DrawingCanvas,
+  rasterScale?: 1 | 2 | 4,
+) {
+  const size = drawingExportSize(canvas, rasterScale);
+  const dimensions = (width: number, height: number) =>
+    `${width.toLocaleString("en-US", { maximumFractionDigits: 6 })} × ${height.toLocaleString("en-US", { maximumFractionDigits: 6 })} mm`;
+  const raster = rasterScale ? ` · 래스터 ${size.rasterDpi} DPI` : "";
+  if (size.scaleDenominator !== null)
+    return `${size.paper} ${size.orientation === "landscape" ? "가로" : "세로"} · 용지 ${dimensions(size.physicalWidthMillimeters, size.physicalHeightMillimeters)} · 도면 ${dimensions(size.worldWidthMillimeters, size.worldHeightMillimeters)} · 축척 1:${size.scaleDenominator.toLocaleString("en-US", { maximumFractionDigits: 6 })}${raster}`;
+  return `실제 크기 ${dimensions(size.physicalWidthMillimeters, size.physicalHeightMillimeters)} · 축척 미지정${raster}`;
+}
+
+export function drawingExportSelectionDescription(
+  canvases: readonly DrawingCanvas[],
+  rasterScale: 1 | 2 | 4,
+) {
+  if (!canvases.length) return "PDF 0쪽 · 내보낼 용지 캔버스 없음";
+  const descriptions = canvases.map((canvas) =>
+    drawingExportSizeDescription(canvas, rasterScale),
+  );
+  if (descriptions.every((description) => description === descriptions[0]))
+    return `PDF ${canvases.length}쪽 · ${descriptions[0]}`;
+  const rasterDpis = new Set(
+    canvases.map((canvas) => drawingExportSize(canvas, rasterScale).rasterDpi),
+  );
+  const raster =
+    rasterDpis.size === 1
+      ? ` · 래스터 ${rasterDpis.values().next().value} DPI`
+      : " · 혼합 래스터 DPI";
+  return `PDF ${canvases.length}쪽 · 혼합 용지/방향/축척${raster}`;
+}
+
+export function drawingExportAuditRequestIdentity(
+  current: DrawingExportAuditRequestIdentity | null,
+  key: string,
+  createRequestId: () => string = () => crypto.randomUUID(),
+): DrawingExportAuditRequestIdentity {
+  return current?.key === key ? current : { key, requestId: createRequestId() };
+}
 
 export function createDrawingExportOperation({
   cancelScheduled = (handle) =>
@@ -264,6 +321,10 @@ export async function auditDrawingExport(
   workspaceId: string,
   projectId: string,
   revisionId: string,
+  revisionVersion: number,
+  operationCheckpoint: number,
+  checkpointSha256: string,
+  requestId: string,
 ) {
   const extension = filename.split(".").at(-1)?.toLowerCase();
   if (!extension || !["pdf", "png", "svg"].includes(extension))
@@ -273,9 +334,22 @@ export async function auditDrawingExport(
   form.set("artifact", blob, filename);
   form.set("artifact_type", `drawing_${extension}`);
   form.set("filename", filename);
-  form.set("request_id", crypto.randomUUID());
+  form.set("request_id", requestId);
   form.set("revision_id", revisionId);
-  const response = await fetch(path, { body: form, method: "POST" });
+  form.set("revision_version", String(revisionVersion));
+  form.set("operation_checkpoint", String(operationCheckpoint));
+  form.set("checkpoint_sha256", checkpointSha256);
+  const post = () => fetch(path, { body: form, method: "POST" });
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await post();
+      if (response.ok || response.status < 500 || attempt === 1) break;
+    } catch (error) {
+      if (attempt === 1) throw error;
+    }
+  }
+  if (!response) throw new Error("도면 내보내기 감사 응답을 받지 못했습니다.");
   if (response.redirected)
     throw new Error("도면 내보내기 감사 기록이 redirect 되었습니다.");
   if (!response.ok)
@@ -301,8 +375,9 @@ export async function pdfBackground(
   if (!canvas.background)
     return { background: undefined, dispose: async () => {} };
   if (!sourceUrl) throw new Error("PDF background pixels are missing.");
-  const { openPdfDocument, renderPdfPageToCanvas } =
-    await import("~/lukas/lib/pdf-page-renderer.client");
+  const { openPdfDocument, renderPdfPageToCanvas } = await import(
+    "~/lukas/lib/pdf-page-renderer.client"
+  );
   if (signal?.aborted) throw new Error("Drawing export was cancelled.");
   const opened = await openPdfDocument(sourceUrl, signal);
   const pixels = document.createElement("canvas");
@@ -348,13 +423,20 @@ export async function pdfBackground(
 
 export function DrawingExportDialog({
   auditRequired = true,
+  currentUserId,
+  checkpointSha256,
   createdAt,
   documentState,
   hideTrigger = false,
   onOpenChange,
   open: controlledOpen,
+  operationCheckpoint,
+  outboxReady,
   projectId,
   revisionId,
+  revisionStatus = "draft",
+  revisionVersion,
+  saveStatus,
   sourceUrl,
   title,
   workspaceId,
@@ -372,11 +454,49 @@ export function DrawingExportDialog({
   );
   const [status, setStatus] = useState<ExportStatus>({ kind: "idle" });
   const activeOperationRef = useRef<DrawingExportOperation | null>(null);
+  const auditRequestIdentityRef =
+    useRef<DrawingExportAuditRequestIdentity | null>(null);
   const mountedRef = useRef(true);
   const activeCanvas = documentState.activeCanvasId
     ? documentState.structure?.canvases[documentState.activeCanvasId]
     : undefined;
+  const pdfCanvases =
+    currentModelOnly && activeCanvas?.spaceKind === "model"
+      ? [activeCanvas]
+      : Object.values(documentState.structure?.canvases ?? {}).filter(
+          (canvas) => canvas.spaceKind === "paper",
+        );
+  const exportSizeDescription =
+    format === "pdf"
+      ? drawingExportSelectionDescription(pdfCanvases, scale)
+      : activeCanvas
+        ? drawingExportSizeDescription(
+            activeCanvas,
+            format === "png" ? scale : undefined,
+          )
+        : null;
   const exporting = status.kind === "working";
+  const approvalReady =
+    !auditRequired ||
+    revisionStatus === "approved" ||
+    revisionStatus === "superseded";
+  const auditReady =
+    !auditRequired ||
+    (outboxReady &&
+      saveStatus === "저장됨" &&
+      operationCheckpoint !== null &&
+      checkpointSha256 !== null);
+  const auditRequestKey = JSON.stringify([
+    format,
+    scale,
+    currentModelOnly,
+    includeBackground,
+    activeCanvas?.id ?? null,
+    revisionId,
+    revisionVersion,
+    operationCheckpoint,
+    checkpointSha256,
+  ]);
   const open = controlledOpen ?? internalOpen;
 
   useEffect(() => {
@@ -387,23 +507,56 @@ export function DrawingExportDialog({
     };
   }, []);
 
+  useEffect(() => {
+    auditRequestIdentityRef.current = null;
+  }, [auditRequestKey]);
+
   async function runExport() {
+    if (!approvalReady) {
+      setStatus({
+        kind: "error",
+        message:
+          "승인된 개정만 내보낼 수 있습니다. 먼저 검토 요청과 최종 승인을 완료해 주세요.",
+      });
+      return;
+    }
+    if (!auditReady) {
+      setStatus({
+        kind: "error",
+        message: "로컬 변경을 모두 저장한 뒤 내보낼 수 있습니다.",
+      });
+      return;
+    }
     if (!activeCanvas) {
       setStatus({ kind: "error", message: "내보낼 캔버스가 없습니다." });
       return;
     }
     await runDrawingExportLifecycle<DrawingExportDownload>({
       activeOperationRef,
-      download: ({ blob, filename }) =>
-        auditRequired
-          ? auditDrawingExport(
-              blob,
-              filename,
-              workspaceId,
-              projectId,
-              revisionId,
-            )
-          : downloadDrawingExport(blob, filename),
+      download: async ({ blob, filename }) => {
+        if (!auditRequired) {
+          downloadDrawingExport(blob, filename);
+          return;
+        }
+        const identity = drawingExportAuditRequestIdentity(
+          auditRequestIdentityRef.current,
+          auditRequestKey,
+        );
+        auditRequestIdentityRef.current = identity;
+        await auditDrawingExport(
+          blob,
+          filename,
+          workspaceId,
+          projectId,
+          revisionId,
+          revisionVersion,
+          operationCheckpoint as number,
+          checkpointSha256 as string,
+          identity.requestId,
+        );
+        if (auditRequestIdentityRef.current?.requestId === identity.requestId)
+          auditRequestIdentityRef.current = null;
+      },
       execute: async ({ registerDisposer, signal }) => {
         const baseName = safeFilename(title);
         if (format === "svg") {
@@ -483,9 +636,14 @@ export function DrawingExportDialog({
             받습니다. 원본 파일과 리비전은 변경되지 않습니다.
           </DialogDescription>
         </DialogHeader>
+        {exportSizeDescription ? (
+          <p className="text-sm text-muted-foreground">
+            {exportSizeDescription}
+          </p>
+        ) : null}
         <fieldset className="grid gap-2" disabled={exporting}>
           <legend className="text-sm font-semibold">파일 형식</legend>
-          {(["pdf", "png", "svg"] as const).map((value) => (
+          {(["pdf", "png", "svg", "dwg"] as const).map((value) => (
             <label className="flex min-h-10 items-center gap-2" key={value}>
               <input
                 checked={format === value}
@@ -493,11 +651,11 @@ export function DrawingExportDialog({
                 onChange={() => setFormat(value)}
                 type="radio"
               />
-              {value.toUpperCase()}
+              {value === "dwg" ? "DWG (시험)" : value.toUpperCase()}
             </label>
           ))}
         </fieldset>
-        {format !== "svg" ? (
+        {format === "pdf" || format === "png" ? (
           <label className="grid gap-2 text-sm" htmlFor="drawing-export-scale">
             PNG 렌더 배율
             <select
@@ -548,6 +706,49 @@ export function DrawingExportDialog({
             현재 모델 캔버스만 명시적으로 PDF에 포함
           </label>
         ) : null}
+        {format === "dwg" &&
+        Object.values(documentState.structure?.sources ?? {}).some(
+          (source) => source.sourceKind === "dwg_entity",
+        ) ? (
+          <NativeDrawingDwgResaveControl
+            currentUserId={currentUserId}
+            open={open}
+            readiness={
+              auditRequired &&
+              outboxReady &&
+              saveStatus === "저장됨" &&
+              operationCheckpoint !== null &&
+              checkpointSha256 !== null &&
+              (revisionStatus === "approved" || revisionStatus === "superseded")
+            }
+            scope={
+              documentState.activeCanvasId && checkpointSha256
+                ? {
+                    projectId,
+                    documentId: workspaceId,
+                    revisionId,
+                    revisionVersion,
+                    canvasId: documentState.activeCanvasId,
+                    snapshotSha256: checkpointSha256,
+                  }
+                : null
+            }
+          />
+        ) : format === "dwg" ? (
+          <NativeDrawingDwgExportControl
+            backendAvailable={auditRequired}
+            documentState={documentState}
+            open={open}
+            outboxReady={outboxReady}
+            projectId={projectId}
+            revisionId={revisionId}
+            revisionStatus={revisionStatus}
+            revisionVersion={revisionVersion}
+            saveStatus={saveStatus}
+            snapshotSha256={checkpointSha256}
+            workspaceId={workspaceId}
+          />
+        ) : null}
         {status.kind !== "idle" ? (
           <p
             aria-live="polite"
@@ -557,6 +758,20 @@ export function DrawingExportDialog({
             role={status.kind === "error" ? "alert" : "status"}
           >
             {status.message}
+          </p>
+        ) : null}
+        {!approvalReady && status.kind === "idle" ? (
+          <p className="text-sm text-amber-700" role="status">
+            승인된 개정만 내보낼 수 있습니다. 먼저 검토 요청과 최종 승인을
+            완료해 주세요.
+          </p>
+        ) : null}
+        {approvalReady &&
+        auditRequired &&
+        !auditReady &&
+        status.kind === "idle" ? (
+          <p className="text-sm text-amber-700" role="status">
+            로컬 변경을 모두 저장한 뒤 감사 내보내기를 사용할 수 있습니다.
           </p>
         ) : null}
         <DialogFooter>
@@ -569,13 +784,17 @@ export function DrawingExportDialog({
               {exporting ? "취소" : "닫기"}
             </Button>
           </DialogClose>
-          <Button
-            disabled={exporting || !activeCanvas}
-            onClick={runExport}
-            type="button"
-          >
-            {exporting ? "내보내는 중…" : "다운로드"}
-          </Button>
+          {format === "dwg" ? null : (
+            <Button
+              disabled={
+                exporting || !activeCanvas || !auditReady || !approvalReady
+              }
+              onClick={runExport}
+              type="button"
+            >
+              {exporting ? "내보내는 중…" : "다운로드"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

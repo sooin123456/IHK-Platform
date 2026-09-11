@@ -60,6 +60,7 @@ async function appendRecoveredOperation(
         Uint8Array.from(initialUpdate),
       );
       const handle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId,
         document,
       });
@@ -234,6 +235,7 @@ test("offline command bridge recovers 100 ordered operations and stops at the re
         Uint8Array.from(initialUpdate),
       );
       const firstHandle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document: first,
       });
@@ -346,6 +348,7 @@ test("offline command bridge recovers 100 ordered operations and stops at the re
         Uint8Array.from(initialUpdate),
       );
       const reopenedHandle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document: reopened,
       });
@@ -434,6 +437,7 @@ test("offline command bridge recovers 100 ordered operations and stops at the re
         Uint8Array.from(initialUpdate),
       );
       const handle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document,
       });
@@ -458,8 +462,21 @@ test("offline command bridge recovers 100 ordered operations and stops at the re
           async (input: string, init: RequestInit) => {
             const response = await fetch(input, init);
             const wireBody = await response.text();
-            if (!response.ok || !wireBody.includes(operation.clientOperationId))
+            if (
+              !response.ok ||
+              !wireBody.includes(operation.clientOperationId) ||
+              !wireBody.includes("resultVersions") ||
+              !wireBody.includes("sequence")
+            )
               throw new Error("Reconnect action did not echo the operation.");
+            const resultVersions = Object.fromEntries(
+              operation.forward.objects.map(
+                (object: { id: string; version: number }) => [
+                  object.id,
+                  object.version,
+                ],
+              ),
+            );
             return {
               ok: true,
               status: response.status,
@@ -467,6 +484,14 @@ test("offline command bridge recovers 100 ordered operations and stops at the re
                 return {
                   ok: true,
                   clientOperationId: operation.clientOperationId,
+                  result: {
+                    operationId: operation.clientOperationId,
+                    sequence: Number.parseInt(
+                      operation.clientOperationId.slice(-12),
+                      10,
+                    ),
+                    resultVersions,
+                  },
                 };
               },
             };
@@ -622,6 +647,7 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
         Uint8Array.from(initialUpdate),
       );
       const handle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document,
       });
@@ -885,6 +911,7 @@ test("source link unlink and undo survive a real IndexedDB crash and reopen with
         Uint8Array.from(initialUpdate),
       );
       const handle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document,
       });
@@ -1016,6 +1043,7 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
         Uint8Array.from(initialUpdate),
       );
       const handle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document,
       });
@@ -1063,7 +1091,9 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
         },
       );
       if (!undone || "kind" in undone) throw new Error("Undo conflicted.");
-      adapter.appendDurableLocal(adapter.prepareRecordedLocal(undone.operation));
+      adapter.appendDurableLocal(
+        adapter.prepareRecordedLocal(undone.operation),
+      );
       const redone = commands.redoDrawingCommand(
         adapter.getSnapshot().state,
         fixtureIds.actor,
@@ -1073,7 +1103,9 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
         },
       );
       if (!redone || "kind" in redone) throw new Error("Redo conflicted.");
-      adapter.appendDurableLocal(adapter.prepareRecordedLocal(redone.operation));
+      adapter.appendDurableLocal(
+        adapter.prepareRecordedLocal(redone.operation),
+      );
       const outbox = outboxModule.createDrawingOutbox(undefined, {
         ownerId: fixtureIds.actor,
         revisionId: revision,
@@ -1086,22 +1118,24 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
           operationId: operationIds[0],
           status: "acked",
           authoritativeSequence: 1,
-          resultVersions: added.realizedVersions,
+          resultVersions: added.resultVersions,
         });
         document.getMap("operationStatus").set(operationIds[1], {
           operationId: operationIds[1],
           status: "acked",
           authoritativeSequence: 2,
-          resultVersions: undone.operation.realizedVersions,
+          resultVersions: undone.operation.resultVersions,
         });
       });
       await handle.flush();
       return {
         authoritativeHistory: [added, undone.operation],
-        operationIds: adapter.operations().map(
-          (operation: { clientOperationId: string }) =>
-            operation.clientOperationId,
-        ),
+        operationIds: adapter
+          .operations()
+          .map(
+            (operation: { clientOperationId: string }) =>
+              operation.clientOperationId,
+          ),
         version: adapter.getSnapshot().state.objects[objectId]?.version,
       };
       // Deliberately leave the first realm open; reload below is the crash.
@@ -1112,7 +1146,13 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
 
   await page.reload();
   const reopened = await page.evaluate(
-    async ({ authoritativeHistory, fixtureIds, initialUpdate, objectId, revision }) => {
+    async ({
+      authoritativeHistory,
+      fixtureIds,
+      initialUpdate,
+      objectId,
+      revision,
+    }) => {
       const persistencePath =
         "/app/lukas/lib/drawing-yjs-persistence.client.ts";
       const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
@@ -1140,6 +1180,7 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
         Uint8Array.from(initialUpdate),
       );
       const handle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document,
       });
@@ -1174,7 +1215,9 @@ test("compacted add undo lineage restores a pending redo after a real IndexedDB 
         version: snapshot.state.objects[objectId]?.version,
         recoveredVersion: recovered.state.objects[objectId]?.version,
         recoveryAmbiguous: recovered.ambiguousOperationIds,
-        outboxOwners: entries.map((entry: { ownerId: string }) => entry.ownerId),
+        outboxOwners: entries.map(
+          (entry: { ownerId: string }) => entry.ownerId,
+        ),
         outboxRevisions: entries.map(
           (entry: { operation: { revisionId: string } }) =>
             entry.operation.revisionId,
@@ -1242,6 +1285,7 @@ test("valid frozen adapter recovery survives version-change close", async ({
         Uint8Array.from(initialUpdate),
       );
       const firstHandle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document: first,
       });
@@ -1327,6 +1371,7 @@ test("valid frozen adapter recovery survives version-change close", async ({
         Uint8Array.from(initialUpdate),
       );
       const recoveredHandle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId: revision,
         document: recoveredDocument,
       });
@@ -1428,6 +1473,7 @@ test("two browser realms recover the same durable ID as one canonical operation"
         Uint8Array.from(initialUpdate),
       );
       const handle = await persistence.openDrawingYjsPersistence({
+        ownerId: fixtureIds.actor,
         revisionId,
         document,
       });
@@ -1461,4 +1507,238 @@ test("two browser realms recover the same durable ID as one canonical operation"
     objectIds: [ids.frozenObject],
     projectedOperations: 1,
   });
+});
+
+test("a crashed outbox writer wakes the scoped workspace and settles exactly once", async ({
+  context,
+  page,
+}) => {
+  const ownerId = "00000000-0000-4000-8000-000000000005";
+  const revisionId = "00000000-0000-4000-8000-000000000004";
+  const layerId = "00000000-0000-4000-8000-000000000031";
+  const operationId = "00000000-0000-4000-8000-000000000660";
+  const objectId = "00000000-0000-4000-8000-000000000661";
+  const channelName = `1hk:drawing-outbox:v1:${ownerId}:${revisionId}`;
+  const operationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.postData()?.includes(operationId)
+    )
+      operationRequests.push(request.url());
+  });
+
+  await openPreview(page);
+  await expect(
+    page.getByRole("status", { name: "공동 편집 상태: connected" }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByRole("status", { name: "저장 상태: 저장됨" }),
+  ).toBeVisible();
+  const surface = page.getByLabel(/도면 화면/);
+  const initialObjectCount = Number(
+    await surface.getAttribute("data-rendered-object-count"),
+  );
+
+  const sender = await context.newPage();
+  const inspector = await context.newPage();
+  for (const peer of [sender, inspector]) {
+    await peer.goto(`${previewPath}.data`);
+    await peer.evaluate(
+      (modulePaths) => Promise.all(modulePaths.map((path) => import(path))),
+      browserModules,
+    );
+  }
+  await inspector.evaluate(
+    async ({ ownerId, revisionId }) => {
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
+      const outboxModule = await import(outboxPath);
+      (globalThis as any).__drawingCrashInspector =
+        outboxModule.createDrawingOutbox(undefined, {
+          ownerId,
+          revisionId,
+          schedule: () => undefined,
+        });
+      await (globalThis as any).__drawingCrashInspector.entries();
+    },
+    { ownerId, revisionId },
+  );
+
+  await inspector.evaluate(
+    async ({ channelName, ownerId, revisionId }) => {
+      const channel = new BroadcastChannel(channelName);
+      channel.postMessage({
+        type: "drawing-outbox-change",
+        ownerId: "00000000-0000-4000-8000-000000000099",
+        revisionId,
+        senderId: "wrong-owner",
+        kind: "pending",
+      });
+      channel.postMessage({
+        type: "drawing-outbox-change",
+        ownerId,
+        revisionId: "00000000-0000-4000-8000-000000000098",
+        senderId: "wrong-revision",
+        kind: "pending",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      channel.close();
+    },
+    { channelName, ownerId, revisionId },
+  );
+  expect(operationRequests).toEqual([]);
+  expect(Number(await surface.getAttribute("data-rendered-object-count"))).toBe(
+    initialObjectCount,
+  );
+
+  await context.setOffline(true);
+  await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
+  await sender.evaluate(
+    async ({
+      initialUpdate,
+      layerId,
+      objectId,
+      operationId,
+      ownerId,
+      revisionId,
+    }) => {
+      const persistencePath =
+        "/app/lukas/lib/drawing-yjs-persistence.client.ts";
+      const draftPath = "/app/lukas/lib/drawing-yjs-draft.ts";
+      const outboxPath = "/app/lukas/lib/drawing-outbox.ts";
+      const persistence = await import(persistencePath);
+      const draft = await import(draftPath);
+      const outboxModule = await import(outboxPath);
+      const document = persistence.createDrawingYjsDocument(
+        Uint8Array.from(initialUpdate),
+      );
+      const adapter = draft.createDrawingDraftAdapter({
+        document,
+        authoritativeState: {
+          revisionId,
+          objects: {},
+          layers: {
+            [layerId]: {
+              id: layerId,
+              name: "Work",
+              visible: true,
+              locked: false,
+              systemKind: "work",
+              version: 1,
+            },
+          },
+          operations: [],
+          undoStackByActor: {},
+          redoStackByActor: {},
+        },
+        actorId: ownerId,
+        authorization: "editor",
+        frozen: false,
+        createId: () => operationId,
+        now: () => "2026-09-02T00:00:00.000Z",
+      });
+      const prepared = adapter.prepareLocal({
+        type: "add_objects",
+        actorId: ownerId,
+        objects: [
+          {
+            id: objectId,
+            name: "Crash handoff rectangle",
+            layerId,
+            geometry: {
+              type: "rectangle",
+              origin: { x: 140, y: 140 },
+              width: 80,
+              height: 60,
+              rotation: 0,
+            },
+            style: { stroke: "#0f766e", strokeWidth: 2, fill: null },
+            version: 1,
+          },
+        ],
+      });
+      const {
+        actorId: _actorId,
+        schemaVersion: _schemaVersion,
+        ...operation
+      } = prepared.operation;
+      const outbox = outboxModule.createDrawingOutbox(undefined, {
+        ownerId,
+        revisionId,
+        schedule: () => undefined,
+      });
+      await outbox.enqueue(operation);
+      // Deliberately leave every handle undisposed: closing this realm models
+      // a crash after the durable outbox transaction but before Yjs append.
+    },
+    {
+      initialUpdate: authoritativeFixture(revisionId, "active"),
+      layerId,
+      objectId,
+      operationId,
+      ownerId,
+      revisionId,
+    },
+  );
+  await sender.close();
+
+  await expect(surface).toHaveAttribute(
+    "data-rendered-object-count",
+    String(initialObjectCount + 1),
+  );
+  const pendingWhileOffline = await inspector.evaluate(async () =>
+    (await (globalThis as any).__drawingCrashInspector.entries()).map(
+      (entry: any) => entry.operation.clientOperationId,
+    ),
+  );
+  expect(pendingWhileOffline).toEqual([operationId]);
+  expect(operationRequests).toEqual([]);
+
+  await context.setOffline(false);
+  await expect
+    .poll(() => operationRequests)
+    .toEqual([expect.stringContaining(`${previewPath}/operation`)]);
+  await expect
+    .poll(() =>
+      inspector.evaluate(async () =>
+        (await (globalThis as any).__drawingCrashInspector.entries()).map(
+          (entry: any) => entry.operation.clientOperationId,
+        ),
+      ),
+    )
+    .toEqual([]);
+  await expect(
+    page.getByRole("status", { name: "저장 상태: 저장됨" }),
+  ).toBeVisible();
+
+  await inspector.evaluate(
+    async ({ channelName, ownerId, revisionId }) => {
+      const channel = new BroadcastChannel(channelName);
+      channel.postMessage({
+        type: "drawing-outbox-change",
+        ownerId,
+        revisionId,
+        senderId: "external-settlement",
+        kind: "settled",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      channel.close();
+    },
+    { channelName, ownerId, revisionId },
+  );
+  await page.waitForTimeout(750);
+  expect(operationRequests).toHaveLength(1);
+  expect(Number(await surface.getAttribute("data-rendered-object-count"))).toBe(
+    initialObjectCount + 1,
+  );
+  expect(
+    await inspector.evaluate(
+      async () =>
+        (await (globalThis as any).__drawingCrashInspector.entries()).length,
+    ),
+  ).toBe(0);
+  await inspector.evaluate(() =>
+    (globalThis as any).__drawingCrashInspector.dispose(),
+  );
+  await inspector.close();
 });

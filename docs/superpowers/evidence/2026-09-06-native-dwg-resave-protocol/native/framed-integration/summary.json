@@ -1,0 +1,33 @@
+{
+  "engine": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-resave-protocol/workspace/native-copy/bin/Debug/net8.0/DwgEngineQualification.dll",
+  "engineSha256": "51b2f0f6bda21b5dd1dfcb93cb7a06ad3b6b382cfdb4bfa9a7051734f383132a",
+  "runs": [
+    {
+      "name": "wrapped",
+      "exitCode": 0,
+      "stderrBytes": 0,
+      "sourceSha256": "af173b15443624dcf7da13342e632326abc55a9a7ce2bd5fbd1acb06437334a9",
+      "requestSha256": "0a825cd8406de65f37f1dc341e7eb428b4cae65c5705219b6cd4e08e794a2995",
+      "outputSha256": "49068eb71b5b08a0966340ee6a1b0b3c76802eb1860e45b045e6349a467821e9",
+      "frameSha256": "dbeba49db2f0c1d16c9e984973310e02bc0b4b6c8a3b9695167c78ed0baa01a0"
+    },
+    {
+      "name": "full-turn",
+      "exitCode": 0,
+      "stderrBytes": 0,
+      "sourceSha256": "af173b15443624dcf7da13342e632326abc55a9a7ce2bd5fbd1acb06437334a9",
+      "requestSha256": "e4c5f1f2d9794a5fc755f1a1e7ae8ad516a3a30413df800d027eec9e9c0cf468",
+      "outputSha256": "d0e3d2d1769cc5859c1f028b50e518d933ff025e196b643dbab8c5662d4a3d8b",
+      "frameSha256": "2458c01c369e5e0a64e5058f4d0f91b4d3870aac0385af6e04c95b2100aa377e"
+    },
+    {
+      "name": "nonzero-full-turn",
+      "exitCode": 0,
+      "stderrBytes": 0,
+      "sourceSha256": "af173b15443624dcf7da13342e632326abc55a9a7ce2bd5fbd1acb06437334a9",
+      "requestSha256": "c50279419c10109feb756b4e582421b23f27a2af5a56f181a5992598332163e2",
+      "outputSha256": "c14b5ed066ec838c9476b3b9fb4cccf2d9901e3bd606ab3eaa5ad3270b53f9fd",
+      "frameSha256": "e2dcb9519f4862db309dee03583596aa855ec982f9ebd79566005ed7d26bf1a6"
+    }
+  ]
+}

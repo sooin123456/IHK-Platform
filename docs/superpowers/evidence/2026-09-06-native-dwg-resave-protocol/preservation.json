@@ -1,0 +1,44 @@
+{
+  "head": "9f5f56d93db325ff935772252f9d4fb64d69f98c",
+  "indexSha256": "ab8778babeb2aa04f070a609cbd1240760b3158cb5aa1e6ced3da34bb9a9f84c",
+  "baselineRegularFiles": 1914,
+  "currentRegularFilesBeforeEvidencePackage": 1923,
+  "changed": [
+    "docs/superpowers/evidence/2026-09-06-universal-workspace-continuation-map.md",
+    "docs/superpowers/plans/2026-09-06-native-dwg-resave-protocol.md",
+    "docs/superpowers/specs/2026-09-06-native-dwg-resave-protocol-design.md",
+    "platform/app/lukas/lib/drawing-native-dwg-sandbox.server.ts",
+    "platform/tests/drawing-native-dwg-geometry-resave-integration.test.mjs",
+    "platform/tests/drawing-native-dwg-sandbox.test.mjs",
+    "tools/dwg-engine-qualification/Dockerfile.reader",
+    "tools/dwg-engine-qualification/NativeDwgReader.cs",
+    "tools/dwg-engine-qualification/Program.cs",
+    "tools/dwg-engine-qualification/QualificationRunner.cs",
+    "tools/dwg-engine-qualification/README.md",
+    "tools/dwg-engine-qualification/SelectedDwgEdits.cs",
+    "tools/dwg-engine-qualification/SelfTests.cs"
+  ],
+  "added": [
+    "docs/superpowers/evidence/2026-09-06-collaboration-reconnect-diagnosis.md",
+    "docs/superpowers/evidence/2026-09-06-native-dwg-resave-protocol.md",
+    "platform/app/lukas/lib/drawing-native-dwg-resave-protocol.server.ts",
+    "platform/tests/drawing-native-dwg-resave-protocol.test.mjs",
+    "platform/tests/drawing-native-dwg-resave-sandbox-integration.test.mjs",
+    "platform/tests/drawing-native-dwg-resave-sandbox.test.mjs",
+    "platform/tests/fixtures/drawing-native-dwg-sandbox-transport.mjs",
+    "tools/dwg-engine-qualification/NativeDwgResaveSelfTests.cs",
+    "tools/dwg-engine-qualification/NativeDwgResaver.cs"
+  ],
+  "missing": [],
+  "unrelatedChanged": [],
+  "acceptedCodeFiles": 17,
+  "ownedCurrentImageContainers": [],
+  "oldReaderImagePreserved": true,
+  "preview": {
+    "pid": 80284,
+    "port": 4173,
+    "httpStatus": 200,
+    "appBuildRun": false
+  },
+  "scope": "Nonignored regular files compared to the exact dirty baseline; selected public evidence is packaged subsequently. No deletion or cleanup of unrelated data."
+}

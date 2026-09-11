@@ -7,6 +7,10 @@ import test from "node:test";
 import ts from "typescript";
 
 import * as fixtureHelpers from "../e2e/utils/drawing-collaboration-fixture.ts";
+import {
+  DRAWING_COLLABORATION_LIMITS,
+  DrawingCollaborationOperationSchema,
+} from "../app/lukas/lib/drawing-collaboration-protocol.ts";
 
 const root = process.cwd();
 const read = (file) => readFile(path.join(root, file), "utf8");
@@ -21,7 +25,10 @@ test("P2 workspace defers the export implementation until the user requests it",
     workspace,
     /import\s+\{\s*DrawingExportDialog\s*\}\s+from\s+["']\.\/drawing-export-dialog["']/,
   );
-  assert.match(workspace, /lazy\(\(\)\s*=>\s*import\(["']\.\/drawing-export-dialog["']\)/);
+  assert.match(
+    workspace,
+    /lazy\(\(\)\s*=>\s*import\(["']\.\/drawing-export-dialog["']\)/,
+  );
   assert.match(workspace, /DrawingExportLauncher/);
   assert.match(exportDialog, /open\?: boolean/);
   assert.match(exportDialog, /onOpenChange\?: \(open: boolean\) => void/);
@@ -149,6 +156,91 @@ test("P2 performance fixture has exact deterministic release composition", () =>
   );
 });
 
+test("P2 performance fixture gives every page exactly one default paper canvas", () => {
+  const fixture = fixtureHelpers.buildDrawingP2PerformanceFixture({
+    revisionId: "00000000-0000-4000-8000-000000000201",
+    pageId: "00000000-0000-4000-8000-000000000202",
+    canvasId: "00000000-0000-4000-8000-000000000203",
+    layerId: "00000000-0000-4000-8000-000000000204",
+  });
+
+  for (const page of fixture.pages) {
+    const defaultPaperCanvases = fixture.canvases.filter(
+      (canvas) =>
+        canvas.pageId === page.id &&
+        canvas.spaceKind === "paper" &&
+        canvas.sortOrder === 0,
+    );
+    assert.equal(
+      defaultPaperCanvases.length,
+      1,
+      `page ${page.sortOrder} default paper canvas count`,
+    );
+  }
+});
+
+test("P2 performance seed keeps every complete collaboration envelope within its byte limit", () => {
+  const input = {
+    revisionId: "00000000-0000-4000-8000-000000000301",
+    pageId: "00000000-0000-4000-8000-000000000302",
+    canvasId: "00000000-0000-4000-8000-000000000303",
+    layerId: "00000000-0000-4000-8000-000000000304",
+  };
+  assert.equal(
+    typeof fixtureHelpers.buildDrawingP2PerformanceSeedPlan,
+    "function",
+  );
+  const plan = fixtureHelpers.buildDrawingP2PerformanceSeedPlan(input);
+  assert.equal(
+    typeof fixtureHelpers.buildDrawingPerformanceObjectSeedOperations,
+    "function",
+  );
+  const legacyFixture = fixtureHelpers.buildDrawingPerformanceFixture(
+    10_000,
+    input.layerId,
+    (index) => `40000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+  const legacyOperations =
+    fixtureHelpers.buildDrawingPerformanceObjectSeedOperations(
+      legacyFixture.objects,
+    );
+
+  for (const [label, operations] of [
+    ["P2", plan.operations],
+    ["legacy", legacyOperations],
+  ]) {
+    let seededObjectCount = 0;
+    for (const [index, operation] of operations.entries()) {
+      if (operation.forward.type === "add_objects")
+        seededObjectCount += operation.forward.objects.length;
+      const envelope = {
+        clientOperationId: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        revisionId: input.revisionId,
+        actorId: "00000000-0000-4000-8000-000000000305",
+        schemaVersion: 1,
+        type: operation.operationType,
+        baseVersions: operation.baseVersions,
+        forward: operation.forward,
+        inverse: operation.inverse,
+        createdAt: "1970-01-01T00:00:00.000Z",
+      };
+      const byteLength = new TextEncoder().encode(
+        JSON.stringify(envelope),
+      ).byteLength;
+      assert.ok(
+        byteLength <= DRAWING_COLLABORATION_LIMITS.maxOperationBytes,
+        `${label} seed operation ${index} is ${byteLength} bytes`,
+      );
+      assert.equal(
+        DrawingCollaborationOperationSchema.safeParse(envelope).success,
+        true,
+        `${label} seed operation ${index} satisfies the live collaboration contract`,
+      );
+    }
+    assert.equal(seededObjectCount, 10_000);
+  }
+});
+
 test("P2 production spec registers all twelve executable serial gates", async () => {
   const source = await read("e2e/drawing-workspace-p2.spec.ts");
   const file = ts.createSourceFile(
@@ -259,6 +351,11 @@ test("P2 production spec registers all twelve executable serial gates", async ()
       /parsePng/,
       /PDFDocument\.load/,
       /getPageCount\(\).*toBe/s,
+      /lukas_qto_export_events/,
+      /artifact_sha256/,
+      /artifact_byte_size/,
+      /operation_checkpoint/,
+      /checkpoint_sha256/,
     ],
     "Gate 12": [
       /readSourceEvidence/,
@@ -322,7 +419,11 @@ test("P2 fixture provisions an independent estimator-backed editor", async () =>
   const source = await read("e2e/utils/drawing-collaboration-fixture.ts");
   assert.match(source, /editor:\s*TestUser/);
   assert.match(source, /const editor = await addUser\("editor"\)/);
-  assert.match(source, /user_id:\s*editor\.id,\s*role:\s*"estimator"/s);
+  assert.match(source, /\{ user: editor, role: "estimator" \}/);
+  assert.match(
+    source,
+    /for \(const \{ user, role \} of projectMembers\)[\s\S]*p_email:\s*user\.email,[\s\S]*p_role:\s*role/,
+  );
   assert.match(
     source,
     /fixture\.owner,\s*fixture\.editor,\s*fixture\.reviewer/s,

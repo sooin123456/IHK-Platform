@@ -1,0 +1,58 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {chromium,expect} from "@playwright/test";
+
+test("management shows separate review and approval roles and preserves per-template notes between tabs",{skip:!process.env.MANAGEMENT_PREVIEW_ORIGIN,timeout:60000},async()=>{
+ const origin=new URL(process.env.MANAGEMENT_PREVIEW_ORIGIN);assert.ok(["localhost","127.0.0.1"].includes(origin.hostname));
+ const browser=await chromium.launch({headless:true});
+ try{
+  const page=await browser.newPage();const errors=[];page.on("pageerror",e=>errors.push(e.message));
+  const url=`${origin.origin}/workspace-preview?panel=settings`;
+  await page.goto(url);
+  const management=page.getByRole("region",{name:"관리 화면",exact:true});
+  for(const role of ["댓글 작성자","검토자","승인자"])await expect(management.locator("dt").filter({hasText:new RegExp(`^${role}$`)})).toBeVisible();
+  await management.getByRole("textbox",{name:"조직 이름",exact:true}).fill("개인 관리 초안");
+  await management.getByRole("button",{name:"보존·복구",exact:true}).click();
+  await management.getByRole("combobox",{name:"보존 정책 예시",exact:true}).selectOption("관리자 검토 후 정리 · 예시");
+  await management.getByRole("button",{name:"템플릿 관리",exact:true}).click();
+  await management.getByRole("textbox",{name:"관리 메모",exact:true}).fill("사무실 표준 검토");
+  await management.getByRole("combobox",{name:"템플릿 선택",exact:true}).selectOption("주택 평면 · 예시");
+  await expect(management.getByRole("textbox",{name:"관리 메모",exact:true})).toHaveValue("");
+  await management.getByRole("button",{name:"보존·복구",exact:true}).click();
+  await management.getByRole("button",{name:"템플릿 관리",exact:true}).click();
+  await management.getByRole("combobox",{name:"템플릿 선택",exact:true}).selectOption("사무실 평면 · 예시");
+  await expect(management.getByRole("textbox",{name:"관리 메모",exact:true})).toHaveValue("사무실 표준 검토");
+  await page.getByRole("button",{name:"Close",exact:true}).click();
+  await page.goto(url);
+  await expect(management.getByRole("textbox",{name:"관리 메모",exact:true})).toHaveValue("사무실 표준 검토");
+  await page.reload();
+  await expect(management.getByRole("textbox",{name:"관리 메모",exact:true})).toHaveValue("사무실 표준 검토");
+  await management.getByRole("button",{name:"조직·역할",exact:true}).click();
+  await expect(management.getByRole("textbox",{name:"조직 이름",exact:true})).toHaveValue("개인 관리 초안");
+  await management.getByRole("button",{name:"보존·복구",exact:true}).click();
+  await expect(management.getByRole("combobox",{name:"보존 정책 예시",exact:true})).toHaveValue("관리자 검토 후 정리 · 예시");
+  await management.getByRole("button",{name:"템플릿 관리",exact:true}).click();
+  await page.evaluate(()=>{const original=Storage.prototype.setItem;window.restoreManagementWrite=()=>{Storage.prototype.setItem=original;};Storage.prototype.setItem=function(key,value){if(key==="1hk:preview:management:personal")throw Error("test quota");return original.call(this,key,value);};});
+  await management.getByRole("textbox",{name:"관리 메모",exact:true}).fill("보관 실패 후 유지할 메모");
+  await expect(management.getByRole("alert")).toContainText("관리 초안을 보관하지 못했습니다");
+  await page.getByRole("button",{name:"Close",exact:true}).click();
+  await page.getByText("설정",{exact:true}).click();
+  await page.locator('a[href*="panel=settings"]').first().click();
+  await expect(management.getByRole("textbox",{name:"관리 메모",exact:true})).toHaveValue("보관 실패 후 유지할 메모");
+  await page.evaluate(()=>window.restoreManagementWrite());
+  await management.getByRole("button",{name:"관리 초안 보관 다시 시도",exact:true}).click();
+  await expect(management.getByRole("alert")).toHaveCount(0);
+  await page.reload();
+  await expect(management.getByRole("textbox",{name:"관리 메모",exact:true})).toHaveValue("보관 실패 후 유지할 메모");
+  const stored=await page.evaluate(()=>sessionStorage.getItem("1hk:preview:management:personal"));
+  await page.goto(`${url}&role=viewer`);
+  await management.getByRole("button",{name:"조직·역할",exact:true}).click();
+  await expect(management.getByRole("textbox",{name:"조직 이름",exact:true})).toBeDisabled();
+  assert.equal(await page.evaluate(()=>sessionStorage.getItem("1hk:preview:management:personal")),stored);
+  await page.evaluate(()=>sessionStorage.setItem("1hk:preview:management:personal","null"));
+  await page.goto(url);
+  await expect(management.getByRole("alert")).toContainText("관리 초안을 복원하지 못했습니다");
+  await expect(management.getByRole("textbox",{name:"조직 이름",exact:true})).toBeDisabled();
+  assert.deepEqual(errors,[]);
+ }finally{await browser.close();}
+});

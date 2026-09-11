@@ -1,0 +1,18 @@
+import {chromium,expect} from '@playwright/test';
+const browser=await chromium.launch();
+try{
+ const page=await browser.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));const button=name=>page.getByRole('button',{name,exact:true});
+ await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=start',{waitUntil:'networkidle'});await page.getByLabel('빈 작업 이름',{exact:true}).fill('질의 대상 도면');await button('빈 작업실 열기').click();await expect(page).toHaveURL(/blank=/);
+ await button('사각형 구상 도구').click();await page.getByRole('img',{name:'빈 작업 캔버스'}).focus();await page.keyboard.press('Enter');
+ await page.getByText('선택 객체 공식 질의 작성',{exact:true}).click();
+ await page.getByLabel('질의 제목',{exact:true}).fill('출입구 폭 확인');await page.getByLabel('질의 내용',{exact:true}).fill('유효 폭 900mm 적용 가능 여부');await page.getByLabel('질의 답변 기한',{exact:true}).fill('2026-10-01');await button('질의 등록 (체험)').click();
+ await expect(page.getByRole('region',{name:'선택 객체 공식 질의'})).toContainText('등록했습니다');
+ await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=issues&scope=local');const inbox=page.getByRole('region',{name:'내 도면 공식 질의'});await expect(inbox).toContainText('출입구 폭 확인');await expect(inbox).toContainText('2026-10-01');
+ await page.getByLabel('질의 처리 역할',{exact:true}).selectOption('viewer');await expect(page.getByLabel('RFI #1 처리 의견',{exact:true})).toBeDisabled();
+ await page.getByLabel('질의 처리 역할',{exact:true}).selectOption('approver');await expect(button('RFI #1 답변 보관')).toBeDisabled();
+ await page.getByLabel('질의 처리 역할',{exact:true}).selectOption('reviewer');await page.getByLabel('RFI #1 처리 의견',{exact:true}).fill('900mm 적용, 도면 수정은 별도 검토');await button('RFI #1 답변 보관').click();await expect(inbox).toContainText('답변 완료');
+ await page.reload();await expect(inbox).toContainText('900mm 적용, 도면 수정은 별도 검토');await page.getByLabel('질의 처리 역할',{exact:true}).selectOption('author');await page.getByLabel('RFI #1 처리 의견',{exact:true}).fill('답변 확인 완료');await button('RFI #1 종결 보관').click();await expect(inbox).toContainText('종결 완료');
+ await button('RFI #1 도면 위치').click();await expect(page).toHaveURL(/target=/);await expect(page.getByLabel('선택할 객체',{exact:true})).not.toHaveValue('');await button('질의 목록으로 돌아가기').click();await expect(page).toHaveURL(/page=issues/);await expect(inbox).toContainText('답변 확인 완료');
+ const session=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('1hk:workflow-preview:session:v1')));const doc=session.blankDocuments.find(doc=>doc.title==='질의 대상 도면');expect(doc.reviewRounds??[]).toEqual([]);expect(doc.rfis[0].phase).toBe('closed');
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await inbox.screenshot({path:'/tmp/1hk-rfi.png'});expect(errors).toEqual([]);console.log('PASS RFI creation, role assignment, answer, closure, persistence, exact-target return and mobile');
+}finally{await browser.close();}

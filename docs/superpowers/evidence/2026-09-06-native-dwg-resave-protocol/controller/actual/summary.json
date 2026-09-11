@@ -1,0 +1,16 @@
+{
+  "imageId": "sha256:c921c67ddb37d2a57969d04c7a4983f6d847e0b89901403e3b015ac25bf566ae",
+  "source": {
+    "sha256": "bcc54d3c768444c9ade41a23e4ef2b9f5b5668d9972522ee4a4adbc98c670434",
+    "byteSize": 10987,
+    "headerVersion": "AC1024"
+  },
+  "requestSha256": "b3ea896d4628e961e6c1219dfbd7ab8c6ff381973fd88178e2a3b305aea3c794",
+  "reportSha256": "886f0f57248759d9502a1677d34701237a48cc42a1c685f2d18eef67b210ef65",
+  "outputSha256": "7af2c6b532127116dde6fbf245a88582eedebdf87be63082f0ca52f2232b9f25",
+  "qualification": "experimental-unqualified",
+  "persistenceAuthority": "not-issued",
+  "independentCad": "not-performed",
+  "inventoryCoverage": "supported-fields-only",
+  "ownedCleanup": true
+}

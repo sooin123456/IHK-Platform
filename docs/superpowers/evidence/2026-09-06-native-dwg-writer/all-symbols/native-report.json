@@ -1,0 +1,3128 @@
+{
+  "qualification": "experimental-unqualified",
+  "status": "passed-internal-semantic-comparison",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "canonicalSourceValidation": "producer-required",
+  "engine": {
+    "package": "ACadSharp",
+    "pinnedVersion": "3.7.1",
+    "assemblyVersion": "3.7.1.0",
+    "framework": ".NET 8.0"
+  },
+  "tolerances": {
+    "geometryAbsoluteMillimeters": 1E-07,
+    "angularRadians": 1E-10
+  },
+  "input": {
+    "fileName": "all-symbols.cad.json",
+    "sha256": "d230f96abfb7bc2fa6f04594d94ed4ad1f5ea31fdc629db7226c122eb55647c3",
+    "bytes": 106492,
+    "scope": {
+      "projectId": "90000000-0000-4000-8000-000000000001",
+      "documentId": "90000000-0000-4000-8000-000000000002",
+      "revisionId": "10000000-0000-4000-8100-000000000001",
+      "operationSequence": 0,
+      "structureSha256": "73f238d5fedad6046a0354f72fb68dafcc87cdb50a6c4260078634a6ad849f8a"
+    },
+    "originalBytesPreserved": true
+  },
+  "outputs": {
+    "dwg": {
+      "fileName": "native.dwg",
+      "sha256": "b68154a16f85aef4facbe242174bd1c1d268b05d0a4b5e178cdc83f428bd92aa"
+    },
+    "sourceManifest": {
+      "fileName": "source-manifest.json",
+      "sha256": "d230f96abfb7bc2fa6f04594d94ed4ad1f5ea31fdc629db7226c122eb55647c3"
+    },
+    "report": "native-report.json"
+  },
+  "outputProfile": {
+    "paper": "A3",
+    "orientation": "landscape",
+    "width": 420,
+    "height": 297,
+    "scaleDenominator": 50
+  },
+  "verification": {
+    "failures": [],
+    "entities": [
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003e8/jamb-left/0",
+        "handle": "93",
+        "owner": "B_900000000000400080000000000003e8",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-100,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003e8/jamb-right/1",
+        "handle": "94",
+        "owner": "B_900000000000400080000000000003e8",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=800,0,0;end=800,-100,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003e8/leaf/2",
+        "handle": "95",
+        "owner": "B_900000000000400080000000000003e8",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-800,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003e8/swing/3",
+        "handle": "96",
+        "owner": "B_900000000000400080000000000003e8",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=False;points=800,0/772.7408,-207.0552/692.82,-400/565.6856,-565.6856/400,-692.82/207.0552,-772.7408/0,-800"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003e9/jamb-left/0",
+        "handle": "97",
+        "owner": "B_900000000000400080000000000003e9",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-100,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003e9/jamb-right/1",
+        "handle": "98",
+        "owner": "B_900000000000400080000000000003e9",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=900,0,0;end=900,-100,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003e9/leaf/2",
+        "handle": "99",
+        "owner": "B_900000000000400080000000000003e9",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-900,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003e9/swing/3",
+        "handle": "9A",
+        "owner": "B_900000000000400080000000000003e9",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=False;points=900,0/869.3334,-232.9371/779.4225,-450/636.3963,-636.3963/450,-779.4225/232.9371,-869.3334/0,-900"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ea/jamb-left/0",
+        "handle": "9B",
+        "owner": "B_900000000000400080000000000003ea",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-100,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ea/jamb-right/1",
+        "handle": "9C",
+        "owner": "B_900000000000400080000000000003ea",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=1000,0,0;end=1000,-100,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ea/leaf/2",
+        "handle": "9D",
+        "owner": "B_900000000000400080000000000003ea",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-1000,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ea/swing/3",
+        "handle": "9E",
+        "owner": "B_900000000000400080000000000003ea",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=False;points=1000,0/965.926,-258.819/866.025,-500/707.107,-707.107/500,-866.025/258.819,-965.926/0,-1000"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003eb/jamb-left/0",
+        "handle": "9F",
+        "owner": "B_900000000000400080000000000003eb",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-100,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003eb/jamb-right/1",
+        "handle": "A0",
+        "owner": "B_900000000000400080000000000003eb",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=1600,0,0;end=1600,-100,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003eb/leaf-left/2",
+        "handle": "A1",
+        "owner": "B_900000000000400080000000000003eb",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-800,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003eb/leaf-right/3",
+        "handle": "A2",
+        "owner": "B_900000000000400080000000000003eb",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=1600,0,0;end=1600,-800,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003eb/swing-left/4",
+        "handle": "A3",
+        "owner": "B_900000000000400080000000000003eb",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=False;points=800,0/772.7408,-207.0552/692.82,-400/565.6856,-565.6856/400,-692.82/207.0552,-772.7408/0,-800"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003eb/swing-right/5",
+        "handle": "A4",
+        "owner": "B_900000000000400080000000000003eb",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=False;points=800,0/827.2592,-207.0552/907.1800000000001,-400/1034.3144,-565.6856/1200,-692.82/1392.9448,-772.7408/1600,-800"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ec/frame/0",
+        "handle": "A5",
+        "owner": "B_900000000000400080000000000003ec",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ec/frame/1",
+        "handle": "A6",
+        "owner": "B_900000000000400080000000000003ec",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1800,0/1800,-200/0,-200"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ec/panel-left/2",
+        "handle": "A7",
+        "owner": "B_900000000000400080000000000003ec",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ec/panel-left/3",
+        "handle": "A8",
+        "owner": "B_900000000000400080000000000003ec",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,-25/1000,-25/1000,-150/0,-150"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ec/panel-right/4",
+        "handle": "A9",
+        "owner": "B_900000000000400080000000000003ec",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ec/panel-right/5",
+        "handle": "AA",
+        "owner": "B_900000000000400080000000000003ec",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=800,-50/1800,-50/1800,-175/800,-175"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ec/travel/6",
+        "handle": "AB",
+        "owner": "B_900000000000400080000000000003ec",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=800,-190,0;end=1000,-190,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ed/frame/0",
+        "handle": "AC",
+        "owner": "B_900000000000400080000000000003ed",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ed/frame/1",
+        "handle": "AD",
+        "owner": "B_900000000000400080000000000003ed",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/600,0/600,-150/0,-150"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ed/pane-left/2",
+        "handle": "AE",
+        "owner": "B_900000000000400080000000000003ed",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ed/pane-left/3",
+        "handle": "AF",
+        "owner": "B_900000000000400080000000000003ed",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=25,-25/300,-25/300,-125/25,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ed/pane-right/4",
+        "handle": "B0",
+        "owner": "B_900000000000400080000000000003ed",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ed/pane-right/5",
+        "handle": "B1",
+        "owner": "B_900000000000400080000000000003ed",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=300,-25/575,-25/575,-125/300,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ed/mullion/6",
+        "handle": "B2",
+        "owner": "B_900000000000400080000000000003ed",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=300,0,0;end=300,-150,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ee/frame/0",
+        "handle": "B3",
+        "owner": "B_900000000000400080000000000003ee",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ee/frame/1",
+        "handle": "B4",
+        "owner": "B_900000000000400080000000000003ee",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/900,0/900,-150/0,-150"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ee/pane-left/2",
+        "handle": "B5",
+        "owner": "B_900000000000400080000000000003ee",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ee/pane-left/3",
+        "handle": "B6",
+        "owner": "B_900000000000400080000000000003ee",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=25,-25/450,-25/450,-125/25,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ee/pane-right/4",
+        "handle": "B7",
+        "owner": "B_900000000000400080000000000003ee",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ee/pane-right/5",
+        "handle": "B8",
+        "owner": "B_900000000000400080000000000003ee",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=450,-25/875,-25/875,-125/450,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ee/mullion/6",
+        "handle": "B9",
+        "owner": "B_900000000000400080000000000003ee",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=450,0,0;end=450,-150,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ef/frame/0",
+        "handle": "BA",
+        "owner": "B_900000000000400080000000000003ef",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ef/frame/1",
+        "handle": "BB",
+        "owner": "B_900000000000400080000000000003ef",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1200,0/1200,-150/0,-150"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ef/pane-left/2",
+        "handle": "BC",
+        "owner": "B_900000000000400080000000000003ef",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ef/pane-left/3",
+        "handle": "BD",
+        "owner": "B_900000000000400080000000000003ef",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=25,-25/600,-25/600,-125/25,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ef/pane-right/4",
+        "handle": "BE",
+        "owner": "B_900000000000400080000000000003ef",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ef/pane-right/5",
+        "handle": "BF",
+        "owner": "B_900000000000400080000000000003ef",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=600,-25/1175,-25/1175,-125/600,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ef/mullion/6",
+        "handle": "C0",
+        "owner": "B_900000000000400080000000000003ef",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=600,0,0;end=600,-150,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f0/frame/0",
+        "handle": "C1",
+        "owner": "B_900000000000400080000000000003f0",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f0/frame/1",
+        "handle": "C2",
+        "owner": "B_900000000000400080000000000003f0",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1500,0/1500,-150/0,-150"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f0/pane-left/2",
+        "handle": "C3",
+        "owner": "B_900000000000400080000000000003f0",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f0/pane-left/3",
+        "handle": "C4",
+        "owner": "B_900000000000400080000000000003f0",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=25,-25/750,-25/750,-125/25,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f0/pane-right/4",
+        "handle": "C5",
+        "owner": "B_900000000000400080000000000003f0",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f0/pane-right/5",
+        "handle": "C6",
+        "owner": "B_900000000000400080000000000003f0",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=750,-25/1475,-25/1475,-125/750,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f0/mullion/6",
+        "handle": "C7",
+        "owner": "B_900000000000400080000000000003f0",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=750,0,0;end=750,-150,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f1/frame/0",
+        "handle": "C8",
+        "owner": "B_900000000000400080000000000003f1",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f1/frame/1",
+        "handle": "C9",
+        "owner": "B_900000000000400080000000000003f1",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1800,0/1800,-150/0,-150"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f1/pane-left/2",
+        "handle": "CA",
+        "owner": "B_900000000000400080000000000003f1",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f1/pane-left/3",
+        "handle": "CB",
+        "owner": "B_900000000000400080000000000003f1",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=25,-25/900,-25/900,-125/25,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f1/pane-right/4",
+        "handle": "CC",
+        "owner": "B_900000000000400080000000000003f1",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f1/pane-right/5",
+        "handle": "CD",
+        "owner": "B_900000000000400080000000000003f1",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=900,-25/1775,-25/1775,-125/900,-125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f1/mullion/6",
+        "handle": "CE",
+        "owner": "B_900000000000400080000000000003f1",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=900,0,0;end=900,-150,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f2/body/0",
+        "handle": "CF",
+        "owner": "B_900000000000400080000000000003f2",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f2/body/1",
+        "handle": "D0",
+        "owner": "B_900000000000400080000000000003f2",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1000,0/1000,-100/0,-100"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f3/body/0",
+        "handle": "D1",
+        "owner": "B_900000000000400080000000000003f3",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f3/body/1",
+        "handle": "D2",
+        "owner": "B_900000000000400080000000000003f3",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1000,0/1000,-150/0,-150"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f4/body/0",
+        "handle": "D3",
+        "owner": "B_900000000000400080000000000003f4",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f4/body/1",
+        "handle": "D4",
+        "owner": "B_900000000000400080000000000003f4",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1000,0/1000,-200/0,-200"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f5/horizontal/0",
+        "handle": "D5",
+        "owner": "B_900000000000400080000000000003f5",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f5/horizontal/1",
+        "handle": "D6",
+        "owner": "B_900000000000400080000000000003f5",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1000,0/1000,-100/0,-100"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f5/vertical/2",
+        "handle": "D7",
+        "owner": "B_900000000000400080000000000003f5",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f5/vertical/3",
+        "handle": "D8",
+        "owner": "B_900000000000400080000000000003f5",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/100,0/100,-1000/0,-1000"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f6/top/0",
+        "handle": "D9",
+        "owner": "B_900000000000400080000000000003f6",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f6/top/1",
+        "handle": "DA",
+        "owner": "B_900000000000400080000000000003f6",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1200,0/1200,-600/0,-600"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f6/modesty/2",
+        "handle": "DB",
+        "owner": "B_900000000000400080000000000003f6",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=100,-500,0;end=1100,-500,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f7/top/0",
+        "handle": "DC",
+        "owner": "B_900000000000400080000000000003f7",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f7/top/1",
+        "handle": "DD",
+        "owner": "B_900000000000400080000000000003f7",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1600,0/1600,-800/0,-800"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f7/modesty/2",
+        "handle": "DE",
+        "owner": "B_900000000000400080000000000003f7",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=100,-700,0;end=1500,-700,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f8/seat/0",
+        "handle": "DF",
+        "owner": "B_900000000000400080000000000003f8",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f8/seat/1",
+        "handle": "E0",
+        "owner": "B_900000000000400080000000000003f8",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/500,0/500,-500/0,-500"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f8/back/2",
+        "handle": "E1",
+        "owner": "B_900000000000400080000000000003f8",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=50,-75,0;end=450,-75,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/top/0",
+        "handle": "E2",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/top/1",
+        "handle": "E3",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,-125/1800,-125/1800,-775/0,-775"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/chair-top-1/2",
+        "handle": "E4",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/chair-top-1/3",
+        "handle": "E5",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=540,-125,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-1/4",
+        "handle": "E6",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-1/5",
+        "handle": "E7",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=540,-775,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/chair-top-2/6",
+        "handle": "E8",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/chair-top-2/7",
+        "handle": "E9",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=1260,-125,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-2/8",
+        "handle": "EA",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-2/9",
+        "handle": "EB",
+        "owner": "B_900000000000400080000000000003f9",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=1260,-775,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/top/0",
+        "handle": "EC",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/top/1",
+        "handle": "ED",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,-125/2400,-125/2400,-875/0,-875"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-top-1/2",
+        "handle": "EE",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-top-1/3",
+        "handle": "EF",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=480,-125,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-1/4",
+        "handle": "F0",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-1/5",
+        "handle": "F1",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=480,-875,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-top-2/6",
+        "handle": "F2",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-top-2/7",
+        "handle": "F3",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=1200,-125,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-2/8",
+        "handle": "F4",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-2/9",
+        "handle": "F5",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=1200,-875,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-top-3/10",
+        "handle": "F6",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-top-3/11",
+        "handle": "F7",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=1920,-125,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-3/12",
+        "handle": "F8",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-3/13",
+        "handle": "F9",
+        "owner": "B_900000000000400080000000000003fa",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=1920,-875,0;radius=125"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fb/outline/0",
+        "handle": "FA",
+        "owner": "B_900000000000400080000000000003fb",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fb/outline/1",
+        "handle": "FB",
+        "owner": "B_900000000000400080000000000003fb",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1600,0/1600,-800/0,-800"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fb/back/2",
+        "handle": "FC",
+        "owner": "B_900000000000400080000000000003fb",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fb/back/3",
+        "handle": "FD",
+        "owner": "B_900000000000400080000000000003fb",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=100,-75/1500,-75/1500,-225/100,-225"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fb/seat-1/4",
+        "handle": "FE",
+        "owner": "B_900000000000400080000000000003fb",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fb/seat-1/5",
+        "handle": "FF",
+        "owner": "B_900000000000400080000000000003fb",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=100,-250/800,-250/800,-675/100,-675"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fb/seat-2/6",
+        "handle": "100",
+        "owner": "B_900000000000400080000000000003fb",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fb/seat-2/7",
+        "handle": "101",
+        "owner": "B_900000000000400080000000000003fb",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=800,-250/1500,-250/1500,-675/800,-675"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/outline/0",
+        "handle": "102",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/outline/1",
+        "handle": "103",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/2200,0/2200,-800/0,-800"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/back/2",
+        "handle": "104",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/back/3",
+        "handle": "105",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=100,-75/2100,-75/2100,-225/100,-225"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/seat-1/4",
+        "handle": "106",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/seat-1/5",
+        "handle": "107",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=100,-250/766.6666666666666,-250/766.6666666666666,-675/100,-675"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/seat-2/6",
+        "handle": "108",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/seat-2/7",
+        "handle": "109",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=766.6666666666666,-250/1433.3333333333333,-250/1433.3333333333333,-675/766.6666666666666,-675"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/seat-3/8",
+        "handle": "10A",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fc/seat-3/9",
+        "handle": "10B",
+        "owner": "B_900000000000400080000000000003fc",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=1433.3333333333333,-250/2100,-250/2100,-675/1433.3333333333333,-675"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fd/case/0",
+        "handle": "10C",
+        "owner": "B_900000000000400080000000000003fd",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fd/case/1",
+        "handle": "10D",
+        "owner": "B_900000000000400080000000000003fd",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/900,0/900,-450/0,-450"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fd/door-split/2",
+        "handle": "10E",
+        "owner": "B_900000000000400080000000000003fd",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=450,0,0;end=450,-450,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fd/pull-left/3",
+        "handle": "10F",
+        "owner": "B_900000000000400080000000000003fd",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fd/pull-left/4",
+        "handle": "110",
+        "owner": "B_900000000000400080000000000003fd",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=400,-225,0;radius=20"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fd/pull-right/5",
+        "handle": "111",
+        "owner": "B_900000000000400080000000000003fd",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fd/pull-right/6",
+        "handle": "112",
+        "owner": "B_900000000000400080000000000003fd",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=500,-225,0;radius=20"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fe/frame/0",
+        "handle": "113",
+        "owner": "B_900000000000400080000000000003fe",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fe/frame/1",
+        "handle": "114",
+        "owner": "B_900000000000400080000000000003fe",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1000,0/1000,-2000/0,-2000"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fe/pillow/2",
+        "handle": "115",
+        "owner": "B_900000000000400080000000000003fe",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fe/pillow/3",
+        "handle": "116",
+        "owner": "B_900000000000400080000000000003fe",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=100,-100/900,-100/900,-500/100,-500"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003fe/blanket/4",
+        "handle": "117",
+        "owner": "B_900000000000400080000000000003fe",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,-700,0;end=1000,-700,0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ff/frame/0",
+        "handle": "118",
+        "owner": "B_900000000000400080000000000003ff",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ff/frame/1",
+        "handle": "119",
+        "owner": "B_900000000000400080000000000003ff",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1600,0/1600,-2000/0,-2000"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ff/pillow/2",
+        "handle": "11A",
+        "owner": "B_900000000000400080000000000003ff",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ff/pillow/3",
+        "handle": "11B",
+        "owner": "B_900000000000400080000000000003ff",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=100,-100/1500,-100/1500,-500/100,-500"
+      },
+      {
+        "id": "block/90000000-0000-4000-8000-0000000003ff/blanket/4",
+        "handle": "11C",
+        "owner": "B_900000000000400080000000000003ff",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,-700,0;end=1600,-700,0"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d0",
+        "handle": "11D",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003e8;origin=1000,-1000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d1",
+        "handle": "11E",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003e9;origin=4000,-1000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d2",
+        "handle": "11F",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003ea;origin=7000,-1000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d3",
+        "handle": "120",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003eb;origin=10000,-1000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d4",
+        "handle": "121",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003ec;origin=13000,-1000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d5",
+        "handle": "122",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003ed;origin=16000,-1000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d6",
+        "handle": "123",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003ee;origin=1000,-4000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d7",
+        "handle": "124",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003ef;origin=4000,-4000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d8",
+        "handle": "125",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f0;origin=7000,-4000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007d9",
+        "handle": "126",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f1;origin=10000,-4000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007da",
+        "handle": "127",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f2;origin=13000,-4000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007db",
+        "handle": "128",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f3;origin=16000,-4000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007dc",
+        "handle": "129",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f4;origin=1000,-7000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007dd",
+        "handle": "12A",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f5;origin=4000,-7000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007de",
+        "handle": "12B",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f6;origin=7000,-7000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007df",
+        "handle": "12C",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f7;origin=10000,-7000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007e0",
+        "handle": "12D",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f8;origin=13000,-7000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007e1",
+        "handle": "12E",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003f9;origin=16000,-7000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007e2",
+        "handle": "12F",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003fa;origin=1000,-10000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007e3",
+        "handle": "130",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003fb;origin=4000,-10000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007e4",
+        "handle": "131",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003fc;origin=7000,-10000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007e5",
+        "handle": "132",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003fd;origin=10000,-10000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007e6",
+        "handle": "133",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003fe;origin=13000,-10000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      },
+      {
+        "id": "instance/90000000-0000-4000-8000-0000000007e7",
+        "handle": "134",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_10000000000040008100000000000004",
+        "geometry": "block=B_900000000000400080000000000003ff;origin=16000,-10000,0;scale=-2,3,1;rotation=-0.5235987755982988"
+      }
+    ],
+    "layers": [
+      {
+        "id": "10000000-0000-4000-8100-000000000004",
+        "cadName": "L_10000000000040008100000000000004",
+        "sourceName": "\uC791\uC5C5",
+        "handle": "48",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "10000000-0000-4000-8100-000000000007",
+        "cadName": "L_10000000000040008100000000000007",
+        "sourceName": "\uCE58\uC218",
+        "handle": "49",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "blocks": [
+      {
+        "id": "90000000-0000-4000-8000-0000000003e8",
+        "cadName": "B_900000000000400080000000000003e8",
+        "sourceName": "Single door 800 mm",
+        "handle": "4B",
+        "entityHandles": [
+          "93",
+          "94",
+          "95",
+          "96"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003e9",
+        "cadName": "B_900000000000400080000000000003e9",
+        "sourceName": "Single door 900 mm",
+        "handle": "4E",
+        "entityHandles": [
+          "97",
+          "98",
+          "99",
+          "9A"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003ea",
+        "cadName": "B_900000000000400080000000000003ea",
+        "sourceName": "Single door 1000 mm",
+        "handle": "51",
+        "entityHandles": [
+          "9B",
+          "9C",
+          "9D",
+          "9E"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003eb",
+        "cadName": "B_900000000000400080000000000003eb",
+        "sourceName": "Double door 1600 mm",
+        "handle": "54",
+        "entityHandles": [
+          "9F",
+          "A0",
+          "A1",
+          "A2",
+          "A3",
+          "A4"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003ec",
+        "cadName": "B_900000000000400080000000000003ec",
+        "sourceName": "Sliding door 1800 mm",
+        "handle": "57",
+        "entityHandles": [
+          "A5",
+          "A6",
+          "A7",
+          "A8",
+          "A9",
+          "AA",
+          "AB"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003ed",
+        "cadName": "B_900000000000400080000000000003ed",
+        "sourceName": "Window 600 mm",
+        "handle": "5A",
+        "entityHandles": [
+          "AC",
+          "AD",
+          "AE",
+          "AF",
+          "B0",
+          "B1",
+          "B2"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003ee",
+        "cadName": "B_900000000000400080000000000003ee",
+        "sourceName": "Window 900 mm",
+        "handle": "5D",
+        "entityHandles": [
+          "B3",
+          "B4",
+          "B5",
+          "B6",
+          "B7",
+          "B8",
+          "B9"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003ef",
+        "cadName": "B_900000000000400080000000000003ef",
+        "sourceName": "Window 1200 mm",
+        "handle": "60",
+        "entityHandles": [
+          "BA",
+          "BB",
+          "BC",
+          "BD",
+          "BE",
+          "BF",
+          "C0"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f0",
+        "cadName": "B_900000000000400080000000000003f0",
+        "sourceName": "Window 1500 mm",
+        "handle": "63",
+        "entityHandles": [
+          "C1",
+          "C2",
+          "C3",
+          "C4",
+          "C5",
+          "C6",
+          "C7"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f1",
+        "cadName": "B_900000000000400080000000000003f1",
+        "sourceName": "Window 1800 mm",
+        "handle": "66",
+        "entityHandles": [
+          "C8",
+          "C9",
+          "CA",
+          "CB",
+          "CC",
+          "CD",
+          "CE"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f2",
+        "cadName": "B_900000000000400080000000000003f2",
+        "sourceName": "Wall segment 1000 \u00D7 100 mm",
+        "handle": "69",
+        "entityHandles": [
+          "CF",
+          "D0"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f3",
+        "cadName": "B_900000000000400080000000000003f3",
+        "sourceName": "Wall segment 1000 \u00D7 150 mm",
+        "handle": "6C",
+        "entityHandles": [
+          "D1",
+          "D2"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f4",
+        "cadName": "B_900000000000400080000000000003f4",
+        "sourceName": "Wall segment 1000 \u00D7 200 mm",
+        "handle": "6F",
+        "entityHandles": [
+          "D3",
+          "D4"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f5",
+        "cadName": "B_900000000000400080000000000003f5",
+        "sourceName": "L partition 100 mm thick",
+        "handle": "72",
+        "entityHandles": [
+          "D5",
+          "D6",
+          "D7",
+          "D8"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f6",
+        "cadName": "B_900000000000400080000000000003f6",
+        "sourceName": "Desk 1200 \u00D7 600 mm",
+        "handle": "75",
+        "entityHandles": [
+          "D9",
+          "DA",
+          "DB"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f7",
+        "cadName": "B_900000000000400080000000000003f7",
+        "sourceName": "Desk 1600 \u00D7 800 mm",
+        "handle": "78",
+        "entityHandles": [
+          "DC",
+          "DD",
+          "DE"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f8",
+        "cadName": "B_900000000000400080000000000003f8",
+        "sourceName": "Chair 500 \u00D7 500 mm",
+        "handle": "7B",
+        "entityHandles": [
+          "DF",
+          "E0",
+          "E1"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003f9",
+        "cadName": "B_900000000000400080000000000003f9",
+        "sourceName": "4-seat meeting table 1800 \u00D7 900 mm",
+        "handle": "7E",
+        "entityHandles": [
+          "E2",
+          "E3",
+          "E4",
+          "E5",
+          "E6",
+          "E7",
+          "E8",
+          "E9",
+          "EA",
+          "EB"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003fa",
+        "cadName": "B_900000000000400080000000000003fa",
+        "sourceName": "6-seat meeting table 2400 \u00D7 1000 mm",
+        "handle": "81",
+        "entityHandles": [
+          "EC",
+          "ED",
+          "EE",
+          "EF",
+          "F0",
+          "F1",
+          "F2",
+          "F3",
+          "F4",
+          "F5",
+          "F6",
+          "F7",
+          "F8",
+          "F9"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003fb",
+        "cadName": "B_900000000000400080000000000003fb",
+        "sourceName": "2-seat sofa 1600 \u00D7 800 mm",
+        "handle": "84",
+        "entityHandles": [
+          "FA",
+          "FB",
+          "FC",
+          "FD",
+          "FE",
+          "FF",
+          "100",
+          "101"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003fc",
+        "cadName": "B_900000000000400080000000000003fc",
+        "sourceName": "3-seat sofa 2200 \u00D7 800 mm",
+        "handle": "87",
+        "entityHandles": [
+          "102",
+          "103",
+          "104",
+          "105",
+          "106",
+          "107",
+          "108",
+          "109",
+          "10A",
+          "10B"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003fd",
+        "cadName": "B_900000000000400080000000000003fd",
+        "sourceName": "Cabinet 900 \u00D7 450 mm",
+        "handle": "8A",
+        "entityHandles": [
+          "10C",
+          "10D",
+          "10E",
+          "10F",
+          "110",
+          "111",
+          "112"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003fe",
+        "cadName": "B_900000000000400080000000000003fe",
+        "sourceName": "Single bed 1000 \u00D7 2000 mm",
+        "handle": "8D",
+        "entityHandles": [
+          "113",
+          "114",
+          "115",
+          "116",
+          "117"
+        ]
+      },
+      {
+        "id": "90000000-0000-4000-8000-0000000003ff",
+        "cadName": "B_900000000000400080000000000003ff",
+        "sourceName": "Double bed 1600 \u00D7 2000 mm",
+        "handle": "90",
+        "entityHandles": [
+          "118",
+          "119",
+          "11A",
+          "11B",
+          "11C"
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "name": "NATIVE_A3",
+        "paperWidth": 420,
+        "paperHeight": 297,
+        "paperUnits": "Millimeters",
+        "viewports": [
+          {
+            "handle": "47",
+            "id": 1,
+            "representsPaper": true,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 0,
+              "y": 0
+            },
+            "viewHeight": 0,
+            "scaleFactor": null
+          },
+          {
+            "handle": "135",
+            "id": 2,
+            "representsPaper": false,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 10500,
+              "y": -7425
+            },
+            "viewHeight": 14850,
+            "scaleFactor": 0.02
+          }
+        ]
+      }
+    ],
+    "quantizations": [
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003e8/jamb-left/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003e8/jamb-right/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003e8/leaf/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003e8/swing/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003e9/jamb-left/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003e9/jamb-right/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003e9/leaf/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003e9/swing/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ea/jamb-left/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ea/jamb-right/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ea/leaf/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ea/swing/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003eb/jamb-left/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003eb/jamb-right/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003eb/leaf-left/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003eb/leaf-right/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003eb/swing-left/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003eb/swing-right/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/frame/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/frame/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/frame/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/panel-left/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/panel-left/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/panel-left/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/panel-right/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/panel-right/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/panel-right/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ec/travel/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/frame/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/frame/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/frame/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/pane-left/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/pane-left/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/pane-left/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/pane-right/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/pane-right/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/pane-right/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ed/mullion/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/frame/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/frame/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/frame/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/pane-left/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/pane-left/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/pane-left/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/pane-right/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/pane-right/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/pane-right/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ee/mullion/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/frame/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/frame/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/frame/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/pane-left/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/pane-left/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/pane-left/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/pane-right/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/pane-right/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/pane-right/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ef/mullion/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/frame/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/frame/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/frame/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/pane-left/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/pane-left/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/pane-left/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/pane-right/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/pane-right/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/pane-right/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f0/mullion/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/frame/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/frame/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/frame/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/pane-left/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/pane-left/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/pane-left/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/pane-right/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/pane-right/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/pane-right/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f1/mullion/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f2/body/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f2/body/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f2/body/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f3/body/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f3/body/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f3/body/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f4/body/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f4/body/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f4/body/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f5/horizontal/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f5/horizontal/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f5/horizontal/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f5/vertical/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f5/vertical/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f5/vertical/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f6/top/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f6/top/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f6/top/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f6/modesty/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f7/top/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f7/top/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f7/top/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f7/modesty/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f8/seat/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f8/seat/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f8/seat/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f8/back/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/top/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/top/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/top/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-top-1/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-top-1/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-top-1/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-1/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-1/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-1/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-top-2/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-top-2/6",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-top-2/7",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-2/8",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-2/8",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003f9/chair-bottom-2/9",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/top/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/top/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/top/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-1/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-1/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-1/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-1/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-1/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-1/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-2/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-2/6",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-2/7",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-2/8",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-2/8",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-2/9",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-3/10",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-3/10",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-top-3/11",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-3/12",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-3/12",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fa/chair-bottom-3/13",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/outline/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/outline/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/outline/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/back/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/back/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/back/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/seat-1/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/seat-1/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/seat-1/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/seat-2/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/seat-2/6",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fb/seat-2/7",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/outline/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/outline/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/outline/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/back/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/back/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/back/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-1/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-1/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-1/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-2/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-2/6",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-2/7",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-3/8",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-3/8",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fc/seat-3/9",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/case/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/case/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/case/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/door-split/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/pull-left/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/pull-left/3",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/pull-left/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/pull-right/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/pull-right/5",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fd/pull-right/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fe/frame/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fe/frame/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fe/frame/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fe/pillow/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fe/pillow/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fe/pillow/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003fe/blanket/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ff/frame/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ff/frame/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ff/frame/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ff/pillow/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ff/pillow/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ff/pillow/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/90000000-0000-4000-8000-0000000003ff/blanket/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      }
+    ],
+    "dimensionChildHandles": {},
+    "actualInventory": {
+      "version": "AC1024",
+      "units": "Millimeters",
+      "modelEntityCount": 24,
+      "allBlockEntityCount": 164,
+      "layerCount": 3,
+      "blockRecordCount": 26,
+      "layoutCount": 2,
+      "textStyles": [
+        {
+          "handle": "2D",
+          "name": "Standard",
+          "fontFile": ""
+        },
+        {
+          "handle": "4A",
+          "name": "NATIVE_NOTO_SANS_KR",
+          "fontFile": "NotoSansKR-Regular.ttf"
+        }
+      ]
+    }
+  },
+  "diagnostics": {
+    "writer": [],
+    "reader": [
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle"
+    ]
+  },
+  "failures": [],
+  "warnings": [
+    "Canonical source validation and authority remain producer-required.",
+    "NotoSansKR-Regular.ttf is named but is not read, embedded, redistributed, or visually qualified.",
+    "MTEXT automatic font-dependent wrapping and recipient rendering are not qualified.",
+    "Independent CAD open/save/print verification was not performed.",
+    "This output does not qualify production DWG delivery or existing-DWG preservation."
+  ]
+}

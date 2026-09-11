@@ -16,6 +16,69 @@ async function openPreview(page: Page, query = "") {
   await expect(page.getByRole("tablist", { name: "도면 도구" })).toBeVisible();
 }
 
+type DrawingDurabilityGate = {
+  active: boolean;
+  pending(): number;
+  release(): void;
+};
+
+async function installDrawingDurabilityGate(page: Page) {
+  await page.addInitScript(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(
+      IDBTransaction.prototype,
+      "oncomplete",
+    );
+    if (!descriptor?.get || !descriptor.set)
+      throw new Error("IDBTransaction.oncomplete is unavailable.");
+    const delayed: Array<() => void> = [];
+    const browser = globalThis as typeof globalThis & {
+      __drawingDurabilityGate?: DrawingDurabilityGate;
+    };
+    browser.__drawingDurabilityGate = {
+      active: false,
+      pending: () => delayed.length,
+      release() {
+        this.active = false;
+        for (const complete of delayed.splice(0)) complete();
+      },
+    };
+    Object.defineProperty(IDBTransaction.prototype, "oncomplete", {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      get() {
+        return descriptor.get!.call(this);
+      },
+      set(handler) {
+        if (typeof handler !== "function") {
+          descriptor.set!.call(this, handler);
+          return;
+        }
+        descriptor.set!.call(
+          this,
+          function (this: IDBTransaction, event: Event) {
+            const transaction = this;
+            const complete = () => handler.call(transaction, event);
+            if (browser.__drawingDurabilityGate?.active) delayed.push(complete);
+            else complete();
+          },
+        );
+      },
+    });
+  });
+}
+
+function drawingDurabilityGate(page: Page) {
+  return page.evaluate(() => {
+    const gate = (
+      globalThis as typeof globalThis & {
+        __drawingDurabilityGate?: DrawingDurabilityGate;
+      }
+    ).__drawingDurabilityGate;
+    if (!gate) throw new Error("Drawing durability gate is unavailable.");
+    return { active: gate.active, pending: gate.pending() };
+  });
+}
+
 async function openObjectInspector(page: Page) {
   const objectTab = page.getByRole("tab", { name: "객체", exact: true });
   await objectTab.click();
@@ -1038,4 +1101,68 @@ test("P4 awareness exposes semantic selection and lock", async ({ page }) => {
   await expect(
     page.getByRole("status", { name: "객체 잠금 상태" }),
   ).toContainText("김도윤님이 D-101 편집 중");
+});
+
+test("checkpoint restore stays unsaved and blocks navigation until IndexedDB persistence settles", async ({
+  page,
+}) => {
+  await installDrawingDurabilityGate(page);
+  await openPreview(page, "?verticalTest=1");
+  await expect(page.getByRole("button", { name: "건축 객체" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "P4 직접 변경 시도" }).click();
+  await expect(page.getByLabel("P4 mounted command result")).toHaveText(
+    "직접 변경 제출됨",
+  );
+  await expect(
+    page.getByRole("status", { name: "저장 상태: 저장됨" }),
+  ).toBeVisible();
+
+  await page.getByRole("tab", { name: "변경 이력" }).click();
+  await page.evaluate(() => {
+    const gate = (
+      globalThis as typeof globalThis & {
+        __drawingDurabilityGate?: DrawingDurabilityGate;
+      }
+    ).__drawingDurabilityGate;
+    if (!gate) throw new Error("Drawing durability gate is unavailable.");
+    gate.active = true;
+  });
+  await page.getByRole("button", { name: /상태로 복원/ }).click();
+
+  await expect
+    .poll(async () => (await drawingDurabilityGate(page)).pending)
+    .toBe(1);
+  await expect(
+    page.getByRole("status", { name: "저장 상태: 저장 중" }),
+  ).toBeVisible();
+
+  let navigationWarning = "";
+  await Promise.all([
+    page.waitForEvent("dialog").then(async (dialog) => {
+      navigationWarning = dialog.message();
+      await dialog.dismiss();
+    }),
+    page.getByRole("link", { name: "협업 도면실로 돌아가기" }).click(),
+  ]);
+  expect(navigationWarning).toBe(
+    "아직 브라우저 저장소에 저장되지 않은 도면 작업이 있습니다.",
+  );
+  await expect(page).toHaveURL(/\/workspace-preview\/drawing-workspace/);
+
+  await page.evaluate(() => {
+    const gate = (
+      globalThis as typeof globalThis & {
+        __drawingDurabilityGate?: DrawingDurabilityGate;
+      }
+    ).__drawingDurabilityGate;
+    if (!gate) throw new Error("Drawing durability gate is unavailable.");
+    gate.release();
+  });
+  await expect(
+    page.getByText("체크포인트 복원 작업을 안전하게 저장했습니다."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "저장 상태: 저장됨" }),
+  ).toBeVisible();
 });

@@ -1,0 +1,42 @@
+
+Running 1 test using 1 worker
+
+(node:41979) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/1] [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px
+  1) [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 2
+    + Received  + 2
+
+      Array [
+        "100",
+    -   "700",
+    +   "701",
+        "900",
+    -   "700",
+    +   "701",
+      ]
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      976 |     const expectMenuPreservesSelection = async () => {
+      977 |       await expect(surface).toHaveAttribute("data-selected-object-id", selectedBeforeMenu!);
+    > 978 |       await expect.poll(coordinateValues).toEqual(coordinatesBeforeMenu);
+          |                                           ^
+      979 |     };
+      980 |     await semanticTrigger.press("ArrowDown");
+      981 |     await expectMenuPreservesSelection();
+        at expectMenuPreservesSelection (/Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:978:43)
+        at /Users/h/1hk-r2-restore-uvc74K/platform/e2e/drawing-workspace-shell.spec.ts:981:5
+
+    Error Context: test-results/drawing-workspace-shell-ar-228e0-hout-page-overflow-at-768px-chromium/error-context.md
+
+
+  1 failed
+    [chromium] › e2e/drawing-workspace-shell.spec.ts:899:3 › architectural object tools remain accessible without page overflow at 768px 

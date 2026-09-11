@@ -1,0 +1,535 @@
+{
+  "qualification": "experimental-unqualified",
+  "status": "passed-internal-semantic-comparison",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "canonicalSourceValidation": "producer-required",
+  "engine": {
+    "package": "ACadSharp",
+    "pinnedVersion": "3.7.1",
+    "assemblyVersion": "3.7.1.0",
+    "framework": ".NET 8.0"
+  },
+  "tolerances": {
+    "geometryAbsoluteMillimeters": 1E-07,
+    "angularRadians": 1E-10
+  },
+  "input": {
+    "fileName": "remodel-phases.cad.json",
+    "sha256": "d99f738478c5a8f2cedf7db9221e66e9e513a71eb58287385fd2f65ba1d030bc",
+    "bytes": 20764,
+    "scope": {
+      "projectId": "90000000-0000-4000-8000-000000000001",
+      "documentId": "90000000-0000-4000-8000-000000000002",
+      "revisionId": "30000000-0000-4000-8300-000000000001",
+      "operationSequence": 0,
+      "structureSha256": "0306b1263b17ae80b55ef95a4a6bbfdae49797cfe288199b38c4c009b6afea66"
+    },
+    "originalBytesPreserved": true
+  },
+  "outputs": {
+    "dwg": {
+      "fileName": "native.dwg",
+      "sha256": "9e1284c67632fcbacac26fa2edc26dda67a6bdbf44e765fd80cb169666c43f91"
+    },
+    "sourceManifest": {
+      "fileName": "source-manifest.json",
+      "sha256": "d99f738478c5a8f2cedf7db9221e66e9e513a71eb58287385fd2f65ba1d030bc"
+    },
+    "report": "native-report.json"
+  },
+  "outputProfile": {
+    "paper": "A3",
+    "orientation": "landscape",
+    "width": 420,
+    "height": 297,
+    "scaleDenominator": 50
+  },
+  "verification": {
+    "failures": [],
+    "entities": [
+      {
+        "id": "block/30000000-0000-4000-8300-000000000019/jamb-left/0",
+        "handle": "51",
+        "owner": "B_30000000000040008300000000000019",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-100,0"
+      },
+      {
+        "id": "block/30000000-0000-4000-8300-000000000019/jamb-right/1",
+        "handle": "52",
+        "owner": "B_30000000000040008300000000000019",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=900,0,0;end=900,-100,0"
+      },
+      {
+        "id": "block/30000000-0000-4000-8300-000000000019/leaf/2",
+        "handle": "53",
+        "owner": "B_30000000000040008300000000000019",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=0,0,0;end=0,-900,0"
+      },
+      {
+        "id": "block/30000000-0000-4000-8300-000000000019/swing/3",
+        "handle": "54",
+        "owner": "B_30000000000040008300000000000019",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=False;points=900,0/869.3334,-232.9371/779.4225,-450/636.3963,-636.3963/450,-779.4225/232.9371,-869.3334/0,-900"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000016/0",
+        "handle": "55",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_30000000000040008300000000000004",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000016/1",
+        "handle": "56",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_30000000000040008300000000000004",
+        "geometry": "closed=True;points=2500,-3000/10500,-3000/10500,-7500/2500,-7500"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000016/2",
+        "handle": "57",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_30000000000040008300000000000004",
+        "geometry": "origin=5600,-5180,0;height=140;width=1800;rotation=0;text=\uACF5\uC0AC \uBC94\uC704 \uC608\uC81C"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000031/3",
+        "handle": "58",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_30000000000040008300000000000004",
+        "geometry": "origin=1500,-900,0;height=140;width=12000;rotation=0;text=\uB9AC\uBAA8\uB378\uB9C1 \uB2E8\uACC4 \uC608\uC81C\n\uC608\uC81C\u00B7\uAC00\uC815\uAC12 \u2014 \uD604\uC7A5 \uD655\uC778 \uD544\uC694"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000013/4",
+        "handle": "59",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_30000000000040008300000000000007",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000013/5",
+        "handle": "5A",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_30000000000040008300000000000007",
+        "geometry": "closed=True;points=2425,-3075/10575,-3075/10575,-2925/2425,-2925"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000014/6",
+        "handle": "5B",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_30000000000040008300000000000008",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000014/7",
+        "handle": "5C",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_30000000000040008300000000000008",
+        "geometry": "closed=True;points=5925,-2925/5925,-7575/6075,-7575/6075,-2925"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000015/8",
+        "handle": "5D",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_30000000000040008300000000000009",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000015/9",
+        "handle": "5E",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_30000000000040008300000000000009",
+        "geometry": "closed=True;points=7425,-2925/7425,-5000/7575,-5000/7575,-2925"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000015/10",
+        "handle": "5F",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_30000000000040008300000000000009",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000015/11",
+        "handle": "60",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_30000000000040008300000000000009",
+        "geometry": "closed=True;points=7425,-5900/7425,-7575/7575,-7575/7575,-5900"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000018/12",
+        "handle": "61",
+        "owner": "*Model_Space",
+        "type": "LINE",
+        "layer": "L_30000000000040008300000000000009",
+        "geometry": "start=7500,-5000,0;end=7500,-5900,0"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000018/13",
+        "handle": "62",
+        "owner": "*Model_Space",
+        "type": "LINE",
+        "layer": "L_30000000000040008300000000000009",
+        "geometry": "start=7500,-5000,0;end=7412.5,-5000,0"
+      },
+      {
+        "id": "instance/30000000-0000-4000-8300-000000000020",
+        "handle": "63",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_30000000000040008300000000000009",
+        "geometry": "block=B_30000000000040008300000000000019;origin=7500,-5000,0;scale=1,1,1;rotation=-1.5707963267948966"
+      },
+      {
+        "id": "object/30000000-0000-4000-8300-000000000017/15",
+        "handle": "65",
+        "owner": "*Model_Space",
+        "type": "DIMENSION",
+        "layer": "L_30000000000040008300000000000010",
+        "geometry": "first=2500,-3000,0;second=10500,-3000,0;definition=10500,-2350,0;measurement=8000;text=8000.0 mm"
+      }
+    ],
+    "layers": [
+      {
+        "id": "30000000-0000-4000-8300-000000000004",
+        "cadName": "L_30000000000040008300000000000004",
+        "sourceName": "\uACF5\uC0AC \uBC94\uC704",
+        "handle": "48",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "30000000-0000-4000-8300-000000000007",
+        "cadName": "L_30000000000040008300000000000007",
+        "sourceName": "\uAE30\uC874",
+        "handle": "49",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "30000000-0000-4000-8300-000000000008",
+        "cadName": "L_30000000000040008300000000000008",
+        "sourceName": "\uCCA0\uAC70",
+        "handle": "4A",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "30000000-0000-4000-8300-000000000009",
+        "cadName": "L_30000000000040008300000000000009",
+        "sourceName": "\uC2E0\uC124",
+        "handle": "4B",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "30000000-0000-4000-8300-000000000010",
+        "cadName": "L_30000000000040008300000000000010",
+        "sourceName": "\uCE58\uC218",
+        "handle": "4C",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "blocks": [
+      {
+        "id": "30000000-0000-4000-8300-000000000019",
+        "cadName": "B_30000000000040008300000000000019",
+        "sourceName": "Single door 900 mm",
+        "handle": "4E",
+        "entityHandles": [
+          "51",
+          "52",
+          "53",
+          "54"
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "name": "NATIVE_A3",
+        "paperWidth": 420,
+        "paperHeight": 297,
+        "paperUnits": "Millimeters",
+        "viewports": [
+          {
+            "handle": "47",
+            "id": 1,
+            "representsPaper": true,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 0,
+              "y": 0
+            },
+            "viewHeight": 0,
+            "scaleFactor": null
+          },
+          {
+            "handle": "74",
+            "id": 2,
+            "representsPaper": false,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 10500,
+              "y": -7425
+            },
+            "viewHeight": 14850,
+            "scaleFactor": 0.02
+          }
+        ]
+      }
+    ],
+    "quantizations": [
+      {
+        "entityId": "block/30000000-0000-4000-8300-000000000019/jamb-left/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/30000000-0000-4000-8300-000000000019/jamb-right/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/30000000-0000-4000-8300-000000000019/leaf/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/30000000-0000-4000-8300-000000000019/swing/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000016/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000016/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000016/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000016/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000031/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000013/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000013/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000013/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000014/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000014/6",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000014/7",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000015/8",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000015/8",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000015/9",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000015/10",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000015/10",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000015/11",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000018/12",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000018/13",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.12,
+        "stored": 0.13,
+        "nativeValue": "W13"
+      },
+      {
+        "entityId": "object/30000000-0000-4000-8300-000000000017/15",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      }
+    ],
+    "dimensionChildHandles": {
+      "object/30000000-0000-4000-8300-000000000017/15": [
+        "69",
+        "6B",
+        "6C",
+        "6D",
+        "6E",
+        "6F",
+        "70",
+        "71",
+        "72",
+        "73"
+      ]
+    },
+    "actualInventory": {
+      "version": "AC1024",
+      "units": "Millimeters",
+      "modelEntityCount": 16,
+      "allBlockEntityCount": 32,
+      "layerCount": 7,
+      "blockRecordCount": 4,
+      "layoutCount": 2,
+      "textStyles": [
+        {
+          "handle": "2D",
+          "name": "Standard",
+          "fontFile": ""
+        },
+        {
+          "handle": "4D",
+          "name": "NATIVE_NOTO_SANS_KR",
+          "fontFile": "NotoSansKR-Regular.ttf"
+        }
+      ]
+    }
+  },
+  "diagnostics": {
+    "writer": [],
+    "reader": [
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle"
+    ]
+  },
+  "failures": [],
+  "warnings": [
+    "Canonical source validation and authority remain producer-required.",
+    "NotoSansKR-Regular.ttf is named but is not read, embedded, redistributed, or visually qualified.",
+    "MTEXT automatic font-dependent wrapping and recipient rendering are not qualified.",
+    "Independent CAD open/save/print verification was not performed.",
+    "This output does not qualify production DWG delivery or existing-DWG preservation."
+  ]
+}

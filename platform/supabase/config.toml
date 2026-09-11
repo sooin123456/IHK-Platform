@@ -1,2 +1,5 @@
 [functions.lukas-qto-upload-verify]
+enabled = true
 verify_jwt = true
+import_map = "./functions/lukas-qto-upload-verify/deno.json"
+entrypoint = "./functions/lukas-qto-upload-verify/index.ts"

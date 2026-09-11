@@ -6,12 +6,41 @@ process.env.AUTH_LINK_STATE_SECRET =
 process.env.SUPABASE_ANON_KEY = "test-anon-key";
 process.env.SUPABASE_URL = "https://example.supabase.co";
 
+const authLink = await import("../app/features/auth/lib/auth-link.server.ts");
+
 const {
   exchangeCrossBrowserCode,
   resolveAuthOrigin,
   safeAuthNextPath,
   sendCrossBrowserMagicLink,
-} = await import("../app/features/auth/lib/auth-link.server.ts");
+} = authLink;
+
+test("unauthenticated deep links return to their exact internal path and query", () => {
+  assert.equal(
+    authLink.authLoginPath(
+      "https://lukas.example/projects/project-42/workspaces/workspace-7?tab=measurements&source=alert",
+    ),
+    "/login?next=%2Fprojects%2Fproject-42%2Fworkspaces%2Fworkspace-7%3Ftab%3Dmeasurements%26source%3Dalert",
+  );
+});
+
+test("notification authentication preserves its internal return through magic link", () => {
+  assert.equal(
+    authLink.authMagicLinkPath(
+      "https://lukas.example/notifications?unread=true",
+    ),
+    "/auth/magic-link?next=%2Fnotifications%3Funread%3Dtrue",
+  );
+});
+
+test("authentication next paths reject external and protocol-relative redirects", () => {
+  for (const unsafe of [
+    "https://evil.example/accept",
+    "//evil.example/accept",
+    "/\\evil.example/accept",
+  ])
+    assert.equal(safeAuthNextPath(unsafe), null);
+});
 
 test("authentication accepts exact internal invitation returns and rejects external redirects", () => {
   const invitation =
@@ -51,6 +80,11 @@ test("production magic links use the configured canonical HTTPS origin", () => {
         "http://lukas-qto-platform.vercel.app",
       ),
     /HTTPS/,
+  );
+  assert.throws(
+    () =>
+      resolveAuthOrigin("https://preview-123.vercel.app/auth/magic-link", ""),
+    /APP_URL is required outside local development/,
   );
 });
 

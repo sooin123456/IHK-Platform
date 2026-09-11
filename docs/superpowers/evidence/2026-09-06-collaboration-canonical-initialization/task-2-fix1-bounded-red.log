@@ -1,0 +1,52 @@
+[onLoadDocument] Drawing collaboration reconciliation is not durable; retry admission.
+[onLoadDocument] Drawing collaboration canonical initialization is unavailable.
+✖ real WebSocket reports drawing-reconciling and explicit token retry adopts the same durable winner (19.975542ms)
+✖ failed Hocuspocus initial admission destroys its unregistered payload (1.53775ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 162.02775
+
+✖ failing tests:
+
+test at tests/drawing-collaboration-initialization.test.mjs:722:1
+✖ real WebSocket reports drawing-reconciling and explicit token retry adopts the same durable winner (19.975542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'permission-denied'
+  - 'drawing-reconciling'
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:768:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'permission-denied',
+    expected: 'drawing-reconciling',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/drawing-collaboration-initialization.test.mjs:801:1
+✖ failed Hocuspocus initial admission destroys its unregistered payload (1.53775ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-collaboration-initialization.test.mjs:817:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

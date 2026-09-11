@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2784mm" height="1384mm" viewBox="0 0 2784 1384">
+<rect x="0" y="0" width="2784" height="1384" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/top" transform="matrix(1 0 0 1 192 192)">
+<rect x="0" y="125" width="2400" height="750" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/chair-top-1" transform="matrix(1 0 0 1 192 192)">
+<circle cx="480" cy="125" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/chair-bottom-1" transform="matrix(1 0 0 1 192 192)">
+<circle cx="480" cy="875" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/chair-top-2" transform="matrix(1 0 0 1 192 192)">
+<circle cx="1200" cy="125" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/chair-bottom-2" transform="matrix(1 0 0 1 192 192)">
+<circle cx="1200" cy="875" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/chair-top-3" transform="matrix(1 0 0 1 192 192)">
+<circle cx="1920" cy="125" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/chair-bottom-3" transform="matrix(1 0 0 1 192 192)">
+<circle cx="1920" cy="875" r="125" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+</svg>

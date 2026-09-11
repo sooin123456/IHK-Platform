@@ -78,25 +78,80 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const POSTGRES_TIMESTAMP =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+const POSTGRES_TIMESTAMP_PARTS =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|([+-])(\d{2}):(\d{2}))$/;
 const MATERIAL_TRANSACTION_LIMIT = 10_000;
+const MATERIAL_PLAN_LINEAGE_LIMIT = 2_000;
 const MATERIAL_TRANSACTION_PAGE_SIZE = 200;
+const MATERIAL_PLAN_PAGE_SIZE = 200;
+const CARBON_FACTOR_QUERY_CHUNK_SIZE = 100;
+const POSTGREST_IN_FILTER_CHUNK_SIZE = 100;
 
-export async function collectBoundedRows<Row>(
+export async function collectBoundedRows<Row extends { id: string }>(
   loadPage: (
-    from: number,
-    to: number,
+    afterId: string | null,
+    limit: number,
   ) => Promise<{ data: Row[] | null; error: unknown }>,
   maximum: number,
 ) {
   const rows: Row[] = [];
+  let afterId: string | null = null;
   while (true) {
-    const page = await loadPage(rows.length, rows.length + 199);
+    const page = await loadPage(afterId, MATERIAL_TRANSACTION_PAGE_SIZE);
     if (page.error) throw new Error("bounded row read failed");
     const batch = page.data ?? [];
     if (!batch.length) return rows;
+    let previousId = afterId;
+    for (const row of batch) {
+      if (
+        typeof row.id !== "string" ||
+        (previousId !== null && row.id <= previousId)
+      )
+        throw new Error("bounded row identity order failed");
+      previousId = row.id;
+    }
     rows.push(...batch);
     if (rows.length > maximum) throw new Error("bounded row limit exceeded");
+    afterId = batch.at(-1)!.id;
   }
+}
+
+export async function collectBoundedRowsByFilterChunks<
+  Row extends { id: string },
+>(
+  filterValues: readonly string[],
+  loadPage: (
+    chunk: readonly string[],
+    afterId: string | null,
+    limit: number,
+  ) => Promise<{ data: Row[] | null; error: unknown }>,
+  maximum: number,
+) {
+  if (new Set(filterValues).size !== filterValues.length)
+    throw new Error("bounded filter input contains duplicates");
+  const rows: Row[] = [];
+  const seen = new Set<string>();
+  for (
+    let offset = 0;
+    offset < filterValues.length;
+    offset += POSTGREST_IN_FILTER_CHUNK_SIZE
+  ) {
+    const chunk = filterValues.slice(
+      offset,
+      offset + POSTGREST_IN_FILTER_CHUNK_SIZE,
+    );
+    const chunkRows = await collectBoundedRows(
+      (afterId, limit) => loadPage(chunk, afterId, limit),
+      maximum - rows.length,
+    );
+    for (const row of chunkRows) {
+      if (seen.has(row.id))
+        throw new Error("bounded filter query returned duplicate rows");
+      seen.add(row.id);
+    }
+    rows.push(...chunkRows);
+  }
+  return rows.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function lineageCursor(cursor: string | null) {
@@ -114,6 +169,70 @@ function lineageCursor(cursor: string | null) {
     return { createdAt: value.createdAt as string, id: value.id as string };
   } catch {
     throw new Error("자재 계보 커서가 올바르지 않습니다.");
+  }
+}
+
+function lineageTimestampMicroseconds(timestamp: string) {
+  const match = POSTGRES_TIMESTAMP_PARTS.exec(timestamp);
+  if (!match) throw new Error("invalid lineage timestamp");
+  const [
+    ,
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    fraction = "",
+    zone,
+    sign,
+    zoneHour,
+    zoneMinute,
+  ] = match;
+  const utcMilliseconds = Date.parse(
+    `${year}-${month}-${day}T${hour}:${minute}:${second}Z`,
+  );
+  const offsetMilliseconds =
+    zone === "Z"
+      ? 0
+      : (sign === "+" ? 1 : -1) *
+        (Number(zoneHour) * 60 + Number(zoneMinute)) *
+        60_000;
+  return (
+    BigInt(utcMilliseconds - offsetMilliseconds) * 1_000n +
+    BigInt(fraction.padEnd(6, "0"))
+  );
+}
+
+function compareLineageRows(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+) {
+  const leftCreatedAt = lineageTimestampMicroseconds(String(left.created_at));
+  const rightCreatedAt = lineageTimestampMicroseconds(String(right.created_at));
+  if (leftCreatedAt !== rightCreatedAt)
+    return leftCreatedAt > rightCreatedAt ? -1 : 1;
+  return String(right.id).localeCompare(String(left.id));
+}
+
+function materialPlanCursor(cursor: string | null, projectId: string) {
+  if (cursor === null) return null;
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (
+      !value ||
+      value.projectId !== projectId ||
+      typeof value.createdAt !== "string" ||
+      !POSTGRES_TIMESTAMP.test(value.createdAt) ||
+      !Number.isFinite(Date.parse(value.createdAt)) ||
+      !UUID.test(value.id)
+    )
+      throw new Error("invalid cursor");
+    return { createdAt: value.createdAt as string, id: value.id as string };
+  } catch {
+    throw new Response("자재계획 페이지 주소가 올바르지 않습니다.", {
+      status: 400,
+    });
   }
 }
 
@@ -174,11 +293,262 @@ export function carbonFactorRow(row: Record<string, unknown>): CarbonFactor {
   };
 }
 
+type MaterialControlRawRow = Record<string, unknown> & { id: string };
+
+export type MaterialControlPlanPage = {
+  planRows: MaterialControlRawRow[];
+  transactionRows: MaterialControlRawRow[];
+  factorRows: MaterialControlRawRow[];
+  summaries: MaterialControlSummary[];
+  nextCursor: string | null;
+};
+
+export function assertCompleteMaterialControlExport(input: {
+  cursor: string | null;
+  nextCursor: string | null;
+  materialPlanId?: string;
+}) {
+  if (input.cursor || input.nextCursor || input.materialPlanId)
+    throw new Response(
+      "자재 CSV는 전체 원장만 내보낼 수 있습니다. 현재 화면이 일부 범위이거나 전체 내보내기 한도인 자재계획 200개를 초과해 CSV를 만들지 않았습니다.",
+      { status: 409 },
+    );
+}
+
+/**
+ * Loads one URL-addressable plan page and the complete transaction/factor
+ * dependency closure needed to calculate that page. Project filters are
+ * repeated on every query so a malformed cursor or foreign identity fails
+ * closed even when an upstream caller supplies an elevated client.
+ */
+export async function listMaterialControlPlanPage(
+  userClient: SupabaseClient,
+  input: {
+    projectId: string;
+    materialPlanId?: string;
+    cursor: string | null;
+    limit?: number;
+    asOfDate?: string;
+  },
+): Promise<MaterialControlPlanPage> {
+  if (
+    !UUID.test(input.projectId) ||
+    (input.materialPlanId !== undefined && !UUID.test(input.materialPlanId))
+  )
+    throw new Response("자재계획 범위가 올바르지 않습니다.", { status: 400 });
+  if (input.materialPlanId && input.cursor)
+    throw new Response(
+      "선택 자재계획과 페이지 주소를 함께 사용할 수 없습니다.",
+      {
+        status: 400,
+      },
+    );
+
+  const limit = Math.min(
+    MATERIAL_PLAN_PAGE_SIZE,
+    Math.max(1, input.limit ?? MATERIAL_PLAN_PAGE_SIZE),
+  );
+  const cursor = materialPlanCursor(input.cursor, input.projectId);
+  let planRows: MaterialControlRawRow[] = [];
+
+  if (input.materialPlanId) {
+    const { data, error } = await userClient
+      .from("lukas_qto_material_plans")
+      .select("*")
+      .eq("project_id", input.projectId)
+      .eq("id", input.materialPlanId)
+      .limit(1);
+    if (error)
+      throw new Response("선택한 자재계획을 읽지 못했습니다.", {
+        status: 409,
+      });
+    planRows = (data ?? []) as unknown as MaterialControlRawRow[];
+    if (planRows.length !== 1)
+      throw new Response("선택한 자재계획을 찾을 수 없습니다.", {
+        status: 404,
+      });
+  } else {
+    let after = cursor;
+    while (planRows.length < limit + 1) {
+      let query = userClient
+        .from("lukas_qto_material_plans")
+        .select("*")
+        .eq("project_id", input.projectId)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false });
+      if (after)
+        query = query.or(
+          `created_at.lt.${after.createdAt},and(created_at.eq.${after.createdAt},id.lt.${after.id})`,
+        );
+      const remaining = limit + 1 - planRows.length;
+      const { data, error } = await query.limit(remaining);
+      if (error)
+        throw new Response("자재계획 페이지를 읽지 못했습니다.", {
+          status: 409,
+        });
+      const batch = (data ?? []) as unknown as MaterialControlRawRow[];
+      if (!batch.length) break;
+      planRows.push(...batch);
+      const last = batch.at(-1)!;
+      after = { createdAt: String(last.created_at), id: last.id };
+      if (batch.length >= remaining) break;
+    }
+  }
+
+  const scopeRows = planRows.slice(0, limit);
+  let previous = cursor;
+  for (const row of planRows) {
+    const createdAt = String(row.created_at);
+    if (
+      row.project_id !== input.projectId ||
+      !UUID.test(row.id) ||
+      !POSTGRES_TIMESTAMP.test(createdAt) ||
+      (previous !== null &&
+        !(
+          createdAt < previous.createdAt ||
+          (createdAt === previous.createdAt && row.id < previous.id)
+        ))
+    )
+      throw new Response("자재계획 페이지 범위가 일치하지 않습니다.", {
+        status: 409,
+      });
+    previous = { createdAt, id: row.id };
+  }
+
+  const planIds = scopeRows.map((row) => row.id);
+  let transactionRows: MaterialControlRawRow[] = [];
+  try {
+    transactionRows = planIds.length
+      ? await collectBoundedRowsByFilterChunks<MaterialControlRawRow>(
+          planIds,
+          async (chunk, afterId, pageLimit) => {
+            let query = userClient
+              .from("lukas_qto_material_transactions")
+              .select("*")
+              .eq("project_id", input.projectId)
+              .in("material_plan_id", [...chunk]);
+            if (afterId) query = query.gt("id", afterId);
+            const { data, error } = await query
+              .order("id", { ascending: true })
+              .limit(pageLimit);
+            return {
+              data: data as unknown as MaterialControlRawRow[] | null,
+              error,
+            };
+          },
+          MATERIAL_TRANSACTION_LIMIT,
+        )
+      : [];
+  } catch {
+    throw new Response(
+      "현재 자재계획 페이지의 거래를 읽지 못했거나 허용 범위를 초과했습니다.",
+      { status: 409 },
+    );
+  }
+  const planIdSet = new Set(planIds);
+  if (
+    transactionRows.some(
+      (row) =>
+        row.project_id !== input.projectId ||
+        !planIdSet.has(String(row.material_plan_id)),
+    )
+  )
+    throw new Response(
+      "자재 거래 범위가 자재계획 페이지와 일치하지 않습니다.",
+      {
+        status: 409,
+      },
+    );
+  transactionRows.sort(
+    (left, right) =>
+      String(left.occurred_on ?? left.created_at).localeCompare(
+        String(right.occurred_on ?? right.created_at),
+      ) || left.id.localeCompare(right.id),
+  );
+
+  const factorIds = [
+    ...new Set([
+      ...scopeRows.flatMap((row) =>
+        row.baseline_factor_id ? [String(row.baseline_factor_id)] : [],
+      ),
+      ...transactionRows.flatMap((row) =>
+        row.carbon_factor_id ? [String(row.carbon_factor_id)] : [],
+      ),
+    ]),
+  ];
+  let factorRows: MaterialControlRawRow[] = [];
+  try {
+    factorRows = factorIds.length
+      ? await collectBoundedRowsByFilterChunks<MaterialControlRawRow>(
+          factorIds,
+          async (chunk, afterId, pageLimit) => {
+            let query = userClient
+              .from("lukas_qto_carbon_factors")
+              .select("*")
+              .eq("project_id", input.projectId)
+              .in("id", [...chunk]);
+            if (afterId) query = query.gt("id", afterId);
+            const { data, error } = await query
+              .order("id", { ascending: true })
+              .limit(pageLimit);
+            return {
+              data: data as unknown as MaterialControlRawRow[] | null,
+              error,
+            };
+          },
+          factorIds.length,
+        )
+      : [];
+  } catch {
+    throw new Response("자재계획 페이지의 탄소 근거를 읽지 못했습니다.", {
+      status: 409,
+    });
+  }
+  const factorIdSet = new Set(factorIds);
+  if (
+    factorRows.length !== factorIds.length ||
+    factorRows.some(
+      (row) => row.project_id !== input.projectId || !factorIdSet.has(row.id),
+    )
+  )
+    throw new Response("자재계획 페이지의 탄소 근거가 완전하지 않습니다.", {
+      status: 409,
+    });
+
+  const summaries = buildMaterialControlSummaries(
+    scopeRows.map((row) => materialPlanRow(row)),
+    transactionRows.map((row) => materialTransactionRow(row)),
+    factorRows.map((row) => carbonFactorRow(row)),
+    input.asOfDate ?? new Date().toISOString().slice(0, 10),
+  );
+  const last = scopeRows.at(-1);
+  return {
+    planRows: scopeRows,
+    transactionRows,
+    factorRows,
+    summaries,
+    nextCursor:
+      !input.materialPlanId && planRows.length > limit && last
+        ? Buffer.from(
+            JSON.stringify({
+              projectId: input.projectId,
+              createdAt: last.created_at,
+              id: last.id,
+            }),
+            "utf8",
+          ).toString("base64url")
+        : null,
+  };
+}
+
 export async function listMaterialBoqLineage(
   userClient: SupabaseClient,
   input: {
     projectId: string;
     materialPlanId?: string;
+    transactionId?: string;
+    carbonFactorId?: string;
+    boqVersionId?: string;
     boqLineId?: string;
     cursor: string | null;
     limit?: number;
@@ -188,59 +558,274 @@ export async function listMaterialBoqLineage(
   if (
     !UUID.test(input.projectId) ||
     (input.materialPlanId !== undefined && !UUID.test(input.materialPlanId)) ||
-    (input.boqLineId !== undefined && !UUID.test(input.boqLineId))
+    (input.transactionId !== undefined && !UUID.test(input.transactionId)) ||
+    (input.carbonFactorId !== undefined && !UUID.test(input.carbonFactorId)) ||
+    (input.boqVersionId !== undefined && !UUID.test(input.boqVersionId)) ||
+    (input.boqLineId !== undefined && !UUID.test(input.boqLineId)) ||
+    (input.boqLineId && !input.boqVersionId)
   )
     throw new Error("자재 계보 범위가 올바르지 않습니다.");
   const limit = Math.min(200, Math.max(1, input.limit ?? 200));
   const cursor = lineageCursor(input.cursor);
-  let query = userClient
-    .from("lukas_drawing_material_links")
-    .select(
-      "id,project_id,boq_version_id,boq_line_id,boq_rate_component_id,material_resource_id,boq_result_sha256,material_plan_id,derived_design_quantity,created_at,boq_line:lukas_qto_boq_lines!inner(item_code),material_plan:lukas_qto_material_plans!inner(id,material_code,material_name,specification,unit,design_quantity,allowance_rate,required_quantity,rule_id,baseline_factor_id,source_file_id,source_sha256)",
+  let materialPlanId = input.materialPlanId;
+  if (input.transactionId) {
+    const { data, error } = await userClient
+      .from("lukas_qto_material_transactions")
+      .select("id,project_id,material_plan_id")
+      .eq("project_id", input.projectId)
+      .eq("id", input.transactionId)
+      .limit(2);
+    const transaction = data?.[0];
+    const transactionMaterialPlanId = transaction?.material_plan_id;
+    if (
+      error ||
+      data?.length !== 1 ||
+      transaction?.id !== input.transactionId ||
+      transaction?.project_id !== input.projectId ||
+      typeof transactionMaterialPlanId !== "string" ||
+      !UUID.test(transactionMaterialPlanId)
     )
-    .eq("project_id", input.projectId)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false });
-  if (input.materialPlanId)
-    query = query.eq("material_plan_id", input.materialPlanId);
-  if (input.boqLineId) query = query.eq("boq_line_id", input.boqLineId);
-  if (cursor)
-    query = query.or(
-      `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
-    );
-  const { data, error } = await query.limit(limit + 1);
-  if (error) throw new Error("자재 계보를 읽지 못했습니다.");
+      throw new Response("자재 거래 계보를 찾지 못했습니다.", {
+        status: 404,
+      });
+    if (materialPlanId && materialPlanId !== transactionMaterialPlanId)
+      throw new Response("자재 계보 범위가 서로 일치하지 않습니다.", {
+        status: 400,
+      });
+    materialPlanId = transactionMaterialPlanId;
+  }
+  let carbonPlanIds: string[] | null = null;
+  if (input.carbonFactorId) {
+    const { data, error } = await userClient
+      .from("lukas_qto_carbon_factors")
+      .select("id,project_id")
+      .eq("project_id", input.projectId)
+      .eq("id", input.carbonFactorId)
+      .limit(2);
+    const factor = data?.[0];
+    if (
+      error ||
+      data?.length !== 1 ||
+      factor?.id !== input.carbonFactorId ||
+      factor?.project_id !== input.projectId
+    )
+      throw new Response("탄소계수 계보를 찾지 못했습니다.", { status: 404 });
+    let baselinePlans: (Record<string, unknown> & { id: string })[] = [];
+    let factorTransactions: (Record<string, unknown> & { id: string })[] = [];
+    try {
+      baselinePlans = await collectBoundedRows(async (afterId, pageLimit) => {
+        let query = userClient
+          .from("lukas_qto_material_plans")
+          .select("id,project_id,baseline_factor_id")
+          .eq("project_id", input.projectId)
+          .eq("baseline_factor_id", input.carbonFactorId);
+        if (afterId) query = query.gt("id", afterId);
+        const { data, error } = await query
+          .order("id", { ascending: true })
+          .limit(pageLimit);
+        return {
+          data: data as unknown as
+            | (Record<string, unknown> & { id: string })[]
+            | null,
+          error,
+        };
+      }, MATERIAL_PLAN_LINEAGE_LIMIT);
+      factorTransactions = await collectBoundedRows(
+        async (afterId, pageLimit) => {
+          let query = userClient
+            .from("lukas_qto_material_transactions")
+            .select("id,project_id,material_plan_id,carbon_factor_id")
+            .eq("project_id", input.projectId)
+            .eq("carbon_factor_id", input.carbonFactorId);
+          if (afterId) query = query.gt("id", afterId);
+          const { data, error } = await query
+            .order("id", { ascending: true })
+            .limit(pageLimit);
+          return {
+            data: data as unknown as
+              | (Record<string, unknown> & { id: string })[]
+              | null,
+            error,
+          };
+        },
+        MATERIAL_TRANSACTION_LIMIT,
+      );
+    } catch {
+      throw new Response("탄소계수 계보 범위를 읽지 못했습니다.", {
+        status: 409,
+      });
+    }
+    if (
+      baselinePlans.some(
+        (plan) =>
+          plan.project_id !== input.projectId ||
+          plan.baseline_factor_id !== input.carbonFactorId ||
+          !UUID.test(plan.id),
+      ) ||
+      factorTransactions.some(
+        (transaction) =>
+          transaction.project_id !== input.projectId ||
+          transaction.carbon_factor_id !== input.carbonFactorId ||
+          typeof transaction.material_plan_id !== "string" ||
+          !UUID.test(transaction.material_plan_id),
+      )
+    )
+      throw new Response("탄소계수 계보 범위가 일치하지 않습니다.", {
+        status: 409,
+      });
+    carbonPlanIds = [
+      ...new Set([
+        ...baselinePlans.map((plan) => plan.id),
+        ...factorTransactions.map((transaction) =>
+          String(transaction.material_plan_id),
+        ),
+      ]),
+    ];
+    if (carbonPlanIds.length > MATERIAL_PLAN_LINEAGE_LIMIT)
+      throw new Response(
+        "탄소계수 계보의 자재계획이 허용 범위를 초과했습니다.",
+        {
+          status: 409,
+        },
+      );
+    if (materialPlanId && !carbonPlanIds.includes(materialPlanId))
+      throw new Response("자재 계보 범위가 서로 일치하지 않습니다.", {
+        status: 400,
+      });
+    if (!carbonPlanIds.length) return { rows: [], nextCursor: null };
+  }
+  const select =
+    "id,project_id,boq_version_id,boq_line_id,boq_rate_component_id,material_resource_id,boq_result_sha256,material_plan_id,derived_design_quantity,created_at,boq_line:lukas_qto_boq_lines!inner(item_code),material_plan:lukas_qto_material_plans!inner(id,material_code,material_name,specification,unit,design_quantity,allowance_rate,required_quantity,rule_id,baseline_factor_id,source_file_id,source_sha256)";
+  const applyLinkScope = (query: any) => {
+    if (materialPlanId) query = query.eq("material_plan_id", materialPlanId);
+    if (input.boqVersionId)
+      query = query.eq("boq_version_id", input.boqVersionId);
+    if (input.boqLineId) query = query.eq("boq_line_id", input.boqLineId);
+    if (cursor)
+      query = query.or(
+        `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
+      );
+    return query;
+  };
+  let data: unknown[] | null = null;
+  if (carbonPlanIds) {
+    const links: Record<string, unknown>[] = [];
+    for (
+      let offset = 0;
+      offset < carbonPlanIds.length;
+      offset += POSTGREST_IN_FILTER_CHUNK_SIZE
+    ) {
+      const chunk = carbonPlanIds.slice(
+        offset,
+        offset + POSTGREST_IN_FILTER_CHUNK_SIZE,
+      );
+      const { data: chunkData, error } = await applyLinkScope(
+        userClient
+          .from("lukas_drawing_material_links")
+          .select(select)
+          .eq("project_id", input.projectId)
+          .in("material_plan_id", chunk)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false }),
+      ).limit(limit + 1);
+      if (error) throw new Error("자재 계보를 읽지 못했습니다.");
+      links.push(
+        ...((chunkData ?? []) as unknown as Record<string, unknown>[]),
+      );
+    }
+    const planIdSet = new Set(carbonPlanIds);
+    if (
+      links.some(
+        (row) =>
+          row.project_id !== input.projectId ||
+          !planIdSet.has(String(row.material_plan_id)) ||
+          !UUID.test(String(row.id)) ||
+          !POSTGRES_TIMESTAMP.test(String(row.created_at)),
+      )
+    )
+      throw new Response("탄소계수 계보의 자재 연결이 일치하지 않습니다.", {
+        status: 409,
+      });
+    const uniqueLinks = [
+      ...new Map(links.map((row) => [String(row.id), row])).values(),
+    ];
+    uniqueLinks.sort(compareLineageRows);
+    data = uniqueLinks.slice(0, limit + 1);
+  } else {
+    const result = await applyLinkScope(
+      userClient
+        .from("lukas_drawing_material_links")
+        .select(select)
+        .eq("project_id", input.projectId)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false }),
+    ).limit(limit + 1);
+    if (result.error) throw new Error("자재 계보를 읽지 못했습니다.");
+    data = result.data as unknown[] | null;
+  }
   const page = (data ?? []).slice(0, limit) as unknown as Array<
     Record<string, unknown>
   >;
   const planIds = [...new Set(page.map((row) => String(row.material_plan_id)))];
-  const transactionData: Record<string, unknown>[] = [];
-  if (planIds.length) {
-    let offset = 0;
-    while (true) {
-      const { data: batch, error: transactionError } = await userClient
-        .from("lukas_qto_material_transactions")
-        .select(
-          "id,material_plan_id,transaction_type,document_number,supplier_name,quantity,unit_price_krw,amount_krw,related_order_id,carbon_factor_id,evidence_sha256",
+  let transactionData: (Record<string, unknown> & { id: string })[] = [];
+  try {
+    transactionData = planIds.length
+      ? await collectBoundedRowsByFilterChunks<
+          Record<string, unknown> & { id: string }
+        >(
+          planIds,
+          async (chunk, afterId, pageLimit) => {
+            let transactionQuery = userClient
+              .from("lukas_qto_material_transactions")
+              .select(
+                "id,project_id,material_plan_id,transaction_type,document_number,supplier_name,quantity,unit_price_krw,amount_krw,related_order_id,carbon_factor_id,evidence_sha256,created_at",
+              )
+              .eq("project_id", input.projectId)
+              .in("material_plan_id", [...chunk]);
+            if (afterId) transactionQuery = transactionQuery.gt("id", afterId);
+            const { data: batch, error: transactionError } =
+              await transactionQuery
+                .order("id", { ascending: true })
+                .limit(pageLimit);
+            return {
+              data: batch as unknown as
+                | (Record<string, unknown> & { id: string })[]
+                | null,
+              error: transactionError,
+            };
+          },
+          MATERIAL_TRANSACTION_LIMIT,
         )
-        .eq("project_id", input.projectId)
-        .in("material_plan_id", planIds)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(offset, offset + MATERIAL_TRANSACTION_PAGE_SIZE - 1);
-      if (transactionError)
-        throw new Error("자재 거래 계보가 허용 범위를 초과했습니다.");
-      const rows = (batch ?? []) as unknown as Record<string, unknown>[];
-      if (!rows.length) break;
-      transactionData.push(...rows);
-      if (transactionData.length > MATERIAL_TRANSACTION_LIMIT)
-        throw new Error("자재 거래 계보가 허용 범위를 초과했습니다.");
-      offset += rows.length;
-    }
+      : [];
+  } catch {
+    throw new Error("자재 거래 계보가 허용 범위를 초과했습니다.");
   }
+  if (
+    carbonPlanIds &&
+    transactionData.some(
+      (transaction) =>
+        transaction.project_id !== input.projectId ||
+        !carbonPlanIds.includes(String(transaction.material_plan_id)),
+    )
+  )
+    throw new Response("탄소계수 계보의 자재 거래가 일치하지 않습니다.", {
+      status: 409,
+    });
+  transactionData.sort(
+    (left, right) =>
+      String(left.created_at).localeCompare(String(right.created_at)) ||
+      left.id.localeCompare(right.id),
+  );
   const transactions = transactionData.map((row) =>
     materialTransactionRow(row as unknown as Record<string, unknown>),
   );
+  if (
+    input.transactionId &&
+    !transactions.some((transaction) => transaction.id === input.transactionId)
+  )
+    throw new Response("자재 거래 계보를 찾지 못했습니다.", {
+      status: 404,
+    });
   const factorIds = [
     ...new Set([
       ...page.flatMap((row) => {
@@ -252,19 +837,37 @@ export async function listMaterialBoqLineage(
       ),
     ]),
   ];
-  const { data: factorData, error: factorError } = factorIds.length
-    ? await userClient
-        .from("lukas_qto_carbon_factors")
-        .select(
-          "id,material_code,product_name,declared_unit,gwp_a1_a3_per_unit,source_type,standard,manufacturer,epd_program_operator,epd_declaration_number,epd_verifier,pcr_reference,valid_until,source_sha256",
-        )
-        .eq("project_id", input.projectId)
-        .in("id", factorIds)
-        .limit(201)
-    : { data: [], error: null };
-  if (factorError || (factorData?.length ?? 0) !== factorIds.length)
-    throw new Error("자재 탄소 근거를 읽지 못했습니다.");
-  const factors = (factorData ?? []).map((row) =>
+  const factorData: Record<string, unknown>[] = [];
+  for (
+    let offset = 0;
+    offset < factorIds.length;
+    offset += CARBON_FACTOR_QUERY_CHUNK_SIZE
+  ) {
+    const chunk = factorIds.slice(
+      offset,
+      offset + CARBON_FACTOR_QUERY_CHUNK_SIZE,
+    );
+    const { data, error } = await userClient
+      .from("lukas_qto_carbon_factors")
+      .select(
+        "id,project_id,material_code,product_name,declared_unit,gwp_a1_a3_per_unit,source_type,standard,manufacturer,epd_program_operator,epd_declaration_number,epd_verifier,pcr_reference,valid_until,source_sha256",
+      )
+      .eq("project_id", input.projectId)
+      .in("id", chunk)
+      .limit(chunk.length + 1);
+    if (
+      error ||
+      (data?.length ?? 0) !== chunk.length ||
+      data?.some(
+        (row) =>
+          !chunk.includes(String(row.id)) ||
+          (input.carbonFactorId && row.project_id !== input.projectId),
+      )
+    )
+      throw new Error("자재 탄소 근거를 읽지 못했습니다.");
+    factorData.push(...(data as unknown as Array<Record<string, unknown>>));
+  }
+  const factors = factorData.map((row) =>
     carbonFactorRow(row as unknown as Record<string, unknown>),
   );
   const rows = page.map((row) => {
@@ -311,10 +914,12 @@ export async function listMaterialBoqLineage(
   );
   const last = page.at(-1);
   return {
-    rows: rows.map((row): MaterialBoqLineageRow => ({
-      ...row,
-      carbonCoverage: coverageByPlan.get(row.materialPlanId) ?? "missing",
-    })),
+    rows: rows.map(
+      (row): MaterialBoqLineageRow => ({
+        ...row,
+        carbonCoverage: coverageByPlan.get(row.materialPlanId) ?? "missing",
+      }),
+    ),
     nextCursor:
       (data?.length ?? 0) > limit && last
         ? Buffer.from(

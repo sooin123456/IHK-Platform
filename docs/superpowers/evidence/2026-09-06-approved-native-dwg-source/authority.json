@@ -1,0 +1,82 @@
+{
+  "projectId": "3bc600cc-5d94-44c2-bc6a-eab20fa2cd38",
+  "documentId": "f890c9ca-ec0e-4f16-91f9-45d1e89b364c",
+  "revisionId": "1b9d7e1a-d782-4e5f-81fc-6232447a4263",
+  "revisionSequence": 1,
+  "revisionVersion": 1,
+  "operationSequence": 0,
+  "canvasId": "31f40122-c118-4dc5-9617-965e64af08e2",
+  "snapshotSha256": "f7e36b840e64d27560a031b09954685844c0a5755369937bf1639ce322f41407",
+  "schemaVersion": 2,
+  "approvalDecision": "approved",
+  "revisionStatus": "approved",
+  "lineage": {
+    "layers": [
+      {
+        "id": "1984c2f2-aae4-4ed6-9f79-22d110b1dd01",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3"
+      },
+      {
+        "id": "67bda529-cc47-4625-9e7a-66361fa2692e",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3"
+      }
+    ],
+    "objects": [
+      {
+        "id": "1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88",
+        "lineageId": "1b5a480b-2e76-41e9-a0f2-dbd7b11e5e88",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "wall"
+      },
+      {
+        "id": "3d4bda54-d737-4d77-97dc-9df2bdcdc69d",
+        "lineageId": "3d4bda54-d737-4d77-97dc-9df2bdcdc69d",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "wall"
+      },
+      {
+        "id": "6dea2dff-2cac-4a59-aa69-2fd8c45cf399",
+        "lineageId": "6dea2dff-2cac-4a59-aa69-2fd8c45cf399",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "dimension"
+      },
+      {
+        "id": "7828eac3-c54e-41a1-b211-43fbd193b164",
+        "lineageId": "7828eac3-c54e-41a1-b211-43fbd193b164",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "space"
+      },
+      {
+        "id": "7ae5398a-426b-43b4-9cf7-3b24df876825",
+        "lineageId": "7ae5398a-426b-43b4-9cf7-3b24df876825",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "dimension"
+      },
+      {
+        "id": "96c76818-99e0-41a0-bbb0-ded08549694f",
+        "lineageId": "96c76818-99e0-41a0-bbb0-ded08549694f",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "text"
+      },
+      {
+        "id": "dae8472d-f825-4664-9947-29b76dc18412",
+        "lineageId": "dae8472d-f825-4664-9947-29b76dc18412",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "wall"
+      },
+      {
+        "id": "db7684f5-30f7-4f93-8c2c-a48ad2dd76ff",
+        "lineageId": "db7684f5-30f7-4f93-8c2c-a48ad2dd76ff",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "opening"
+      },
+      {
+        "id": "eb7613cd-e48d-453d-a5a3-875e3e9cfe9d",
+        "lineageId": "eb7613cd-e48d-453d-a5a3-875e3e9cfe9d",
+        "pageId": "e4f07394-6403-435a-9531-323cd40b6fc3",
+        "type": "wall"
+      }
+    ],
+    "issues": []
+  }
+}

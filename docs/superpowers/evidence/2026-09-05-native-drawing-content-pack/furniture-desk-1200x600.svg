@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1392mm" height="792mm" viewBox="0 0 1392 792">
+<rect x="0" y="0" width="1392" height="792" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/top" transform="matrix(1 0 0 1 96 96)">
+<rect x="0" y="0" width="1200" height="600" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/modesty" transform="matrix(1 0 0 1 96 96)">
+<line x1="100" y1="500" x2="1100" y2="500" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+</svg>

@@ -211,22 +211,28 @@ test("P6 export and GLB validation dependencies remain inside the reviewed notic
     notice,
     /\| gltf-validator\s+\| 2\.0\.0-dev\.3\.10\s+\| https:\/\/github\.com\/KhronosGroup\/glTF-Validator\s+\| Apache-2\.0\s+\| No\s+\| npm\s+\| Server-side GLB conformance validation\s+\|/,
   );
+  assert.match(
+    notice,
+    /\| dxf-parser\s+\| 1\.1\.2\s+\| https:\/\/github\.com\/gdsestimating\/dxf-parser\s+\| MIT\s+\| No\s+\| npm\s+\| Server-only text DXF parsing\s+\|/,
+  );
   assert.equal(packageJson.dependencies.fflate, "^0.8.3");
   assert.equal(packageJson.dependencies["gltf-validator"], "2.0.0-dev.3.10");
+  assert.equal(packageJson.dependencies["dxf-parser"], "1.1.2");
   assert.equal(lock.packages["node_modules/fflate"].version, "0.8.3");
   assert.equal(
     lock.packages["node_modules/gltf-validator"].version,
     "2.0.0-dev.3.10",
   );
+  assert.equal(lock.packages["node_modules/dxf-parser"].version, "1.1.2");
   assert.equal(
     createHash("sha256")
       .update(JSON.stringify(packageJson.dependencies))
       .digest("hex"),
-    "bb535b20f27474a86b37977287e7f7cc785c6e8f51a1b98e9bdcf7a7a2d4ecf2",
+    "bf1c95dedfb1e84bf6804a350ab5d6f813ca02d88a7e16f23ba7a7be2605236d",
   );
   assert.equal(
     createHash("sha256").update(JSON.stringify(lock.packages)).digest("hex"),
-    "b2092418787baa9b3734992e197fa5e61f75bce5f640105138e5d30a1c2cd5dd",
+    "1274616f97afe98c4061f9c7e4c9a10342f7f9c4e6e930d7356edc6070bbebb3",
   );
 });
 
@@ -485,7 +491,11 @@ test("P6 release evidence is commit-bound and keeps missing production authoriti
     schemaVersion: 1,
     phase: "local",
     commit: "1".repeat(40),
-    migrationIds: ["20260827210000"],
+    migrationIds: [
+      "20260827210000",
+      "20260902080000",
+      "20260902080100",
+    ],
     generatedAt: "2026-08-28T00:00:00.000Z",
     authorities: {
       advisors: "UNEXECUTED",

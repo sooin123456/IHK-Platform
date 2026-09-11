@@ -71,6 +71,229 @@ test("viewport culling keeps two 16px frames of offscreen pan coverage", () => {
   );
 });
 
+test("saved region annotations project exact world bounds through the viewport", () => {
+  assert.deepEqual(
+    tools.drawingCanvasRegionAnnotationScreenBounds(
+      { x: -10, y: 15, width: 30, height: 20 },
+      { x: 100, y: -50, zoom: 2.5 },
+    ),
+    { left: 75, top: -12.5, width: 75, height: 50 },
+  );
+});
+
+test("region picker converts screen drag endpoints to exact normalized world bounds", () => {
+  const viewport = { x: 100, y: 200, zoom: 2 };
+  let result = tools.drawingCanvasRegionPickTransition(
+    { kind: "idle" },
+    {
+      type: "pointer_down",
+      button: 0,
+      pointerId: 7,
+      screenPoint: { x: 80, y: 160 },
+    },
+    viewport,
+  );
+  result = tools.drawingCanvasRegionPickTransition(
+    result.state,
+    {
+      type: "pointer_up",
+      pointerId: 7,
+      screenPoint: { x: 100, y: 180 },
+    },
+    viewport,
+  );
+
+  assert.deepEqual(result, {
+    state: { kind: "idle" },
+    region: { x: -10, y: -20, width: 10, height: 10 },
+  });
+});
+
+test("region picker preserves signed unsnapped coordinates and normalizes reverse drags", () => {
+  const viewport = { x: 7, y: 11, zoom: 2 };
+  let result = tools.drawingCanvasRegionPickTransition(
+    { kind: "idle" },
+    {
+      type: "pointer_down",
+      button: 0,
+      pointerId: 7,
+      screenPoint: { x: -3, y: -4 },
+    },
+    viewport,
+  );
+  result = tools.drawingCanvasRegionPickTransition(
+    result.state,
+    {
+      type: "pointer_up",
+      pointerId: 7,
+      screenPoint: { x: 5, y: 12 },
+    },
+    viewport,
+  );
+
+  assert.deepEqual(result.region, {
+    x: -5,
+    y: -7.5,
+    width: 4,
+    height: 8,
+  });
+
+  result = tools.drawingCanvasRegionPickTransition(
+    { kind: "idle" },
+    {
+      type: "pointer_down",
+      button: 0,
+      pointerId: 7,
+      screenPoint: { x: 120, y: 200 },
+    },
+    { x: 100, y: 200, zoom: 2 },
+  );
+  result = tools.drawingCanvasRegionPickTransition(
+    result.state,
+    {
+      type: "pointer_up",
+      pointerId: 7,
+      screenPoint: { x: 100, y: 180 },
+    },
+    { x: 100, y: 200, zoom: 2 },
+  );
+  assert.deepEqual(result.region, { x: 0, y: -10, width: 10, height: 10 });
+});
+
+test("region picker rejects undersized, wrong-pointer, cancelled, and non-finite drags", () => {
+  const viewport = { x: 0, y: 0, zoom: 1 };
+  let result = tools.drawingCanvasRegionPickTransition(
+    { kind: "idle" },
+    {
+      type: "pointer_down",
+      button: 0,
+      pointerId: 7,
+      screenPoint: { x: 10, y: 20 },
+    },
+    viewport,
+  );
+  const started = result.state;
+  assert.deepEqual(
+    tools.drawingCanvasRegionPickTransition(
+      started,
+      { type: "pointer_move", pointerId: 8, screenPoint: { x: 30, y: 40 } },
+      viewport,
+    ),
+    { state: started, region: null },
+  );
+  assert.deepEqual(
+    tools.drawingCanvasRegionPickTransition(
+      started,
+      { type: "pointer_up", pointerId: 8, screenPoint: { x: 30, y: 40 } },
+      viewport,
+    ),
+    { state: started, region: null },
+  );
+  result = tools.drawingCanvasRegionPickTransition(
+    started,
+    { type: "pointer_up", pointerId: 7, screenPoint: { x: 13, y: 24 } },
+    viewport,
+  );
+  assert.deepEqual(result, { state: { kind: "idle" }, region: null });
+
+  result = tools.drawingCanvasRegionPickTransition(
+    { kind: "idle" },
+    {
+      type: "pointer_down",
+      button: 0,
+      pointerId: 7,
+      screenPoint: { x: 10, y: 20 },
+    },
+    viewport,
+  );
+  assert.deepEqual(
+    tools.drawingCanvasRegionPickTransition(
+      result.state,
+      { type: "pointer_cancel", pointerId: 7 },
+      viewport,
+    ),
+    { state: { kind: "idle" }, region: null },
+  );
+  assert.deepEqual(
+    tools.drawingCanvasRegionPickTransition(
+      { kind: "idle" },
+      {
+        type: "pointer_down",
+        button: 0,
+        pointerId: 7,
+        screenPoint: { x: Number.NaN, y: 20 },
+      },
+      viewport,
+    ),
+    { state: { kind: "idle" }, region: null },
+  );
+});
+
+test("region picker accepts exactly 4 by 4 pixels but rejects either smaller axis", () => {
+  const complete = (point) => {
+    const started = tools.drawingCanvasRegionPickTransition(
+      { kind: "idle" },
+      {
+        type: "pointer_down",
+        button: 0,
+        pointerId: 7,
+        screenPoint: { x: 10, y: 20 },
+      },
+      { x: 0, y: 0, zoom: 1 },
+    );
+    return tools.drawingCanvasRegionPickTransition(
+      started.state,
+      { type: "pointer_up", pointerId: 7, screenPoint: point },
+      { x: 0, y: 0, zoom: 1 },
+    ).region;
+  };
+  assert.deepEqual(complete({ x: 14, y: 24 }), {
+    x: 10,
+    y: 20,
+    width: 4,
+    height: 4,
+  });
+  assert.equal(complete({ x: 14, y: 23 }), null);
+  assert.equal(complete({ x: 13, y: 24 }), null);
+});
+
+test("armed region picker consumes non-owner input and cancels only a second touch", () => {
+  const route = (event) =>
+    tools.drawingCanvasRegionPickerPointerDisposition({
+      armed: true,
+      activePointerId: 7,
+      event,
+    });
+  for (const type of [
+    "pointer_down",
+    "pointer_move",
+    "pointer_up",
+    "pointer_cancel",
+  ])
+    assert.equal(
+      route({ type, pointerId: 8, pointerType: "mouse" }),
+      "consume",
+    );
+  assert.equal(
+    route({ type: "pointer_down", pointerId: 8, pointerType: "touch" }),
+    "cancel",
+  );
+  assert.equal(
+    tools.drawingCanvasRegionPickerPointerDisposition({
+      armed: true,
+      activePointerId: null,
+      event: {
+        type: "pointer_down",
+        pointerId: 8,
+        pointerType: "mouse",
+        button: 2,
+        isPrimary: true,
+      },
+    }),
+    "consume",
+  );
+});
+
 function options(overrides = {}) {
   return {
     actorId: "actor-a",

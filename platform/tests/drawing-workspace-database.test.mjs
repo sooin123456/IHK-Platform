@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { test } from "node:test";
 
 const read = (relativePath) =>
@@ -24,6 +24,26 @@ const p2HistoryReconciliationMigration = () =>
   read("supabase/migrations/20260825050000_drawing_workspace_p2_history_reconciliation.sql");
 const p4SemanticMigration = () =>
   read("supabase/migrations/20260826123529_drawing_workspace_p4_semantic_objects.sql");
+const revisionDecisionEntrypointMigration = () =>
+  read(
+    "supabase/migrations/20260902000000_drawing_revision_decision_entrypoint.sql",
+  );
+const requiredPropertyBlankGuardMigration = () =>
+  read(
+    "supabase/migrations/20260901204406_drawing_required_property_blank_guard.sql",
+  );
+const m1ExplicitDataApiGrantsMigration = () =>
+  read(
+    "supabase/migrations/20260901102617_m1_explicit_data_api_grants.sql",
+  );
+const operationDiscardAuthorityMigration = async () => {
+  const directory = new URL("../supabase/migrations/", import.meta.url);
+  const names = (await readdir(directory)).filter((name) =>
+    name.endsWith("_drawing_operation_discard_authority.sql"),
+  );
+  assert.equal(names.length, 1);
+  return readFile(new URL(names[0], directory), "utf8");
+};
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const functionDefinition = (sql, name) => {
   const start = sql.indexOf(`create or replace function private.${name}`);
@@ -60,6 +80,106 @@ test("P4 remains a forward-only semantic upgrade on the frozen workspace authori
   assert.match(sql, /generated always as/i);
   assert.match(sql, /lukas_drawing_p4_assert_semantic_graph/i);
   assert.doesNotMatch(sql, /alter table public\.lukas_qto_files/i);
+});
+
+test("required property review guard rejects blank text without rewriting revision data", async () => {
+  const sql = await requiredPropertyBlankGuardMigration();
+  assert.match(
+    sql,
+    /alter function private\.lukas_drawing_request_review\(uuid\)[\s\S]*rename to lukas_drawing_request_review_pre_required_blank/i,
+  );
+  assert.match(
+    sql,
+    /drawing_workspace_capability\(r\.project_id\)[\s\S]*in \('admin', 'editor'\)[\s\S]*for update/i,
+  );
+  assert.match(
+    sql,
+    /lukas_drawing_p2_property_value_valid\([\s\S]*s\.value_type[\s\S]*s\.enum_options[\s\S]*btrim\([\s\S]*v\.value #>> '\{\}', E' \\t\\n\\r\\f\\v'[\s\S]*\) <> ''/i,
+  );
+  assert.match(sql, /v\.object_id = o\.id/i);
+  assert.match(sql, /v\.block_instance_id = i\.id/i);
+  assert.match(
+    sql,
+    /return private\.lukas_drawing_request_review_pre_required_blank/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /update\s+public\.lukas_drawing_(?:property_values|revisions|snapshots)/i,
+  );
+  assert.match(
+    sql,
+    /revoke all on function[\s\S]*lukas_drawing_request_review_pre_required_blank\(uuid\)[\s\S]*from public, anon, authenticated, service_role/i,
+  );
+  assert.match(
+    sql,
+    /revoke all on function private\.lukas_drawing_request_review\(uuid\)[\s\S]*from public, anon, authenticated, service_role/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function private\.lukas_drawing_request_review/i,
+  );
+});
+
+test("M1 data API grants tolerate installations without optional profile and payment tables", async () => {
+  const sql = await m1ExplicitDataApiGrantsMigration();
+  assert.match(sql, /to_regclass\('public\.profiles'\) is not null/i);
+  assert.match(sql, /execute 'revoke all on table public\.profiles/i);
+  assert.match(sql, /execute 'grant select,update,delete on table public\.profiles/i);
+  assert.match(sql, /to_regclass\('public\.payments'\) is not null/i);
+  assert.match(sql, /execute 'revoke all on table public\.payments/i);
+  assert.match(sql, /execute 'grant select on table public\.payments/i);
+  assert.doesNotMatch(
+    sql,
+    /public\.lukas_qto_shares,\s*public\.profiles,\s*public\.payments/i,
+  );
+});
+
+test("operation discard authority serializes one durable accepted-or-rejected disposition", async () => {
+  const sql = await operationDiscardAuthorityMigration();
+  assert.match(
+    sql,
+    /create table private\.lukas_drawing_operation_dispositions[\s\S]*primary key\s*\(revision_id,client_operation_id,actor_id\)[\s\S]*references public\.lukas_drawing_revisions\(id\)\s+on delete cascade/i,
+  );
+  assert.match(
+    sql,
+    /create or replace function private\.lukas_drawing_operation_disposition_guard\(\)[\s\S]*from public\.lukas_drawing_revisions[\s\S]*for update[\s\S]*from private\.lukas_drawing_operation_dispositions[\s\S]*d\.actor_id=new\.actor_id[\s\S]*P1R01/i,
+  );
+  assert.match(
+    sql,
+    /create trigger lukas_drawing_operation_disposition_guard\s+before insert on public\.lukas_drawing_operations/i,
+  );
+  const discard = functionDefinition(
+    sql,
+    "lukas_drawing_discard_operation_suffix",
+  );
+  assert.match(discard, /p_revision_id uuid,p_operations jsonb/i);
+  assert.match(discard, /security definer[\s\S]*set search_path=''/i);
+  assert.match(
+    discard,
+    /drawing_workspace_capability\(r\.project_id\)[\s\S]*in\('admin','editor'\)[\s\S]*r\.status='draft'[\s\S]*for update/i,
+  );
+  assert.match(
+    discard,
+    /lukas_drawing_operations[\s\S]*actor_id is distinct from v_actor[\s\S]*base_versions is distinct from v_operation->'baseVersions'[\s\S]*forward is distinct from v_operation->'forward'[\s\S]*inverse is distinct from v_operation->'inverse'[\s\S]*P1C01/i,
+  );
+  assert.match(
+    discard,
+    /from private\.lukas_drawing_operation_dispositions d[\s\S]*d\.revision_id=p_revision_id[\s\S]*d\.client_operation_id=\(v_operation->>'clientOperationId'\)::uuid[\s\S]*d\.actor_id=v_actor/i,
+  );
+  assert.match(discard, /insert into private\.lukas_drawing_operation_dispositions/i);
+  assert.match(discard, /'dispositions',v_dispositions/i);
+  assert.match(
+    sql,
+    /revoke all on table private\.lukas_drawing_operation_dispositions[\s\S]*from public,anon,authenticated,service_role/i,
+  );
+  assert.match(
+    sql,
+    /revoke all on function public\.lukas_drawing_discard_operation_suffix\(uuid,jsonb\)[\s\S]*from public,anon,authenticated,service_role[\s\S]*grant execute on function public\.lukas_drawing_discard_operation_suffix\(uuid,jsonb\)\s+to authenticated/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant (?:select|insert|update|delete|all)[\s\S]*lukas_drawing_operation_dispositions/i,
+  );
 });
 
 test("workspace creates only the ten approved P0/P1 tables with domain checks", async () => {
@@ -537,6 +657,66 @@ test("review RPCs hash canonical stable ordering and enforce maker-checker", asy
   assert.match(sql, /s\.sha256\s*=\s*p_snapshot_sha256/i);
   assert.match(sql, /set status = 'approved'/i);
   assert.match(sql, /set status = 'draft'[\s\S]+version = version \+ 1/i);
+});
+
+test("staged drawing decisions remain callable by authenticated reviewers and approvers", async () => {
+  const sql = await revisionDecisionEntrypointMigration();
+  assert.match(
+    sql,
+    /create or replace function public\.lukas_drawing_record_revision_decision[\s\S]+security definer[\s\S]+set search_path\s*=\s*''/i,
+  );
+  assert.match(
+    sql,
+    /select private\.lukas_drawing_record_revision_decision\(/i,
+  );
+  assert.match(
+    sql,
+    /drop constraint if exists lukas_drawing_revisions_check1/i,
+  );
+  assert.match(
+    sql,
+    /add constraint lukas_drawing_revisions_parent_not_self_check[\s\S]+parent_revision_id is null[\s\S]+parent_revision_id <> id/i,
+  );
+  assert.match(
+    sql,
+    /revoke all on function public\.lukas_drawing_record_revision_decision\([^;]+from public,\s*anon,\s*authenticated,\s*service_role/i,
+  );
+  assert.match(
+    sql,
+    /grant execute on function public\.lukas_drawing_record_revision_decision\([^;]+to authenticated,\s*service_role/i,
+  );
+  assert.doesNotMatch(
+    sql,
+    /grant execute on function private\.lukas_drawing_record_revision_decision\([^;]+to authenticated/i,
+  );
+  assert.match(
+    sql,
+    /v_role is distinct from 'reviewer'/i,
+  );
+  assert.match(
+    sql,
+    /v_role is distinct from 'approver'/i,
+  );
+  assert.match(
+    sql,
+    /coalesce\([\s\S]+v_role = 'reviewer'[\s\S]+v_role = 'approver'[\s\S]+false\s*\)\s*is not true/i,
+  );
+  assert.match(
+    sql,
+    /private\.lukas_qto_verified_session\(\) is not true/i,
+  );
+  assert.match(
+    sql,
+    /private\.lukas_qto_project_feature_active\([\s\S]+?'drawing_workspace'[\s\S]+?\) is (?:not )?true/i,
+  );
+  assert.match(
+    sql,
+    /create or replace function private\.lukas_drawing_record_revision_decision[\s\S]+?r\.created_by <> v_actor[\s\S]+?private\.lukas_qto_project_role\(r\.project_id\) = 'reviewer'[\s\S]+?private\.lukas_qto_project_role\(r\.project_id\) = 'approver'/i,
+  );
+  assert.match(
+    sql,
+    /if not found then\s+raise exception using errcode = 'P1R01',\s+message = 'Drawing revision decision denied'/i,
+  );
 });
 
 test("security-definer helpers and public RPCs have explicit execution privileges", async () => {

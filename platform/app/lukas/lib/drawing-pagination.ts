@@ -41,7 +41,31 @@ export function mergeFocusedIssue<T extends { id: string }>(
   page: T[],
   focused: T | null,
 ) {
-  if (!focused || page.some((issue) => issue.id === focused.id)) return page;
+  return mergeFocusedIssues(page, focused ? [focused] : []);
+}
+
+export function mergeFocusedIssues<T extends { id: string }>(
+  page: T[],
+  focused: T[],
+) {
+  if (!focused.length) return page;
+  const seen = new Set(page.map((issue) => issue.id));
+  const missing = focused.filter((issue) => {
+    if (seen.has(issue.id)) return false;
+    seen.add(issue.id);
+    return true;
+  });
+  return missing.length ? [...missing, ...page] : page;
+}
+
+export function mergeFocusedRevisionReview<
+  T extends { previousAnchorId: string },
+>(page: T[], focused: T | null) {
+  if (
+    !focused ||
+    page.some((item) => item.previousAnchorId === focused.previousAnchorId)
+  )
+    return page;
   return [focused, ...page];
 }
 

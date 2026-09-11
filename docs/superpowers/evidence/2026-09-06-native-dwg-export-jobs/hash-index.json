@@ -1,0 +1,37 @@
+[
+  {
+    "name": "verification.json",
+    "byteSize": 5642,
+    "sha256": "3f1069943eebfa71055480da8a98f479053a064ae2d33da71086ec40794221de"
+  },
+  {
+    "name": "native.dwg",
+    "byteSize": 13387,
+    "sha256": "7d94793d0d35631bd7068971202c686f076659f4836205aa88c3894d1bf77201"
+  },
+  {
+    "name": "source-manifest.json",
+    "byteSize": 45502,
+    "sha256": "28e2b9560968dc85f5ba5b6e6cd4288a1c3ec1c7ee34fbbbe4174e17ba1d1483"
+  },
+  {
+    "name": "authority.json",
+    "byteSize": 2744,
+    "sha256": "c6f220f9072bd1ab09f3fc489d57cb7c0f532503a39bd3b367427b6a0acecded"
+  },
+  {
+    "name": "native-report.json",
+    "byteSize": 21086,
+    "sha256": "eb1a23ebbfc15537de11da886abe8b7ab9bb7e52ad6adbecc38e7fa63e99cede"
+  },
+  {
+    "name": "completed.png",
+    "byteSize": 169428,
+    "sha256": "fec720ab2c72f6de716a2b42f28409683a155230268f85e4907d6f2f6fa44fe4"
+  },
+  {
+    "name": "native-measured-plan-a3.pdf",
+    "byteSize": 44772,
+    "sha256": "88e27d680de224676f2d5736f9ed1098a2806c745f404687c16640440bb7a32a"
+  }
+]

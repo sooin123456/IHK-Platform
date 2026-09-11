@@ -1,0 +1,456 @@
+# Exact dirty-worktree delta; HEAD is unchanged, no commits
+
+## platform/tests/drawing-workspace-m1-real-database.test.mjs
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline-task3/platform/tests/drawing-workspace-m1-real-database.test.mjs b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-workspace-m1-real-database.test.mjs
+index 11c4ed7..b2bc95a 100644
+--- a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-collaboration-canonical-initialization/baseline-task3/platform/tests/drawing-workspace-m1-real-database.test.mjs
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/drawing-workspace-m1-real-database.test.mjs
+@@ -1,30 +1,31 @@
+ import assert from "node:assert/strict";
+ import { createHash, randomBytes, randomUUID } from "node:crypto";
+ import { readdir, readFile } from "node:fs/promises";
+ import test from "node:test";
+ 
++import { proveCanonicalCollaborationSocketInitialization } from "./fixtures/drawing-collaboration-canonical-initialization.mjs";
+ import { proveDwgSourceIngestionAuthority } from "./fixtures/drawing-dwg-source-ingestion-database.mjs";
+ import { proveNativeDwgExportJobAuthority } from "./fixtures/drawing-native-dwg-jobs-database.mjs";
+ import { proveNativeDwgImportJobAuthority } from "./fixtures/drawing-native-dwg-import-jobs-database.mjs";
+ import { proveNativeDwgCanonicalImportAuthority } from "./fixtures/drawing-native-dwg-canonical-import-database.mjs";
+ import { proveNativeDwgImportPipeline } from "./fixtures/drawing-native-dwg-import-pipeline.mjs";
+ import { proveFreshNativeDwgCanonicalPipeline } from "./fixtures/drawing-native-dwg-canonical-pipeline.mjs";
+ 
+ const databaseUrl = process.env.M1_REAL_POSTGRES_DATABASE_URL;
+ const required = process.env.M1_REAL_POSTGRES_REQUIRED === "1";
+ const nativeDwgImportPipelineRequired =
+   process.env.M1_NATIVE_DWG_IMPORT_PIPELINE_REQUIRED === "1";
+ 
+ if (!databaseUrl) {
+   test(
+     "M1 real PostgreSQL proves Editor operations, idempotency, starter provenance, and binding authority",
+     {
+       skip: required || nativeDwgImportPipelineRequired
+         ? false : "M1 real PostgreSQL gate is UNEXECUTED",
+     },
+     () => assert.fail("M1_REAL_POSTGRES_DATABASE_URL is required"),
+   );
+ } else {
+   const appRoles = Object.freeze([
+     "anon",
+     "authenticated",
+@@ -2735,50 +2736,53 @@ if (!databaseUrl) {
+         databaseCleanupIntent = true;
+         await admin.unsafe(`create database ${quoteIdentifier(databaseName)}`);
+         const targetUrl = isolatedUrl(databaseUrl, databaseName);
+         owner = postgres(targetUrl, { max: 1, prepare: false });
+         workerA = postgres(targetUrl, { max: 1, prepare: false });
+         workerB = postgres(targetUrl, { max: 1, prepare: false });
+         await bootstrapDatabase(owner);
+         schemaReady = true;
+         await provePrimitiveMeasurementParity(owner);
+         await proveCollaborationRoleBoundary(owner);
+         const [[authority], [sessionA], [sessionB]] = await Promise.all([
+           owner`
+             select current_user,
+               pg_catalog.pg_get_userbyid(c.relowner) table_owner
+             from pg_catalog.pg_class c
+             join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+             where n.nspname='public' and c.relname='lukas_qto_projects'
+           `,
+           workerA`select pg_catalog.pg_backend_pid() pid`,
+           workerB`select pg_catalog.pg_backend_pid() pid`,
+         ]);
+         assert.equal(authority.current_user, authority.table_owner);
+         assert.notEqual(sessionA.pid, sessionB.pid);
+         await seedFixture(owner, ids);
+         await proveCanonicalCollaborationInitialization(owner, workerA, workerB, ids);
++        await proveCanonicalCollaborationSocketInitialization({
++          owner,targetUrl,ids,createDocument,
++        });
+         projectIds.push(await proveDwgSourceIngestionAuthority({
+           owner,workerA,workerB,ids,
+         }));
+         await provePrivilegeMatrix(owner, ids);
+         const personalProject = await provePersonalProjectConcurrency(
+           owner,workerA,workerB,ids,
+         );
+         projectIds.push(personalProject.projectId);
+         const concurrent = await proveCreationConcurrencyAndIdentity(
+           owner,workerA,workerB,ids,
+         );
+         await proveCalibratedPdfQuantityAuthority(owner, ids);
+         await proveCollaborationServiceStoreSuccess(owner, ids, concurrent);
+         await proveAuthenticatedEditorOperationBoundary(owner, ids, concurrent);
+         await proveRequiredPropertyBlankReviewGuard(owner, ids);
+         await proveBindingAndPurge(owner, ids, concurrent);
+         await proveStarterRollback(owner, ids);
+         await proveNativeDwgExportJobAuthority({ owner, ids });
+         if (nativeDwgImportPipelineRequired) {
+           nativeDwgImportPipelineEvidence = await proveNativeDwgImportPipeline({
+             owner,workerA,workerB,ids,
+             registerProject: (projectId) => projectIds.push(projectId),
+             dockerPath: process.env.NATIVE_DWG_DOCKER_PATH,
+             dockerHost: process.env.NATIVE_DWG_DOCKER_HOST,
+             readerImageId: process.env.NATIVE_DWG_READER_IMAGE_ID,
+
+## platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs
+diff --git a/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs
+new file mode 100644
+index 0000000..b4a1ab9
+--- /dev/null
++++ b/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/platform/tests/fixtures/drawing-collaboration-canonical-initialization.mjs
+@@ -0,0 +1,355 @@
++import assert from "node:assert/strict";
++import { createHash, randomUUID } from "node:crypto";
++
++import { HocuspocusProvider } from "@hocuspocus/provider";
++import CrossWebSocket from "crossws/websocket";
++import * as Y from "yjs";
++
++import {
++  createDrawingCollaborationStorage,
++  createPostgresDrawingCollaborationDatabase,
++} from "../../collaboration/src/storage.ts";
++import {
++  createDrawingCollaborationServer,
++  validateDrawingClientUpdate,
++  validatePersistedDrawingState,
++} from "../../collaboration/src/server.ts";
++
++const allowedOrigin = "https://task-3.example.test";
++const editorToken = "task-3-fixed-editor-token";
++const viewerToken = "task-3-fixed-viewer-token";
++
++class OriginWebSocket extends CrossWebSocket {
++  constructor(url) {
++    super(url, [], { origin: allowedOrigin });
++  }
++}
++
++function normalize(state) {
++  const document = new Y.Doc();
++  try {
++    Y.applyUpdate(document, new Uint8Array(state));
++    return Y.encodeStateAsUpdate(document);
++  } finally {
++    document.destroy();
++  }
++}
++
++function stateHash(state) {
++  return createHash("sha256").update(state).digest("hex");
++}
++
++function fixedTokenVerifier(ids) {
++  const actors = new Map([
++    [editorToken, ids.users.editor],
++    [viewerToken, ids.users.viewer],
++  ]);
++  return async (token) => {
++    const userId = actors.get(token);
++    if (!userId) throw new Error("Task 3 fixture token is invalid.");
++    return {
++      userId,
++      email: null,
++      expiresAtMs: Date.now() + 120_000,
++    };
++  };
++}
++
++async function createRuntime(targetUrl, ids, instanceId) {
++  const database = createPostgresDrawingCollaborationDatabase(targetUrl);
++  try {
++    const storage = createDrawingCollaborationStorage({
++      database,
++      validateState: validatePersistedDrawingState,
++    });
++    const runtime = createDrawingCollaborationServer({
++      config: {
++        port: 0,
++        instanceId,
++        supabaseUrl: "http://127.0.0.1",
++        databaseUrl: targetUrl,
++        allowedOrigins: new Set([allowedOrigin]),
++        internalSecret: "i".repeat(32),
++        freezeSecret: "f".repeat(32),
++        authorizationIntervalMs: 30_000,
++        debounceMs: 10,
++        maxDebounceMs: 20,
++      },
++      verifyToken: fixedTokenVerifier(ids),
++      authorize: database.authorize,
++      storage,
++    });
++    return { database, storage, runtime };
++  } catch (error) {
++    await database.close?.();
++    throw error;
++  }
++}
++
++async function connect(url, roomName, document, token) {
++  let provider;
++  await new Promise((resolve, reject) => {
++    const timeout = setTimeout(() => {
++      provider?.destroy();
++      reject(new Error("Task 3 canonical collaboration sync timed out."));
++    }, 5_000);
++    const settle = (action) => {
++      clearTimeout(timeout);
++      action();
++    };
++    provider = new HocuspocusProvider({
++      url,
++      name: roomName,
++      document,
++      token,
++      WebSocketPolyfill: OriginWebSocket,
++      onSynced: () => settle(resolve),
++      onAuthenticationFailed: ({ reason }) =>
++        settle(() => reject(new Error(reason))),
++    });
++  });
++  return provider;
++}
++
++async function readState(owner, revisionId) {
++  return (await owner`
++    select project_id,revision_id,yjs_state,store_generation,yjs_sha256,
++      byte_size,base_operation_sequence
++    from private.lukas_drawing_collaboration_states
++    where revision_id=${revisionId}::uuid
++  `)[0];
++}
++
++function assertStateUnchanged(actual, expected) {
++  assert.ok(actual, "canonical collaboration state disappeared after restart");
++  assert.equal(actual.project_id, expected.project_id);
++  assert.equal(actual.revision_id, expected.revision_id);
++  assert.deepEqual(actual.yjs_state, expected.yjs_state);
++  assert.equal(actual.store_generation, expected.store_generation);
++  assert.equal(actual.yjs_sha256, expected.yjs_sha256);
++  assert.equal(actual.byte_size, expected.byte_size);
++  assert.equal(actual.base_operation_sequence, expected.base_operation_sequence);
++}
++
++async function cleanup(resources, primaryError) {
++  const errors = [];
++  for (const [label, operation] of resources) {
++    try {
++      await operation();
++    } catch (error) {
++      errors.push(new Error(`Task 3 cleanup failed: ${label}`, { cause: error }));
++    }
++  }
++  if (primaryError && errors.length)
++    throw new AggregateError(
++      [primaryError, ...errors],
++      "Task 3 proof and cleanup both failed",
++    );
++  if (primaryError) throw primaryError;
++  if (errors.length)
++    throw new AggregateError(errors, "Task 3 collaboration cleanup failed");
++}
++
++export async function proveCanonicalCollaborationSocketInitialization({
++  owner,
++  targetUrl,
++  ids,
++  createDocument,
++}) {
++  const created = await createDocument(
++    owner,
++    "authenticated",
++    ids.users.editor,
++    ids.project,
++    "M1 actual PostgreSQL canonical socket initialization",
++    randomUUID(),
++  );
++  ids.documents.push(created.documentId);
++  ids.revisions.push(created.revisionId);
++  const scope = {
++    projectId: ids.project,
++    revisionId: created.revisionId,
++  };
++  const roomName = `drawing:${scope.projectId}:${scope.revisionId}`;
++  const viewerDocument = new Y.Doc();
++  const editorDocument = new Y.Doc();
++  let viewerProvider;
++  let editorProvider;
++  let first;
++  let restarted;
++  let firstStopped = false;
++  let primaryError;
++  try {
++    first = await createRuntime(targetUrl, ids, "task-3-canonical-first");
++    const firstServer = await first.runtime.start();
++    viewerProvider = await connect(
++      firstServer.webSocketURL,
++      roomName,
++      viewerDocument,
++      viewerToken,
++    );
++
++    const initial = await readState(owner, scope.revisionId);
++    assert.ok(
++      initial,
++      "untouched Viewer sync must durably initialize canonical collaboration state",
++    );
++    assert.equal(Number(initial.store_generation), 1);
++    assert.equal(initial.yjs_sha256, stateHash(initial.yjs_state));
++    assert.deepEqual(
++      Y.encodeStateAsUpdate(viewerDocument),
++      normalize(initial.yjs_state),
++    );
++    assert.equal(viewerDocument.getArray("operationOrder").length, 0);
++
++    const viewerAccess = await first.database.authorize(
++      ids.users.viewer,
++      scope.projectId,
++      scope.revisionId,
++    );
++    assert.equal(viewerAccess.capability, "viewer");
++    assert.equal(viewerAccess.canWrite, false);
++    const viewerAttempt = new Y.Doc();
++    try {
++      Y.applyUpdate(viewerAttempt, Y.encodeStateAsUpdate(viewerDocument));
++      const clientOperationId = randomUUID();
++      viewerAttempt.transact(() => {
++        viewerAttempt.getArray("operations").push([{
++          clientOperationId,
++          revisionId: scope.revisionId,
++          actorId: ids.users.viewer,
++          schemaVersion: 1,
++          type: "add_layer",
++          baseVersions: {},
++          forward: {
++            type: "add_layer",
++            layer: {
++              id: randomUUID(),
++              name: "Viewer forbidden layer",
++              visible: true,
++              locked: false,
++              version: 1,
++            },
++          },
++          inverse: {},
++          createdAt: "2026-09-06T00:00:00.000Z",
++        }]);
++        viewerAttempt.getArray("operationOrder").push([clientOperationId]);
++      });
++      const attemptedState = Y.encodeStateAsUpdate(viewerAttempt);
++      const attemptedUpdate = Y.encodeStateAsUpdate(
++        viewerAttempt,
++        Y.encodeStateVector(viewerDocument),
++      );
++      assert.notDeepEqual(attemptedState, new Uint8Array(initial.yjs_state));
++      assert.doesNotThrow(() =>
++        validateDrawingClientUpdate(viewerDocument, attemptedUpdate, {
++          userId: ids.users.viewer,
++          ...scope,
++          canWrite: true,
++        }),
++      );
++      await assert.rejects(
++        first.storage.store({
++          userId: ids.users.viewer,
++          ...scope,
++          state: attemptedState,
++          baseOperationSequence: Number(initial.base_operation_sequence),
++        }),
++        (error) => {
++          assert.equal(error.code, "P3A02");
++          return true;
++        },
++      );
++    } finally {
++      viewerAttempt.destroy();
++    }
++    assertStateUnchanged(await readState(owner, scope.revisionId), initial);
++
++    const cachedWinner = new Uint8Array(Y.encodeStateAsUpdate(viewerDocument));
++    assert.deepEqual(cachedWinner, new Uint8Array(initial.yjs_state));
++    viewerProvider.destroy();
++    viewerProvider = undefined;
++    await first.runtime.stop();
++    firstStopped = true;
++
++    Y.applyUpdate(editorDocument, cachedWinner);
++    restarted = await createRuntime(
++      targetUrl,
++      ids,
++      "task-3-canonical-restarted",
++    );
++    const secondServer = await restarted.runtime.start();
++    editorProvider = await connect(
++      secondServer.webSocketURL,
++      roomName,
++      editorDocument,
++      editorToken,
++    );
++    assert.equal(editorProvider.isSynced, true);
++    assert.equal(editorDocument.getArray("operationOrder").length, 0);
++    const reloaded = await readState(owner, scope.revisionId);
++    assertStateUnchanged(reloaded, initial);
++    assert.deepEqual(Y.encodeStateAsUpdate(editorDocument), cachedWinner);
++    assert.deepEqual(normalize(reloaded.yjs_state), cachedWinner);
++
++    const forged = new Y.Doc();
++    try {
++      Y.applyUpdate(forged, cachedWinner);
++      forged.getMap("serverMeta").set("baseSnapshotSha256", "f".repeat(64));
++      assert.throws(
++        () =>
++          validateDrawingClientUpdate(
++            editorDocument,
++            Y.encodeStateAsUpdate(forged),
++            {
++              userId: ids.users.editor,
++              ...scope,
++              canWrite: true,
++            },
++          ),
++        /server-owned|protected|metadata/i,
++      );
++    } finally {
++      forged.destroy();
++    }
++    assertStateUnchanged(await readState(owner, scope.revisionId), initial);
++
++    const evidence = {
++      generation: Number(initial.store_generation),
++      sha256: initial.yjs_sha256,
++      byteSize: Number(initial.byte_size),
++      baseOperationSequence: Number(initial.base_operation_sequence),
++      operationCount: 0,
++      reloadExact: true,
++      viewerOrdinaryStoreDenied: true,
++      protectedMetadataRejected: true,
++    };
++    process.stdout.write(
++      `${JSON.stringify({
++        event: "m1_canonical_collaboration_socket_proof_passed",
++        evidence,
++      })}\n`,
++    );
++    return evidence;
++  } catch (error) {
++    primaryError = error;
++  } finally {
++    await cleanup(
++      [
++        ["editor provider", async () => editorProvider?.destroy()],
++        ["Viewer provider", async () => viewerProvider?.destroy()],
++        ["restarted runtime/database", async () => restarted?.runtime.stop()],
++        [
++          "first runtime/database",
++          async () => {
++            if (first && !firstStopped) await first.runtime.stop();
++          },
++        ],
++        ["editor document", async () => editorDocument.destroy()],
++        ["Viewer document", async () => viewerDocument.destroy()],
++      ],
++      primaryError,
++    );
++  }
++}

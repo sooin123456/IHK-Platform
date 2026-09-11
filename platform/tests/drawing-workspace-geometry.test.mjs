@@ -48,7 +48,8 @@ test("pointer-centered zoom preserves the world point and clamps finite zoom", (
     worldToScreen(world, zoomViewportAroundPointer(pointer, viewport, 4)),
     pointer,
   );
-  assert.equal(zoomViewportAroundPointer(pointer, viewport, 0.001).zoom, 0.05);
+  assert.equal(zoomViewportAroundPointer(pointer, viewport, 0.001).zoom, 0.001);
+  assert.equal(zoomViewportAroundPointer(pointer, viewport, 0.000001).zoom, 0.001);
   assert.equal(zoomViewportAroundPointer(pointer, viewport, 100).zoom, 32);
   assert.throws(() =>
     zoomViewportAroundPointer(pointer, viewport, Number.POSITIVE_INFINITY),

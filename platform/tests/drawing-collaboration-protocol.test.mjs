@@ -101,6 +101,40 @@ test("operation envelopes accept only the existing canonical drawing operation c
   }
 });
 
+test("operation receipt source is canonical and excludes the non-authoritative client clock", () => {
+  const { drawingCollaborationOperationDigestSource } = requireProtocol();
+  const {
+    actorId,
+    schemaVersion: _schemaVersion,
+    createdAt: _createdAt,
+    ...input
+  } = operation();
+  const source = drawingCollaborationOperationDigestSource(input, actorId);
+  const reordered = {
+    ...input,
+    forward: {
+      layer: {
+        version: 1,
+        visible: true,
+        name: "Annotations",
+        locked: false,
+        id: ids.layer,
+      },
+      type: "add_layer",
+    },
+  };
+
+  assert.equal(
+    drawingCollaborationOperationDigestSource(reordered, actorId),
+    source,
+  );
+  assert.doesNotMatch(source, /createdAt|2026-08-26/);
+  assert.notEqual(
+    drawingCollaborationOperationDigestSource(input, ids.revision),
+    source,
+  );
+});
+
 test("operation envelopes enforce protocol and bounded operation collections", () => {
   const { DrawingCollaborationOperationSchema, DRAWING_COLLABORATION_LIMITS } =
     requireProtocol();
@@ -206,6 +240,18 @@ test("server-only metadata and operation status reject client fields and malform
     }).success,
     false,
   );
+});
+
+test("authoritative operation status preserves a deleted result as null", () => {
+  const { DrawingCollaborationStatusSchema } = requireProtocol();
+  const status = {
+    operationId: ids.operation,
+    status: "acked",
+    authoritativeSequence: 1,
+    resultVersions: { [ids.layer]: null },
+  };
+
+  assert.deepEqual(DrawingCollaborationStatusSchema.parse(status), status);
 });
 
 test("append validation preserves the immutable operation order and accepts only the verified actor", () => {
@@ -320,6 +366,48 @@ test("same durable operation ID is a convergent idempotent order entry", () => {
       drawingRoomName(ids.project, ids.revision),
     ).operationOrder,
     [ids.operation],
+  );
+});
+
+test("operation order bounds unique IDs separately from recovery contributions", () => {
+  const {
+    DRAWING_COLLABORATION_LIMITS,
+    DrawingCollaborationOperationOrderSchema,
+  } = requireProtocol();
+  const uniqueIds = Array.from(
+    { length: DRAWING_COLLABORATION_LIMITS.maxOperations },
+    (_, index) =>
+      `50000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  );
+
+  assert.equal(
+    DrawingCollaborationOperationOrderSchema.parse([...uniqueIds, uniqueIds[0]])
+      .length,
+    DRAWING_COLLABORATION_LIMITS.maxOperations,
+  );
+  assert.throws(() =>
+    DrawingCollaborationOperationOrderSchema.parse([
+      ...uniqueIds,
+      "50000000-0000-4000-8000-999999999999",
+    ]),
+  );
+  assert.deepEqual(
+    DrawingCollaborationOperationOrderSchema.parse([
+      uniqueIds[0],
+      uniqueIds[0],
+      uniqueIds[0],
+    ]),
+    [uniqueIds[0]],
+  );
+  assert.throws(() =>
+    DrawingCollaborationOperationOrderSchema.parse(
+      Array.from(
+        {
+          length: DRAWING_COLLABORATION_LIMITS.maxOperationContributions + 1,
+        },
+        () => uniqueIds[0],
+      ),
+    ),
   );
 });
 

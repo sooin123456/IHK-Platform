@@ -29,14 +29,17 @@ export type DrawingWorkspaceRealtimeAdapter = {
 };
 
 export function drawingWorkspaceRealtimeSubscriptions({
+  documentId,
   projectId,
   revisionId,
 }: {
+  documentId: string;
   projectId: string;
   revisionId: string;
   userId: string;
 }): DrawingWorkspaceRealtimeSubscription[] {
   return [
+    { table: "lukas_drawing_documents", filter: `id=eq.${documentId}` },
     { table: "lukas_drawing_revisions", filter: `id=eq.${revisionId}` },
     {
       table: "lukas_drawing_object_issue_links",
@@ -73,6 +76,7 @@ type Clock = {
 
 type SchedulerOptions = Clock & {
   onInvalidate: () => void;
+  onInvalidateScheduled?: () => void;
   onViewChange: (view: DrawingWorkspaceRealtimeView) => void;
 };
 
@@ -80,6 +84,7 @@ export function createDrawingWorkspaceInvalidationScheduler({
   cancel = clearTimeout,
   now = Date.now,
   onInvalidate,
+  onInvalidateScheduled,
   onViewChange,
   schedule = setTimeout,
 }: SchedulerOptions) {
@@ -87,6 +92,7 @@ export function createDrawingWorkspaceInvalidationScheduler({
   let timer: ReturnType<typeof setTimeout> | null = null;
   const invalidate = () => {
     if (disposed || timer !== null) return;
+    onInvalidateScheduled?.();
     timer = schedule(() => {
       timer = null;
       if (disposed) return;
@@ -112,8 +118,7 @@ export function createDrawingWorkspaceRealtimeController(
 ) {
   let state = drawingRealtimeState("CONNECTING");
   let lastInvalidationAt: number | null = null;
-  const publish = () =>
-    options.onViewChange({ ...state, lastInvalidationAt });
+  const publish = () => options.onViewChange({ ...state, lastInvalidationAt });
   const scheduler = createDrawingWorkspaceInvalidationScheduler({
     ...options,
     onViewChange(view) {
@@ -141,6 +146,14 @@ export function connectedDrawingWorkspaceRealtimeView(): DrawingWorkspaceRealtim
   return { ...drawingRealtimeState("SUBSCRIBED"), lastInvalidationAt: null };
 }
 
+export function disabledDrawingWorkspaceRealtimeView(): DrawingWorkspaceRealtimeView {
+  return {
+    phase: "disconnected",
+    message: "회사 플랜에서 실시간 업무 알림 꺼짐 · 필요할 때 새로고침",
+    lastInvalidationAt: null,
+  };
+}
+
 export function createInertDrawingWorkspaceRealtimeAdapter(): DrawingWorkspaceRealtimeAdapter {
   return {
     initialView: connectedDrawingWorkspaceRealtimeView(),
@@ -153,20 +166,26 @@ export function createInertDrawingWorkspaceRealtimeAdapter(): DrawingWorkspaceRe
 
 export function useDrawingWorkspaceRealtime({
   adapter,
+  documentId,
   enabled,
   onInvalidate,
+  onInvalidateScheduled,
+  onRevalidated,
   projectId,
   revisionId,
   userId,
 }: {
   adapter?: DrawingWorkspaceRealtimeAdapter;
+  documentId: string;
   enabled: boolean;
   onInvalidate?: () => void;
+  onInvalidateScheduled?: () => void;
+  onRevalidated?: () => void;
   projectId: string;
   revisionId: string;
   userId: string;
 }): DrawingWorkspaceRealtimeView {
-  const revalidator = useRevalidator();
+  const { revalidate } = useRevalidator();
   const [view, setView] = useState<DrawingWorkspaceRealtimeView>(
     () =>
       adapter?.initialView ?? {
@@ -177,25 +196,39 @@ export function useDrawingWorkspaceRealtime({
   );
   useEffect(() => {
     if (!enabled) {
-      setView({
-        phase: "disconnected",
-        message: "실시간 연결이 끊겼습니다. 변경 내용은 다시 연결되면 갱신됩니다.",
-        lastInvalidationAt: null,
-      });
+      setView(disabledDrawingWorkspaceRealtimeView());
       return;
     }
     let cancelled = false;
+    let outstandingInvalidations = 0;
     let cleanupChannel: (() => void) | undefined;
+    const settleInvalidation = () => {
+      if (outstandingInvalidations < 1) return;
+      outstandingInvalidations -= 1;
+      onRevalidated?.();
+    };
     const controller = createDrawingWorkspaceRealtimeController({
       onInvalidate() {
-        revalidator.revalidate();
+        const revalidation = Promise.resolve(revalidate());
         onInvalidate?.();
+        void revalidation.then(
+          () => {
+            if (!cancelled) settleInvalidation();
+          },
+          () => undefined,
+        );
+      },
+      onInvalidateScheduled() {
+        outstandingInvalidations += 1;
+        onInvalidateScheduled?.();
       },
       onViewChange: setView,
     });
-    const visibilityChanged = () => controller.visibilityChanged(document.hidden);
+    const visibilityChanged = () =>
+      controller.visibilityChanged(document.hidden);
     document.addEventListener("visibilitychange", visibilityChanged);
     const subscriptions = drawingWorkspaceRealtimeSubscriptions({
+      documentId,
       projectId,
       revisionId,
       userId,
@@ -212,33 +245,58 @@ export function useDrawingWorkspaceRealtime({
       const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
       if (!url || !key) controller.status("CHANNEL_ERROR");
       else
-        void import("@supabase/ssr").then(({ createBrowserClient }) => {
-          if (cancelled) return;
-          const client = createBrowserClient(url, key);
-          let channel = client.channel(
-            `drawing-workspace:${projectId}:${revisionId}:${userId}`,
-          );
-          for (const subscription of subscriptions)
-            channel = channel.on(
-              "postgres_changes",
-              {
-                event: "*",
-                filter: subscription.filter,
-                schema: "public",
-                table: subscription.table,
-              },
-              controller.event,
+        void import("@supabase/ssr")
+          .then(async ({ createBrowserClient }) => {
+            if (cancelled) return;
+            const client = createBrowserClient(url, key);
+            const { data, error } = await client.auth.getSession();
+            const accessToken = data.session?.access_token;
+            if (cancelled) return;
+            if (error || !accessToken) {
+              controller.status("CHANNEL_ERROR");
+              return;
+            }
+            await client.realtime.setAuth(accessToken);
+            if (cancelled) return;
+            let channel = client.channel(
+              `drawing-workspace:${projectId}:${revisionId}:${userId}`,
             );
-          channel.subscribe(controller.status);
-          cleanupChannel = () => void client.removeChannel(channel);
-        });
+            for (const subscription of subscriptions)
+              channel = channel.on(
+                "postgres_changes",
+                {
+                  event: "*",
+                  filter: subscription.filter,
+                  schema: "public",
+                  table: subscription.table,
+                },
+                controller.event,
+              );
+            channel.subscribe(controller.status);
+            cleanupChannel = () => void client.removeChannel(channel);
+          })
+          .catch(() => {
+            if (!cancelled) controller.status("CHANNEL_ERROR");
+          });
     }
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", visibilityChanged);
       controller.dispose();
       cleanupChannel?.();
+      while (outstandingInvalidations > 0) settleInvalidation();
     };
-  }, [adapter, enabled, onInvalidate, projectId, revalidator, revisionId, userId]);
+  }, [
+    adapter,
+    documentId,
+    enabled,
+    onInvalidate,
+    onInvalidateScheduled,
+    onRevalidated,
+    projectId,
+    revalidate,
+    revisionId,
+    userId,
+  ]);
   return view;
 }

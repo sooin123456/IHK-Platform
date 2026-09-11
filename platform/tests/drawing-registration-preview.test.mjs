@@ -1,0 +1,53 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import React from "react";
+import {renderToStaticMarkup} from "react-dom/server";
+import {createServer} from "vite";
+import {fileURLToPath} from "node:url";
+const vite=await createServer({configFile:false,appType:"custom",logLevel:"silent",resolve:{alias:{"~":fileURLToPath(new URL("../app",import.meta.url))}},server:{middlewareMode:true}});
+test.after(()=>vite.close());
+test("local PDF listing is distinguished from server registration and revision preparation",async()=>{
+ const m=await vite.ssrLoadModule("/app/lukas/components/drawing-native-start-preview.tsx");
+ const render=mode=>renderToStaticMarkup(React.createElement(m.DrawingRegistrationNotice,{record:{mode,fileName:"drawing.pdf",targetTitle:"평면도",reason:"변경"},localListing:true}));
+ assert.match(render("new"),/목록 정보 보관 · 이 탭/);
+ assert.match(render("new"),/원본 파일은 서버에 업로드되지/);
+ assert.doesNotMatch(render("new"),/· 미등록/);
+ assert.doesNotMatch(render("revision"),/목록 정보 보관 · 이 탭/);
+ const setup=renderToStaticMarkup(React.createElement(m.DrawingRegistrationPreview,{fileName:"drawing.pdf",documents:[],localListing:true,onContinue(){},onBack(){}}));
+ assert.match(setup,/새 도면을 선택하면 목록 정보만 이 탭에 보관/);
+});
+test("workspace registration record keeps source and reason separate from approved revisions",async()=>{
+ const m=await vite.ssrLoadModule("/app/lukas/components/drawing-native-start-preview.tsx");
+ assert.equal(typeof m.DrawingRegistrationNotice,"function");
+ const record={mode:"revision",fileName:"구조.dwg",targetTitle:"1층 평면도",reason:"문 위치 변경"};
+ const html=renderToStaticMarkup(React.createElement(m.DrawingRegistrationNotice,{record}));
+ for(const text of ["구조.dwg","1층 평면도","문 위치 변경","등록 준비 기록"]) assert.ok(html.includes(text));
+ assert.doesNotMatch(html,/등록 완료|R2|승인 완료/);
+ assert.equal(m.parseRegistrationRecord({mode:"revision",fileName:"x",targetTitle:"",reason:""}),null);
+ assert.deepEqual(m.parseRegistrationRecord(record),record);
+});
+test("registration validates revision target and reason without inventing a version",async()=>{
+ const m=await vite.ssrLoadModule("/app/lukas/components/drawing-native-start-preview.tsx");
+ assert.equal(typeof m.registrationPreviewError,"function");
+ const docs=[{id:"a",title:"평면도"}];
+ assert.equal(m.registrationPreviewError({mode:"new",targetId:"",reason:""},docs),null);
+ assert.ok(m.registrationPreviewError({mode:"revision",targetId:"foreign",reason:"설계 변경"},docs));
+ assert.ok(m.registrationPreviewError({mode:"revision",targetId:"a",reason:" "},docs));
+ assert.ok(m.registrationPreviewError({mode:"revision",targetId:"a",reason:"x".repeat(301)},docs));
+ assert.equal(m.registrationPreviewError({mode:"revision",targetId:"a",reason:"문 위치 변경"},docs),null);
+});
+test("registration offers only supplied project drawings and discloses no overwrite",async()=>{
+ const m=await vite.ssrLoadModule("/app/lukas/components/drawing-native-start-preview.tsx");
+ assert.equal(typeof m.DrawingRegistrationPreview,"function");
+ const html=renderToStaticMarkup(React.createElement(m.DrawingRegistrationPreview,{fileName:"평면도.dwg",documents:[{id:"a",title:"평면도"}],onContinue(){},onBack(){}}));
+ assert.match(html,/같은 이름/);
+ assert.match(html,/기존 도면의 새 개정/);
+ assert.match(html,/덮어쓰지 않습니다/);
+ const empty=renderToStaticMarkup(React.createElement(m.DrawingRegistrationPreview,{fileName:"평면도.dwg",documents:[],onContinue(){},onBack(){}}));
+ assert.match(empty,/disabled=""[^>]*value="revision"|value="revision"[^>]*disabled=""/);
+ assert.doesNotMatch(empty,/같은 이름의 도면이 있습니다/);
+ const revision=renderToStaticMarkup(React.createElement(m.DrawingRegistrationPreview,{fileName:"새파일.ifc",documents:[{id:"a",title:"평면도"}],initial:{mode:"revision",targetId:"a",reason:""},onContinue(){},onBack(){}}));
+ assert.match(revision,/<option value="a" selected="">평면도<\/option>/);
+ assert.match(revision,/<button[^>]*type="submit"[^>]*disabled/);
+ assert.match(revision,/변경 사유/);
+});

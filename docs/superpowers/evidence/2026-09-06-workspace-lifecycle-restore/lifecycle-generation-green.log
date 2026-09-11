@@ -1,0 +1,10 @@
+
+Running 2 tests using 1 worker
+
+(node:31776) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/2] [chromium] › e2e/drawing-workspace-shell.spec.ts:650:1 › preview keeps a local edit through realtime revalidation and resets only when its lifecycle changes
+[2/2] [chromium] › e2e/drawing-workspace-shell.spec.ts:689:1 › user replacement never borrows the previous room's connected status while admission is pending
+  2 passed (4.7s)

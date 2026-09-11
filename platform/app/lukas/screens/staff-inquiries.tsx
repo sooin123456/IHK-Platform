@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import { Button } from "~/core/components/ui/button";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 
 const statuses = ["new", "contacted", "qualified", "closed"] as const;
 const labels: Record<(typeof statuses)[number], string> = {
@@ -19,11 +21,15 @@ async function requireStaff(request: Request) {
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
   if (user.app_metadata.role !== "hangil_staff")
-    throw new Response("한길시스템 담당자만 접근할 수 있습니다.", {
-      status: 403,
-    });
+    throw mergeResponseHeaders(
+      new Response("한길시스템 담당자만 접근할 수 있습니다.", {
+        status: 403,
+      }),
+      headers,
+    );
   return { client, headers };
 }
 
@@ -32,7 +38,7 @@ export const meta: Route.MetaFunction = () => [
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const { client } = await requireStaff(request);
+  const { client, headers } = await requireStaff(request);
   const { data: inquiries, error } = await client
     .from("hangil_project_inquiries")
     .select(
@@ -40,8 +46,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     )
     .order("created_at", { ascending: false });
   if (error)
-    throw new Response("문의 목록을 불러오지 못했습니다.", { status: 500 });
-  return { inquiries: inquiries ?? [] };
+    throw mergeResponseHeaders(
+      new Response("문의 목록을 불러오지 못했습니다.", { status: 500 }),
+      headers,
+    );
+  return data({ inquiries: inquiries ?? [] }, { headers });
 }
 
 export async function action({ request }: Route.ActionArgs) {

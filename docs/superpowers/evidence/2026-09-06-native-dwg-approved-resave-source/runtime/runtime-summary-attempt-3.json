@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1hk-r2-r5-runtime-validation/1",
+  "qualification": "local-disposable-authenticated-shared-root",
+  "snapshotRoot": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-approved-resave-source/runtime-validation/shared-runtime.ugp7sy",
+  "platformRoot": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-approved-resave-source/runtime-validation/shared-runtime.ugp7sy/platform",
+  "publishDirectory": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-approved-resave-source/runtime-validation/shared-runtime.ugp7sy/runtime-native-publish",
+  "startedAt": "2026-09-06T05:05:59.660Z",
+  "completedAt": "2026-09-06T05:10:57.447Z",
+  "sourceHashes": {
+    "platform/tests/fixtures/drawing-native-dwg-canonical-import-database.mjs": "2c3d73230e71e68eb867518c90c439d6a3b29417cb5fa68709df180ebc5abe84",
+    "platform/tests/drawing-workspace-m1-real-database.test.mjs": "680deb210123e91b8301b310369b074e79802ba9c42284b8b30588369bff631d",
+    "platform/supabase/migrations/20260906043637_drawing_native_dwg_resave_source_authority.sql": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "writerBuildSha256": "587421d582b26074eca33f1dc10047318d2ed444d058b7fd8e7ebde21075cbb8",
+  "bindPreflightExitCode": 0,
+  "runnerExitCode": 0,
+  "runnerSignal": null,
+  "commands": [
+    {
+      "cwd": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-approved-resave-source/runtime-validation/shared-runtime.ugp7sy",
+      "command": "/opt/homebrew/Cellar/docker/29.7.2/bin/docker run --pull=never --rm --name 1hk-edge-bind-attempt3-1623 --network none --mount type=bind,source=/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-approved-resave-source/runtime-validation/shared-runtime.ugp7sy/edge-bind-probe/synthetic-index.ts,target=/root/index.ts,readonly --entrypoint /bin/sh public.ecr.aws/supabase/edge-runtime:v1.74.3 -c stat -c \"container_type=%F container_mode=%A container_size=%s\" /root/index.ts; test -f /root/index.ts",
+      "log": "attempt-3-bind-preflight.log"
+    },
+    {
+      "cwd": "/Users/h/Documents/GoAgent/.worktrees/universal-workspace-m1/.superpowers/sdd/2026-09-06-native-dwg-approved-resave-source/runtime-validation/shared-runtime.ugp7sy/platform",
+      "command": "/opt/homebrew/Cellar/node/26.5.0/bin/node scripts/run-drawing-workspace-m1-e2e.mjs",
+      "log": "m1-authenticated-runtime-attempt-3.log"
+    }
+  ]
+}

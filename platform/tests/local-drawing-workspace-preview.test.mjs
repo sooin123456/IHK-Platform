@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { PDFDocument } from "pdf-lib";
 import { createServer } from "vite";
+import * as Y from "yjs";
 
 import routes from "../app/routes.ts";
 import { resolveDrawingSemanticSchedule } from "../app/lukas/lib/drawing-semantic-schedules.ts";
@@ -12,6 +14,7 @@ const vite = await createServer({
   appType: "custom",
   configFile: false,
   logLevel: "silent",
+  root: fileURLToPath(new URL("../", import.meta.url)),
   resolve: {
     alias: { "~": fileURLToPath(new URL("../app", import.meta.url)) },
   },
@@ -22,6 +25,21 @@ const preview = await vite.ssrLoadModule(
 );
 const pdfPreview = await vite.ssrLoadModule(
   "/app/lukas/screens/local-drawing-pdf-preview.ts",
+);
+const currentPdfPreview = await vite.ssrLoadModule(
+  "/app/lukas/screens/local-drawing-pdf-current.ts",
+);
+const drawingCommands = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-commands.ts",
+);
+const drawingDocuments = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-document-store.ts",
+);
+const drawingDrafts = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-yjs-draft.ts",
+);
+const drawingCollaboration = await vite.ssrLoadModule(
+  "/app/lukas/lib/drawing-collaboration-client.ts",
 );
 test.after(() => vite.close());
 const testEnvironment = process.env.NODE_ENV;
@@ -115,6 +133,93 @@ test("P5 local PDF resources serve real no-store bytes only on development loopb
   process.env.NODE_ENV = "development";
 });
 
+test("current PDF resource matches its immutable preview descriptor and public fixture", async () => {
+  const loaded = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace",
+      ),
+      params: {},
+    }),
+  );
+  const descriptor = loaded.sourceBundle.pdf;
+  const response = await currentPdfPreview.loader({
+    request: request(`http://127.0.0.1:5173${descriptor.signedUrl}`),
+    params: {},
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/pdf");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.equal(bytes.subarray(0, 4).toString(), "%PDF");
+  assert.equal(bytes.byteLength, descriptor.byteSize);
+  assert.equal(
+    createHash("sha256").update(bytes).digest("hex"),
+    descriptor.sha256,
+  );
+  assert.deepEqual(
+    bytes,
+    await readFile(
+      new URL("./fixtures/p5-current-revision.pdf", import.meta.url),
+    ),
+  );
+  const current = await PDFDocument.load(bytes);
+  const previous = await PDFDocument.load(
+    await readFile(
+      new URL("./fixtures/p5-previous-revision.pdf", import.meta.url),
+    ),
+  );
+  assert.equal(current.getPageCount(), 3);
+  assert.deepEqual(
+    current.getPages().map((page) => page.getSize()),
+    previous.getPages().map((page) => page.getSize()),
+  );
+  assert.equal(
+    current.getTitle(),
+    "1HK synthetic current revision - NOT FOR CONSTRUCTION",
+  );
+  assert.notEqual(descriptor.sha256, loaded.sourceBundle.previousPdf.sha256);
+  assert.equal(loaded.workspace.primarySource.sha256, descriptor.sha256);
+  assert.equal(loaded.workspace.document.source_sha256, descriptor.sha256);
+  assert.deepEqual(
+    preview
+      .localP5SourceManifest()
+      .find((source) => source.kind === "pdf_current"),
+    {
+      kind: "pdf_current",
+      id: descriptor.id,
+      byteSize: descriptor.byteSize,
+      sha256: descriptor.sha256,
+      signedUrl: descriptor.signedUrl,
+    },
+  );
+});
+
+test("current PDF resource rejects non-loopback and production requests", async () => {
+  const args = (url) => ({ request: request(url), params: {} });
+  assert.equal(
+    (
+      await currentPdfPreview.loader(
+        args("http://192.168.0.20/__p5-current.pdf"),
+      )
+    ).status,
+    404,
+  );
+  process.env.NODE_ENV = "production";
+  try {
+    assert.equal(
+      (
+        await currentPdfPreview.loader(
+          args("http://127.0.0.1:5173/__p5-current.pdf"),
+        )
+      ).status,
+      404,
+    );
+  } finally {
+    process.env.NODE_ENV = "development";
+  }
+});
+
 test("P2 preview server module does not import browser-only state modules", async () => {
   const source = await readFile(
     new URL(
@@ -172,12 +277,12 @@ test("current canonical preview opens the editable 2D canvas before loading IFC"
   );
 
   assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
-  assert.equal(loaded.sourceBundle.pdf.byteSize, 62_602);
+  assert.equal(loaded.sourceBundle.pdf.byteSize, 8_289);
   assert.equal(
     loaded.sourceBundle.pdf.sha256,
-    "4dbe58c133a1ce84e1b4da4fce93694ec4f69585bed20e71408a86b7f704e326",
+    "298cdc57f86b73f96ad6c743e20d9fb76e08d9f8dc7b827b6558ff068f95c8db",
   );
-  assert.equal(loaded.workspace.primarySource.byte_size, 62_602);
+  assert.equal(loaded.workspace.primarySource.byte_size, 8_289);
   assert.equal(
     loaded.workspace.primarySource.sha256,
     loaded.sourceBundle.pdf.sha256,
@@ -270,7 +375,7 @@ test("synthetic IFC preview is visibly labeled as a non-original mapping example
   assert.match(source, /합성 매핑 예제 · 원본 IFC 형상 아님/);
 });
 
-test("awareness harness preserves the canonical integrated workspace", async () => {
+test("awareness harness uses its legacy fixture with explicit IFC opt-in", async () => {
   const loaded = unwrapRouteData(
     await preview.loader({
       request: request(
@@ -281,13 +386,28 @@ test("awareness harness preserves the canonical integrated workspace", async () 
   );
 
   assert.equal(loaded.awarenessTest, true);
-  assert.equal(loaded.canonicalP5, true);
+  assert.equal(loaded.canonicalP5, false);
   assert.equal(loaded.viewMode, "split");
-  assert.equal(loaded.sourceBundle.pdf.signedUrl, "/__p5-current.pdf");
+  assert.equal(loaded.sourceBundle, undefined);
+  const withIfc = unwrapRouteData(
+    await preview.loader({
+      request: request(
+        "http://127.0.0.1:5173/workspace-preview/drawing-workspace?awarenessTest=1&p5IfcTest=1&view=split",
+      ),
+      params: {},
+    }),
+  );
+  assert.equal(withIfc.awarenessTest, true);
+  assert.equal(withIfc.p5IfcTest, true);
+  assert.equal(withIfc.canonicalP5, false);
+  assert.equal(withIfc.viewMode, "split");
+  assert.equal(withIfc.sourceBundle.pdf, null);
   assert.equal(
-    loaded.selectedIfcFileId,
+    withIfc.sourceBundle.ifc.id,
     "00000000-0000-4000-8000-0000000000a1",
   );
+  assert.equal(withIfc.selectedIfcFileId, withIfc.sourceBundle.ifc.id);
+  assert.equal(withIfc.sourceBundle.ifc.derivative.status, "ready");
 });
 
 test("P5 local baseline contains exactly 10,000 objects and 2,000 immutable IFC links", async () => {
@@ -558,6 +678,11 @@ test("P2 preview action validates operations and only echoes safe local operatio
   assert.deepEqual(accepted.data, {
     ok: true,
     clientOperationId: "00000000-0000-4000-8000-000000000091",
+    result: {
+      operationId: "00000000-0000-4000-8000-000000000091",
+      sequence: 1_787_648_400_000_000,
+      resultVersions: { "00000000-0000-4000-8000-000000000021": 2 },
+    },
   });
 
   const malformed = new FormData();
@@ -604,4 +729,167 @@ test("P2 preview action validates operations and only echoes safe local operatio
     params: {},
   });
   assert.equal(wrongRevisionResult.init.status, 400);
+});
+
+test("preview receipts preserve create, update, Undo, and Redo causality", async () => {
+  const fixture = preview.localDrawingWorkspacePreviewFixture();
+  const revision = fixture.workspace.document.revision;
+  const actorId = fixture.currentUserId;
+  const objectId = "00000000-0000-4000-8000-000000000201";
+  const operationIds = [
+    "00000000-0000-4000-8000-000000000202",
+    "00000000-0000-4000-8000-000000000203",
+    "00000000-0000-4000-8000-000000000204",
+    "00000000-0000-4000-8000-000000000205",
+  ];
+  const timestamps = [
+    "2026-09-07T00:00:00.000Z",
+    "2026-09-07T00:00:00.000Z",
+    "2026-09-07T00:00:00.000Z",
+    "2026-09-07T00:00:00.000Z",
+  ];
+  let operationIndex = 0;
+  const state = drawingDocuments.hydrateDrawingDocumentState({
+    revisionId: revision.id,
+    pages: revision.pages,
+    canvases: revision.canvases ?? [],
+    layers: revision.layers,
+    objects: revision.objects,
+    sources: revision.sources ?? [],
+    styles: revision.styles ?? [],
+    blocks: revision.blocks ?? [],
+    blockInstances: revision.blockInstances ?? [],
+    propertySchemas: revision.propertySchemas ?? [],
+    propertyValues: revision.propertyValues ?? [],
+    tables: revision.tables ?? [],
+  });
+  const document = new Y.Doc();
+  const localBaseMeta =
+    drawingCollaboration.initializeDrawingCollaborationDocument({
+      document,
+      projectId: revision.project_id,
+      revisionId: revision.id,
+      baseSnapshotSha256: "a".repeat(64),
+      baseOperationSequence: 0,
+    });
+  const adapter = drawingDrafts.createDrawingDraftAdapter({
+    document,
+    localBaseMeta,
+    authoritativeState: state,
+    actorId,
+    authorization: "editor",
+    frozen: false,
+    enforceServerFreeze: false,
+    createId: () => operationIds[operationIndex],
+    now: () => timestamps[operationIndex++],
+  });
+  const queuedRequests = new Map();
+  const bridge = drawingCollaboration.createDrawingCollaborationCommandBridge({
+    adapter,
+    outbox: { async enqueue(operation) { queuedRequests.set(operation.clientOperationId, operation); } },
+  });
+  const acknowledged = [];
+  const acknowledge = async (applied) => {
+    const operation = queuedRequests.get(applied.operation.clientOperationId);
+    assert.ok(operation, "test sends the real outbox wire payload, not the internal collaboration envelope");
+    const submit = async () => {
+      const form = new FormData();
+      form.set("intent", "apply_operation");
+      form.set("operation_json", JSON.stringify(operation));
+      const response = await preview.action({
+        request: request("http://localhost:5173/workspace-preview/drawing-workspace", { method: "POST", body: form }),
+        params: {},
+      });
+      assert.equal(response.data.ok, true);
+      return response.data.result;
+    };
+    const receipt = await submit();
+    const sequence = receipt.sequence;
+    assert.deepEqual(await submit(), receipt, "receipt is idempotent");
+    adapter.recordLocalAcknowledgement(
+      {
+        clientOperationId: operation.clientOperationId,
+        authoritativeSequence: sequence,
+        resultVersions: receipt.resultVersions,
+      },
+      "canonical",
+    );
+    acknowledged.push(sequence);
+    assert.equal(adapter.getSnapshot().quarantine, null);
+  };
+
+  const template = revision.objects.find(
+    (object) => object.geometry.type === "rectangle",
+  );
+  assert.ok(template);
+  const created = await bridge.applyCommand({
+    type: "add_objects",
+    actorId,
+    objects: [
+      {
+        ...structuredClone(template),
+        id: objectId,
+        name: "Receipt rectangle",
+        version: 1,
+      },
+    ],
+  });
+  await acknowledge(created);
+  const updated = await bridge.applyCommand({
+    type: "update_objects",
+    actorId,
+    updates: [{ objectId, patch: { name: "Renamed rectangle" } }],
+  });
+  await acknowledge(updated);
+  const undone = drawingCommands.undoDrawingCommandUnit(
+    adapter.getSnapshot().state,
+    actorId,
+    { now: () => timestamps[2], createId: () => operationIds[2] },
+  );
+  assert.ok(undone && !("kind" in undone));
+  await bridge.applyRecorded(undone.applied[0]);
+  await acknowledge(undone.applied[0]);
+  const redone = drawingCommands.redoDrawingCommandUnit(
+    adapter.getSnapshot().state,
+    actorId,
+    { now: () => timestamps[3], createId: () => operationIds[3] },
+  );
+  assert.ok(redone && !("kind" in redone));
+  await bridge.applyRecorded(redone.applied[0]);
+  await acknowledge(redone.applied[0]);
+
+  assert.deepEqual(
+    acknowledged,
+    [...acknowledged].sort((a, b) => a - b),
+  );
+  assert.equal(new Set(acknowledged).size, acknowledged.length);
+  assert.ok(acknowledged[0] > 2_147_483_646);
+  const restartedReceipts = preview.createPreviewOperationReceiptSequencer();
+  assert.equal(restartedReceipts.issue(created.operation), acknowledged[0]);
+  assert.throws(
+    () => restartedReceipts.issue({ ...created.operation, actorId: "00000000-0000-4000-8000-000000000006" }),
+    /identity cannot be reused/,
+  );
+  assert.ok(restartedReceipts.issue({ ...redone.applied[0].operation, createdAt: "2026-09-07T00:00:00.001Z" }) > acknowledged[3]);
+  assert.equal(
+    adapter.getSnapshot().state.objects[objectId].name,
+    "Renamed rectangle",
+  );
+  adapter.dispose();
+  document.destroy();
+});
+
+test("preview receipt sequence rejects safe-integer exhaustion before issuing an invalid ACK", () => {
+  const receipts = preview.createPreviewOperationReceiptSequencer();
+  const createdAt = new Date(Math.floor(Number.MAX_SAFE_INTEGER / 1000)).toISOString();
+  const floor = Date.parse(createdAt) * 1000;
+  const operation = (index) => ({
+    revisionId: "00000000-0000-4000-8000-000000000004",
+    clientOperationId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    createdAt,
+  });
+  for (let index = 0; index <= Number.MAX_SAFE_INTEGER - floor; index++)
+    assert.equal(receipts.issue(operation(index)), floor + index);
+  assert.throws(() => receipts.issue(operation(1001)), /sequence is exhausted/);
+  assert.equal(receipts.issue(operation(0)), floor, "earlier receipts remain idempotent after exhaustion");
 });

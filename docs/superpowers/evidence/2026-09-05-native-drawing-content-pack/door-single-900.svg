@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1044mm" height="1044mm" viewBox="0 0 1044 1044">
+<rect x="0" y="0" width="1044" height="1044" fill="#ffffff"/>
+<g data-export-id="10000000-0000-4000-8000-000000000006/jamb-left" transform="matrix(1 0 0 1 72 72)">
+<line x1="0" y1="0" x2="0" y2="100" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/jamb-right" transform="matrix(1 0 0 1 72 72)">
+<line x1="900" y1="0" x2="900" y2="100" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/leaf" transform="matrix(1 0 0 1 72 72)">
+<line x1="0" y1="0" x2="0" y2="900" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+<g data-export-id="10000000-0000-4000-8000-000000000006/swing" transform="matrix(1 0 0 1 72 72)">
+<polyline points="900,0 869.3334,232.9371 779.4225,450 636.3963,636.3963 450,779.4225 232.9371,869.3334 0,900" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+</svg>

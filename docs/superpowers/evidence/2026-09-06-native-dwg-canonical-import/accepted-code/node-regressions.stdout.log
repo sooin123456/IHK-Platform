@@ -1,0 +1,737 @@
+✔ canonical drawing room names round-trip lower-case UUID scopes only (2.753041ms)
+✔ operation envelopes accept only the existing canonical drawing operation contract (3.081417ms)
+✔ operation receipt source is canonical and excludes the non-authoritative client clock (0.436125ms)
+✔ operation envelopes enforce protocol and bounded operation collections (2.240459ms)
+✔ history lineage is bounded, paired, canonical, and exact (0.203334ms)
+✔ server-only metadata and operation status reject client fields and malformed authority (0.225791ms)
+✔ authoritative operation status preserves a deleted result as null (0.074084ms)
+✔ append validation preserves the immutable operation order and accepts only the verified actor (0.741083ms)
+✔ same durable operation ID is a convergent idempotent order entry (0.217625ms)
+✔ operation order bounds unique IDs separately from recovery contributions (26.54275ms)
+✔ append validation accepts a bounded same-actor catch-up suffix (0.424583ms)
+✔ append validation binds every new envelope to the canonical room revision (0.117125ms)
+✔ awareness is bounded, strict, and carries only ephemeral drawing state (0.470583ms)
+✔ hydrates every P2 collection into one canonical document state (3.257167ms)
+✔ public hydration always validates rows and graph invariants (37.746ms)
+✔ public hydration authority cannot mint a proof for malformed nested entities (6.632125ms)
+✔ canonical object parsing validates its outer row and selected geometry schema (0.336875ms)
+✔ schema-validated canonical entities are not cloned again (0.34775ms)
+✔ store preserves canonical P2 state and falls back to the page default after active canvas deletion (1.463625ms)
+✔ store leaves the prior snapshot intact when a structure batch conflicts (0.208167ms)
+✔ post-validation nested mutation cannot bypass document replacement validation (0.177292ms)
+✔ schema-validated hydration exposes one immutable authoritative proof (0.458375ms)
+✔ hydration fails closed on a malformed P2 row (0.171625ms)
+✔ hydration rejects orphaned, cross-revision, colliding, defaultless, and non-editable P2 graphs (0.971458ms)
+✔ non-draft stores reject mutations before changing their snapshot (0.178208ms)
+✔ transient state synchronously removes inactive, locked, and non-draft editing state (0.320958ms)
+✔ read-only viewers preserve visible active-canvas selection without gaining an edit layer or tool (0.158542ms)
+✔ read-only viewers retain the non-mutating pan tool without an edit layer (0.106ms)
+✔ transient selection inherits host visibility without pruning unrelated or locked-host selections (0.539791ms)
+✔ definition-only store updates change every effective style without changing object versions (19.886292ms)
+✔ transient authorization identity changes for canvas, draft, and capability boundaries (0.212625ms)
+✔ transient authorization identity includes the effective layer eligibility and version (0.108042ms)
+✔ authorization-boundary adapter never reuses rectangle or polyline selection input (0.085417ms)
+✔ applies a three-phase DXF plan with exact recorded envelopes (8.47975ms)
+✔ preserves and validates exact DXF history-group metadata (2.618625ms)
+✔ undoes and redoes a multi-phase DXF import as one user history unit (30.94325ms)
+✔ preflights a whole DXF history group atomically before returning operations (0.839083ms)
+✔ re-attests a complete queued DXF group before releasing it (10.252666ms)
+✔ re-attests user-selected queued DXF units without sending declared units (1.572167ms)
+✔ does not re-attest non-DXF queued operations (0.069917ms)
+✔ does not re-attest derived DXF undo or redo operations (2.501875ms)
+✔ DXF send gate awaits one recovered attestation and invalidates a changed sibling (19.030708ms)
+✔ fresh DXF send gates are exact and isolated by workspace lifecycle (1.705083ms)
+✔ a failed DXF send-gate preparation never sends or poisons its retry cache (1.173375ms)
+✔ fails closed for incomplete, reordered, duplicate, or inconsistent queued DXF groups (1.606208ms)
+✔ fails closed when the re-prepared DXF plan changes its identity or operations (2.647083ms)
+✔ fails closed when the queued operation is not exact group evidence (0.8515ms)
+✔ posts queued DXF preparation through the existing form action and rejects unsafe responses (31.539875ms)
+✔ fails closed on malformed or incomplete DXF history-group metadata (0.791625ms)
+✔ resumes partial DXF group undo and redo transitions (1.123041ms)
+✔ keeps an ungrouped command as one undo and redo unit (0.289083ms)
+✔ rejects DXF history groups with mixed actor or revision authority (0.560708ms)
+✔ rejects a planned envelope whose inverse cannot be regenerated exactly (0.635084ms)
+✔ resumes exact materialized prefixes after a canonical reload without receipts (34.669417ms)
+✔ installs receipt-recovered DXF history in the live draft without re-enqueueing committed originals (53.737ms)
+✔ rejects graph-equal recovered DXF history with a forged inverse (12.464625ms)
+✔ keeps a fresh DXF import undoable after its first authoritative checkpoint (17.667083ms)
+✔ reconstructs fresh DXF history from a persisted Yjs ledger before its first checkpoint (16.579958ms)
+✔ installs a newer checkpoint when an unseen same-user remote receipt explains its graph (7.819458ms)
+✔ retains a same-user receipt that arrives while checkpoint digests are pending (44.346833ms)
+✔ rejects a mismatched checkpoint after its late same-user receipt becomes visible (8.727916ms)
+✔ rejects a checkpoint verification changed by an unrelated late operation (10.739958ms)
+✔ retains unseen checkpoint receipts across operation and status arrival order (82.881333ms)
+✔ blocks a newer checkpoint until its unseen receipt is verified (22.454583ms)
+✔ quarantines an unseen checkpoint whose later receipt proves a graph mismatch (13.77125ms)
+✔ validates visible checkpoint receipts independently of an unrelated pending edit (9.943458ms)
+✔ rolls back a verified checkpoint when projection replacement throws (12.662125ms)
+✔ rolls back an ordinary checkpoint when projection replacement throws (0.570416ms)
+✔ subscriber exceptions do not roll back a committed checkpoint (0.244167ms)
+✔ rejects a mismatched checkpoint when every boundary receipt is locally visible (4.935166ms)
+✔ keeps recovered DXF history through suffix, grouped undo, and grouped redo checkpoints (127.58225ms)
+✔ absorbs receipt-proven DXF suffix checkpoints that arrive before local ACK state (42.638125ms)
+✔ absorbs every partial grouped Undo checkpoint before local ACK state (60.898708ms)
+✔ absorbs every partial grouped Redo checkpoint before local ACK state (164.293708ms)
+✔ rejects inexact canonical checkpoint outcomes before changing recovered history (113.062625ms)
+✔ rejects local ACK conflicts but accepts canonical receipts over stale server pending (67.689083ms)
+✔ a later conflicting grouped receipt cannot leak an earlier checkpoint ACK (46.14025ms)
+✔ ignores exact compacted receipts outside the new checkpoint boundary (30.509833ms)
+✔ discards recovered DXF history when the authoritative graph changes (6.424166ms)
+✔ does not preserve recovered DXF history around an unrelated pending edit (9.805625ms)
+✔ classifies exact committed DXF plans after undo or redo without replaying original mutations (31.676667ms)
+✔ rejects canonical DXF receipt authority mismatches before history hydration (2.367ms)
+✔ rejects a DXF history member attached to another actor stack (0.995708ms)
+✔ fails closed on a partial or different materialized DXF phase (1.252291ms)
+✔ rejects adversarial DXF object/source compounds before recording (1.285666ms)
+✔ supports exact prefix resume and an exact whole-plan retry (1.9465ms)
+✔ rejects a reused operation ID with a different envelope or actor (1.463334ms)
+✔ rejects non-exact, duplicate, and cross-revision plan input (0.819417ms)
+✔ DXF import plan preserves exact local source lineage and only actual raw handles (51.306584ms)
+✔ DXF import plan keeps each object and source atomic in forward and inverse operations (22.046834ms)
+✔ DXF import plan stages editable layers before objects and restores source state last (27.456417ms)
+✔ DXF import plan chunks atomic records within the live collaboration contract (2003.186458ms)
+✔ DXF import plan IDs support exact retry, prefix resume, and explicit-unit retry (48.675041ms)
+✔ DXF import plan fails closed before execution when total operation count is too large (16.13ms)
+✔ DXF import plan fails closed before execution when the response plan is too large (16.100542ms)
+✔ DXF adapter imports the pinned upstream extended-data fixture deterministically (94.5565ms)
+✔ DXF extent sentinel exemption preserves coordinate and finite-number limits (130.247292ms)
+✔ DXF adapter normalizes supported 2D entities and emits canonical deterministic operations (52.538917ms)
+✔ DXF adapter uses declared units and never guesses a missing or unitless drawing unit (49.472833ms)
+✔ DXF adapter resumes a missing-unit import only with an explicit allowed unit selection (48.424375ms)
+✔ DXF adapter blocks a user-selected unit that conflicts with the declared unit (37.338875ms)
+✔ DXF adapter reports unsupported, incomplete, curved, and unsafe INSERT entities instead of approximating them (23.840416ms)
+✔ DXF adapter explicitly skips paper-space and hidden entities (17.939833ms)
+✔ DXF adapter preserves off, frozen, and locked source layer state (27.738084ms)
+✔ DXF adapter resolves layer identity case-insensitively with stable table spelling (19.564208ms)
+✔ DXF adapter reports case-folded duplicate layer table names (0.211083ms)
+✔ DXF adapter reports normalized entity style semantics (20.047542ms)
+✔ DXF adapter reports truecolor and INSERT style inheritance normalization (27.531ms)
+✔ DXF adapter inventories entity types that dxf-parser drops (21.115583ms)
+✔ DXF raw preflight counts points in entities that dxf-parser drops (17.868416ms)
+✔ DXF raw preflight rejects unsafe coordinates in entities that dxf-parser drops (17.961667ms)
+✔ DXF raw preflight rejects non-finite coordinates in entities that dxf-parser drops (0.228042ms)
+✔ DXF raw preflight counts dropped HATCH pattern base points (21.479041ms)
+✔ DXF raw preflight rejects unsafe dropped HATCH pattern coordinates (20.358667ms)
+✔ DXF raw preflight rejects non-finite dropped HATCH pattern coordinates (1.230083ms)
+✔ DXF adapter preserves only actual raw handles with section-relative entity identity (21.267125ms)
+✔ DXF adapter preserves actual BLOCK child handles without borrowing INSERT handles (31.452209ms)
+✔ DXF adapter fails closed when duplicate BLOCK names could corrupt raw lineage (0.395ms)
+✔ DXF adapter canonicalizes lowercase raw handles and rejects invalid handles (26.533541ms)
+✔ DXF adapter bounds BLOCK symbols before parser expansion (0.498834ms)
+✔ DXF adapter does not drop legacy POLYLINE header widths (0.372083ms)
+✔ DXF adapter does not approximate horizontally scaled TEXT (0.183125ms)
+✔ DXF adapter does not treat the default-alignment TEXT second point as a width (20.26975ms)
+✔ DXF adapter bounds TEXT before parser and width expansion (0.41525ms)
+✔ DXF adapter does not flatten semantic legacy POLYLINE VERTEX flags (0.57575ms)
+✔ DXF raw preflight counts entity types that the parser discards (0.121792ms)
+✔ DXF raw preflight caps detailed unsupported reports with an exact omitted count (15.731417ms)
+✔ DXF report cap continues from raw inventory through parsed skips (24.469792ms)
+✔ DXF report cap also bounds conversion details (24.402875ms)
+✔ DXF raw preflight enforces the elapsed deadline before parser work (0.548708ms)
+✔ DXF adapter flattens a bounded local block with an exact 2D transform and inherited layer (16.939167ms)
+✔ DXF adapter fails closed on byte, entity, point, block-depth, coordinate, finite-number, NUL, and elapsed-work limits (85.995041ms)
+✔ DXF adapter chunks deterministic operations to the existing collaboration byte and item contract (378.381083ms)
+✔ DXF adapter blocks one entity that cannot fit the canonical collaboration operation (19.13775ms)
+✔ DXF adapter never substitutes an origin for a missing BLOCK base point (26.464334ms)
+✔ DXF parser runs in a terminable worker rather than the request event loop (1.473042ms)
+✔ DXF parser remains a statically traced production dependency (1.227583ms)
+✔ workspace action authorizes the exact DXF target before source download and parse (47.364ms)
+✔ DXF action waits for attestation and returns the existing browser plan unchanged (49.568625ms)
+✔ DXF action does not load admin for blocked or empty plans (23.097625ms)
+✔ DXF action bounds issuer and dynamic-admin failures as retryable source errors (28.332042ms)
+✔ DXF plan preparation skips loader revalidation and is exposed as an editor control (2.15025ms)
+✔ blank workspace DXF upload preserves its workspace and preselects only a catalog source (1.529833ms)
+✔ verified immutable project DXF is re-hashed before an atomic import plan is returned (68.424458ms)
+✔ project prepare returns only an exact canonical persisted DXF prefix (52.689834ms)
+✔ project prepare rejects non-prefix or mismatched canonical DXF receipts (136.254708ms)
+✔ DXF source lookup, metadata, size, and stored SHA fail closed (0.700875ms)
+✔ unitless DXF returns UNIT_REQUIRED and the exact explicit-unit retry succeeds (39.406458ms)
+✔ DXF import form is exact and derives the unit label server-side (14.586666ms)
+✔ DXF import scope blocks read-only, frozen, foreign revision and canvas before parsing bytes (1.364875ms)
+✔ DXF attestation sends the exact immutable plan identities and operations to the issuer (24.131625ms)
+✔ DXF attestation accepts exact, repeated, and committed-prefix receipts (24.627792ms)
+✔ DXF attestation fails closed for issuer errors and invalid receipts (32.759958ms)
+✔ DXF attestation maps a thrown issuer transport failure to a retryable source error (20.502584ms)
+✔ request identity is reused only for the exact six-field source and reset for retry (0.49225ms)
+✔ an uncertain request identity survives control unmount and reopen in session storage (0.491292ms)
+✔ one in-flight request suppresses double click and ignores a stale scope response (0.165792ms)
+✔ poll scheduling exists only for an open active job and aborts on close (0.12325ms)
+✔ the rendered control honestly exposes pending, retrying, failed and completed states (8.863792ms)
+✔ client status validation refuses unbounded errors and incomplete completed receipts (0.864375ms)
+✔ unsupported imported or multi-canvas sources render actionable errors (10.43ms)
+✔ native DWG paths preserve exact scope and fixed artifact names (1.228459ms)
+✔ browser control resumes status after replay returns the same accepted job (930.340541ms)
+✔ browser control ignores a duplicate click before mutating the live request (371.614792ms)
+✔ strict public scope, status and receipt codecs reject extra and cross-identity data (2.449959ms)
+✔ strict service claim codec binds scope, source and immutable image (5.886875ms)
+✔ authenticated helpers send exact frozen RPC arguments and validate result evidence (0.747958ms)
+✔ result and status helpers fail closed on null, changed, malformed or oversized evidence (5.439583ms)
+✔ helpers require abortable RPC transport and map bounded database codes (0.374209ms)
+✔ Docker forwarding shim preserves executable and tracker paths containing shell metacharacters (1430.543125ms)
+✔ worker cleanup allows the production SIGTERM lifecycle to finish (44.289583ms)
+✔ worker cleanup force-stops a resistant child before narrowly cleaning its owned residue (92.329791ms)
+✔ optional canonical callback preserves default evidence and nests its separate proof (0.513666ms)
+✔ native planner maps public report handles to exact canonical DWG sources (66.142041ms)
+✔ native planner emits the same three atomic phases with exact inverses (40.0705ms)
+✔ native object and source compounds apply atomically without becoming DXF (17.536875ms)
+✔ native source schema rejects unknown keys and report, handle, source, or unit mismatches (14.311917ms)
+✔ native planner fails closed for empty and oversized projections (1629.869083ms)
+✔ authenticated native preparation validates context before issuing exact operations (18.415667ms)
+✔ authenticated actor and target mismatches fail before service credentials load (3.261334ms)
+✔ malformed resolved auth transport is mapped to the safe actor error (3.364292ms)
+✔ raw client reports and malformed authenticated envelopes are rejected (1.835667ms)
+✔ report hash, byte count, source and scope corruption fail before attestation (6.363959ms)
+✔ only an analyzed not-issued receipt can be promoted by preparation (16.355583ms)
+✔ malformed service transport and attestation receipts never return partial authority (38.683959ms)
+✔ same analyzed job prepares an identical operation-attested replay (11.05025ms)
+✔ preparation recovers only the exact persisted canonical prefix (40.745167ms)
+✔ changed stored native operation is rejected instead of accepted as replay (4.273917ms)
+✔ worker is idle without a claim and publishes one strict immutable report (5.655333ms)
+✔ source length, hash and header corruption fail before native parsing (0.82675ms)
+✔ invalid or source-changed reports fail without publication (0.471666ms)
+✔ reader failures are retried and bounded failure acknowledgement errors are safe (0.446542ms)
+✔ cancellation before and after native read never publishes (0.409583ms)
+✔ deadline before publication fails the attempt instead of publishing late (0.133666ms)
+✔ stale and ambiguous completion are never retried or failed under another identity (0.570375ms)
+✔ configured-origin transport authorizes an exact encoded path and exact body (38.825583ms)
+✔ source transport accepts an exact chunked body but rejects redirects, lying lengths, short/oversized streams and stalls (119.598458ms)
+✔ adapter rejects malicious origin, path and configuration before RPC or network (0.752291ms)
+✔ publication adapter rejects a mismatched digest before sending the exact identity (0.41525ms)
+✔ real Supabase RPC HTTP stays on the configured origin with service authorization (8.992875ms)
+✔ real Supabase RPC redirect never forwards service authorization (4.035583ms)
+✔ import CLI configuration requires an immutable image and explicit Docker socket (0.400209ms)
+✔ real import CLI composes strict adapter config, claims idle and stops on SIGTERM (297.302625ms)
+✔ projects native WCS primitives into millimeters while preserving exact native bindings (10.918375ms)
+✔ same source and target retries preserve request, layer, object and binding identities (1.886041ms)
+✔ unknown units require an explicit supported override and declared units cannot be changed (0.988167ms)
+✔ source drift, duplicate native handles and inconsistent coverage fail closed (0.567334ms)
+✔ strict report validation rejects unknown fields and projected extents outside the 9e9mm domain (12.913875ms)
+✔ strict report validation rejects a trailing high surrogate in native TEXT (0.450458ms)
+▶ strict report validation and projection reject native TEXT outside the plain-text contract
+  ✔ U+0085 control (0.771417ms)
+  ✔ U+2028 line separator (1.143417ms)
+  ✔ U+2029 paragraph separator (1.333792ms)
+  ✔ percent-percent expression (2.410792ms)
+  ✔ field expression (0.618875ms)
+  ✔ oversized UTF-16 length (0.4745ms)
+✔ strict report validation and projection reject native TEXT outside the plain-text contract (10.620667ms)
+✔ a nonzero full-turn native ARC projects as a 360 degree sweep (2.64925ms)
+✔ native ARC rejects explicit sweeps larger than one full turn (0.446209ms)
+✔ unsupported native handle samples cannot outnumber their exact group count (0.182959ms)
+✔ native DWG resource routes expose only framework server entrypoints (0.758875ms)
+✔ user helpers validate exact DTOs and send only the approved RPC arguments (1.821834ms)
+✔ strict scope and artifact validation rejects unknown input before transport (1.165333ms)
+✔ request route enforces method, exact origin, body bound, and route scope (11.222667ms)
+✔ status route accepts only exact query scope and returns durable no-store state (1.23725ms)
+✔ download verifies the exact managed object then reauthorizes before attachment (15.580292ms)
+✔ download route accepts GET with only the four query scope fields (1.016709ms)
+✔ missing receipt, unknown kind, malformed path and hash mismatch never leak Storage bytes (1.11525ms)
+✔ download rejects a revoked second authorization after verification without exposing bytes (9.178458ms)
+✔ status helper rejects a receipt attached to another exact source (0.288959ms)
+✔ route auth denial occurs before any service client creation and preserves bounded headers (0.32925ms)
+✔ download cancels real Storage HTTP before headers and during body on deadline or request abort (441.989208ms)
+✔ reader rejects mismatched original-byte identity through a bounded public failure (1.05775ms)
+✔ reader rejects high-bit aliases of the six ASCII header bytes before native execution (26.923792ms)
+✔ actual native process errors stay bounded and clean the owned temporary directory (409.623709ms)
+✔ reader refuses to delete a replacement directory at its former owned path (1088.8675ms)
+✔ actual .NET reader returns an original-byte report consumable by the real projector (1026.909667ms)
+✔ production create argv fixes confinement and the native command (78.604041ms)
+✔ configuration, abort and exact raw source validation happen before Docker spawn (12.049917ms)
+✔ successful transport requires owned stopped receipt, exact bytes and clean CLI environment (1218.125291ms)
+✔ daemon profile deviations fail before start and remove only the owned container (8200.022542ms)
+✔ live, nonzero, OOM, malformed, overflowing and source-mismatched reports never succeed (6950.932584ms)
+✔ lost or malformed create receipts reconcile exact name once and clean owned identity (2756.798042ms)
+✔ outer deadline and cancellation use separate cleanup authority (3226.720125ms)
+✔ caller bytes are snapshotted before awaits and mutation prevents publication (686.324084ms)
+✔ foreign ownership is never permission to start or delete (1294.191125ms)
+✔ unenforced daemon limits and image-provided volumes are refused before create (3431.828959ms)
+✔ validated Docker configuration is captured before caller mutation (743.23975ms)
+✔ unexpected stderr, BOM and overflowing metadata fail closed (1841.728584ms)
+✔ caller mutation while cleanup runs still prevents report publication (1088.901417ms)
+✔ an extra network attachment or changed shared-memory limit prevents start (1255.214ms)
+✔ every CLI command uses a private empty config, avoiding hostile home fallback and cleaning on failure (1414.809125ms)
+✔ replacement of the owned CLI config directory is preserved and fails the read (697.645834ms)
+✔ caller mutation during private config cleanup prevents publication (724.719583ms)
+✔ caller cancellation during private config cleanup prevents publication (679.655667ms)
+✔ converts only a changed centimeter LINE endpoint back to the original handle and native units (10.358666ms)
+✔ retains an unchanged raw native endpoint instead of reconstructing it from six-decimal display geometry (1.000666ms)
+✔ emits null for an unchanged projection even when object order changes or versions increase (0.817375ms)
+✔ a valid TEXT value change emits only text and edits are sorted by numeric native handle (0.788417ms)
+▶ rejects new, missing, and duplicate object identities
+  ✔ new object (1.25725ms)
+  ✔ missing object (0.364583ms)
+  ✔ duplicate object (0.325791ms)
+✔ rejects new, missing, and duplicate object identities (2.462542ms)
+▶ rejects immutable object metadata and geometry-kind changes
+  ✔ name (0.387ms)
+  ✔ layer (0.343125ms)
+  ✔ style (0.350333ms)
+  ✔ style binding (6.539542ms)
+  ✔ geometry kind (6.133375ms)
+✔ rejects immutable object metadata and geometry-kind changes (14.304042ms)
+▶ rejects unsupported shape changes and TEXT placement changes atomically
+  ✔ unsupported shape (0.357666ms)
+  ✔ TEXT origin (0.311875ms)
+  ✔ TEXT width (0.272458ms)
+✔ rejects unsupported shape changes and TEXT placement changes atomically (1.390583ms)
+▶ rejects decreasing versions and invalid edited-object schema before compiling any request
+  ✔ decreased version (1.703667ms)
+  ✔ unknown object field (5.122958ms)
+  ✔ zero-length LINE (0.878125ms)
+✔ rejects decreasing versions and invalid edited-object schema before compiling any request (8.103291ms)
+▶ rejects invalid selected-DWG plain TEXT values
+  ✔ too long (0.427958ms)
+  ✔ unpaired surrogate (0.34475ms)
+  ✔ terminal high surrogate (0.306667ms)
+  ✔ control (0.335959ms)
+  ✔ line separator (0.415709ms)
+  ✔ CAD percent escape (0.359083ms)
+  ✔ CAD field (0.405459ms)
+✔ rejects invalid selected-DWG plain TEXT values (3.089792ms)
+✔ rejects a compact UTF-8 request above the native consumer's 2 MiB limit (52.992875ms)
+✔ approved native template returns an unchanged CAD manifest and separate deterministic authority lineage (25.652209ms)
+✔ approved native lineage orders same-id issue links by object id independently of input order (9.722458ms)
+✔ approved literal canonical line projects exact independent CAD geometry (14.233041ms)
+✔ loader calls the authenticated read-only RPC once with only exact named scope (4.942959ms)
+▶ request and returned authority scope must match exactly
+  ✔ project (1.005834ms)
+  ✔ document (0.64325ms)
+  ✔ revision (0.581875ms)
+  ✔ version (0.530208ms)
+  ✔ canvas (0.563791ms)
+  ✔ digest (0.5975ms)
+✔ request and returned authority scope must match exactly (4.331333ms)
+▶ tampered or malformed PostgreSQL text never becomes an approved source
+  ✔ tampered text (0.684042ms)
+  ✔ wrong hash (0.543417ms)
+  ✔ malformed hashed JSON (4.13175ms)
+✔ tampered or malformed PostgreSQL text never becomes an approved source (5.551667ms)
+▶ revision, approval and canonical identity must remain approved and exact
+  ✔ reviewed status (0.826834ms)
+  ✔ draft status (1.417292ms)
+  ✔ wrong decision (0.614709ms)
+  ✔ revision sequence (0.733416ms)
+  ✔ operation sequence (0.681333ms)
+  ✔ canonical project (0.671416ms)
+  ✔ canonical document (0.640041ms)
+✔ revision, approval and canonical identity must remain approved and exact (5.95275ms)
+▶ native projection rejects missing profiles, sources, backgrounds, extra canvases and unsupported geometry
+  ✔ missing persisted profile (1.043583ms)
+  ✔ object source (14.302875ms)
+  ✔ canvas background (2.698708ms)
+  ✔ additional canvas (1.178583ms)
+  ✔ unsupported entity (0.896584ms)
+✔ native projection rejects missing profiles, sources, backgrounds, extra canvases and unsupported geometry (20.403958ms)
+✔ canonical preimage is bounded before parsing (85.507459ms)
+▶ strict malformed requests and payloads fail without calling RPC
+  ✔ request 1 (0.171334ms)
+  ✔ request 2 (0.06525ms)
+  ✔ request 3 (0.09075ms)
+  ✔ request 4 (0.062333ms)
+  ✔ request 5 (0.045625ms)
+✔ strict malformed requests and payloads fail without calling RPC (2.670208ms)
+▶ RPC exceptions, returned errors, nulls and malformed payloads use one bounded error with no fallback
+  ✔ exception (0.139125ms)
+  ✔ returned error (0.079084ms)
+  ✔ null (0.088ms)
+  ✔ malformed (0.094209ms)
+✔ RPC exceptions, returned errors, nulls and malformed payloads use one bounded error with no fallback (0.953291ms)
+✔ approved source stages all four verified identities before immutable upload and publication (26.23875ms)
+✔ worker stays idle when no durable job is claimable (0.265042ms)
+✔ tampered approved source is terminal before conversion or staging (0.327208ms)
+✔ writer artifact and report tampering is terminal before staging (96.753333ms)
+✔ forged database path stops all storage writes (7.950084ms)
+✔ uncertain upload remains open even if the object becomes readable (5.223791ms)
+✔ confirmed duplicate upload reconciles through exact readback (21.163333ms)
+✔ uncertain or mismatching storage leaves the upload session open (27.89075ms)
+✔ post-read deadline exhaustion cannot settle or publish (4.37175ms)
+✔ expired claims fail with the fixed lease classification (0.207833ms)
+✔ writer hashes ordered published bytes, uses a killed bounded process, and confines cleanup (0.984917ms)
+✔ writer refuses symlinked builds and never cleans an unconfined path (0.461958ms)
+✔ Supabase adapter maps exact RPC arguments and rejects malformed DTOs (2.153167ms)
+✔ Supabase lifecycle RPC builders receive the operation AbortSignal (0.184208ms)
+✔ Supabase adapter sends exact lifecycle RPCs and bounded immutable Storage options (10.857208ms)
+✔ worker rejects malformed claim and publication DTOs without exposing data (18.184417ms)
+✔ writer rejects wrong or changing builds and cleans only its own directory (1.78925ms)
+✔ writer failure waits for the bounded killed process and still cleans (0.450125ms)
+✔ real writer process timeout hard-kills a SIGTERM-resistant child before rejecting (111.271416ms)
+✔ writer canonicalizes the trusted macOS temporary parent before creating and cleaning (0.730792ms)
+✔ explicit Storage transport bounds full response bodies and preserves upload uncertainty (317.302375ms)
+✔ writer checks output size before reading an oversized file (0.414917ms)
+✔ native worker config uses stable absolute environment names (22.094417ms)
+Approved BOQ material handoff failed {
+  requestId: 'fe92e504-f358-4685-b365-25769910b2b4',
+  code: 'P6O01',
+  stage: 'insert-handoff',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000121'
+}
+Approved BOQ material handoff failed {
+  requestId: '0deacd06-112a-447a-b301-1846c13cbe70',
+  code: 'P6O01',
+  stage: 'insert-handoff',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000119'
+}
+Approved BOQ material handoff failed {
+  requestId: '3ab108d5-f280-40d2-9e43-912201264b52',
+  code: 'P6M01',
+  stage: 'load-context',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000121'
+}
+Approved BOQ material handoff failed {
+  requestId: 'a6f482d8-c06b-4d28-b642-05df8f9bc8b3',
+  code: 'P6M01',
+  stage: 'load-context',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000121'
+}
+Approved BOQ material handoff failed {
+  requestId: '8badc327-56cf-4383-b2a0-45fc940732af',
+  code: 'P6M01',
+  stage: 'load-context',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000121'
+}
+Approved BOQ material handoff failed {
+  requestId: '5cd6bdef-2a75-4c43-92df-f594b00169ae',
+  code: 'P6M01',
+  stage: 'load-context',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000121'
+}
+Approved BOQ material handoff failed {
+  requestId: '258c8bc4-8868-40f9-b8dd-9e49ddeea8a3',
+  code: 'P6A01',
+  stage: 'authorize',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000151'
+}
+Approved BOQ material handoff failed {
+  requestId: '02ac80df-cb34-4053-9814-7d9642121021',
+  code: 'P6A01',
+  stage: 'authorize',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000151'
+}
+Approved BOQ material handoff failed {
+  requestId: '117a0976-cfdb-4c5c-84d3-7bbad0e55da8',
+  code: 'P6A01',
+  stage: 'authorize',
+  projectId: '00000000-0000-4000-8000-000000000103',
+  boqVersionId: '00000000-0000-4000-8000-000000000104',
+  operationId: '00000000-0000-4000-8000-000000000151'
+}
+Drawing quantity authority failed {
+  requestId: '7eb9e4d0-3727-4e9d-a3c7-640f62b7dbb8',
+  code: 'P6B04',
+  projectId: '00000000-0000-4000-8000-000000000202',
+  revisionId: '00000000-0000-4000-8000-000000000204',
+  objectId: '00000000-0000-4000-8000-000000000205',
+  linkId: '00000000-0000-4000-8000-000000000208'
+}
+Drawing quantity authority failed {
+  requestId: '406ba81e-da9e-4a59-a259-6f56f34cbd92',
+  code: 'P6A01',
+  projectId: '00000000-0000-4000-8000-000000000011',
+  revisionId: '00000000-0000-4000-8000-000000000013',
+  objectId: '00000000-0000-4000-8000-000000000014',
+  linkId: '00000000-0000-4000-8000-000000000015'
+}
+Drawing quantity authority failed {
+  requestId: '35486245-fc7c-4780-83cf-339bd2c2dbf7',
+  code: 'P6A01',
+  projectId: '00000000-0000-4000-8000-000000000011',
+  revisionId: '00000000-0000-4000-8000-000000000013',
+  objectId: '00000000-0000-4000-8000-000000000014',
+  linkId: '00000000-0000-4000-8000-000000000015'
+}
+Drawing quantity authority failed {
+  requestId: '6e99eb06-55f0-4077-a04b-20cdb98fed61',
+  code: 'P6A01',
+  projectId: '00000000-0000-4000-8000-000000000011',
+  revisionId: '00000000-0000-4000-8000-000000000013',
+  objectId: '00000000-0000-4000-8000-000000000014',
+  linkId: '00000000-0000-4000-8000-000000000015'
+}
+Drawing quantity authority failed {
+  requestId: 'a79bfa43-5678-4717-92a2-bb58b88d6624',
+  code: 'P6Q03',
+  projectId: '00000000-0000-4000-8000-000000000016',
+  revisionId: '00000000-0000-4000-8000-000000000018',
+  objectId: '00000000-0000-4000-8000-000000000019',
+  linkId: '00000000-0000-4000-8000-000000000020'
+}
+Drawing quantity authority failed {
+  requestId: 'e3eb9dc0-924e-4f27-a95e-6ebef556b1cb',
+  code: 'P6Q03',
+  projectId: '00000000-0000-4000-8000-000000000016',
+  revisionId: '00000000-0000-4000-8000-000000000018',
+  objectId: '00000000-0000-4000-8000-000000000019',
+  linkId: '00000000-0000-4000-8000-000000000020'
+}
+Drawing quantity authority failed {
+  requestId: '59151827-e765-4143-be7c-857868e3e6b9',
+  code: 'P6Q03',
+  projectId: '00000000-0000-4000-8000-000000000016',
+  revisionId: '00000000-0000-4000-8000-000000000018',
+  objectId: '00000000-0000-4000-8000-000000000019',
+  linkId: '00000000-0000-4000-8000-000000000020'
+}
+✔ bounded BOQ material reads remain complete under an API cap of one (1.298333ms)
+✔ bounded material reads preserve existing rows across leading and trailing appends (6.968875ms)
+✔ approved BOQ material handoff persists only selected authoritative material components (4.179125ms)
+✔ material handoff failures log a bounded server stage without leaking the cause (0.181292ms)
+✔ material manifest storage policy prevents a post-download delete from stranding a committed handoff (20.183458ms)
+✔ content-addressed material manifest metadata is reused across operation IDs (0.4505ms)
+✔ material manifest metadata reuse rejects foreign actors paths and noncanonical rows (6.146292ms)
+✔ material handoff fails closed on non-material, stale, missing, duplicate, or non-positive selected components (9.954375ms)
+✔ BOQ manifest storage path accepts only canonical UUIDs and lowercase file digests (1.019958ms)
+✔ material lineage traverses approved BOQ through plan, transactions, carbon, and file digests (12.484292ms)
+✔ material lineage resolves an exact transaction before the bounded link page (1.054ms)
+✔ material lineage fails closed for malformed, missing, and foreign-project transactions (16.905417ms)
+✔ material lineage rejects conflicting plan and transaction scopes with a controlled 400 (0.147375ms)
+✔ material lineage fails closed when the selected transaction disappears during resolution (1.189084ms)
+✔ material lineage cursor returns every link once across bounded pages (57.300167ms)
+✔ material lineage rejects an orphan BOQ line filter before querying (0.134791ms)
+✔ material lineage reads every referenced carbon factor beyond one API page (1.601625ms)
+✔ material lineage starts from one exact carbon factor and merges its baseline and transaction plan union (0.80075ms)
+✔ material lineage merges more than 100 carbon-factor plans in exact timestamp order across cursor pages (25.50275ms)
+✔ material lineage rejects malformed, missing, and foreign carbon factor identities (0.293458ms)
+✔ material lineage returns an empty page for an unused factor and rejects factor scope conflicts (0.262166ms)
+✔ procurement and site roles gain no BOQ material handoff write authority (0.387959ms)
+✔ trusted quantity creation forwards only server-derived evidence (3.0045ms)
+✔ quantity authority rejects native payload attempts to shadow row identity (0.593792ms)
+✔ quantity creation rejects anonymous and read-only roles before database access (0.1865ms)
+✔ owner, estimator, and verified staff reach trusted authority with server identity (0.201583ms)
+✔ lineage pages by created_at and id with a hard 200 row bound (22.179292ms)
+✔ quantity lineage marks material presence only for the exact project version and line (7.28475ms)
+✔ quantity lineage reports each downstream material stage from exact linked plans (0.385125ms)
+✔ quantity lineage batches more than 100 material plans and includes every transaction (2.12025ms)
+✔ quantity lineage pages capped transactions and treats return alone as site activity (2.754625ms)
+✔ quantity lineage fails closed on transaction query, shape, and scope faults (2.640125ms)
+✔ quantity lineage rejects 10,001 matching transactions (55.718458ms)
+✔ material presence batches at most 100 BOQ line identities (1.206458ms)
+✔ material presence reads only linked version-line groups before its 10,000-row limit (18.315917ms)
+✔ material presence shares its 10,000-row limit across exact version-line groups (162.357541ms)
+✔ material presence remains complete under a capped PostgREST page (0.276417ms)
+✔ exact BOQ evidence is included even when its quantity is older than the first page (1.307625ms)
+✔ workspace resolution returns canonical lineage before building its exact route (0.611208ms)
+✔ approved source-free BOQ lineage needs no evidence-file query (0.94825ms)
+✔ workspace resolution rejects draft, unhashed, and unapproved lineage (0.649083ms)
+✔ workspace resolution cannot omit an existing active evidence source (0.146208ms)
+✔ 1.1 RPC input parser keeps fixed authoritative fields and rejects injection (1.892334ms)
+✔ BOQ link put accepts only IDs factor and OCC version, supports partial and exact retry (0.27025ms)
+✔ BOQ link put/delete bounds allocation, unit, authorization, project, and OCC failures (0.253292ms)
+✔ verified BOQ Drawing source loader caps sources and links at 200 (2.355583ms)
+✔ verified BOQ Drawing links resolve exact immutable workspace ancestry in bulk (5.930458ms)
+✔ verified BOQ Drawing source fallback is bound to the exact revision and object (0.214458ms)
+✔ PDF document entry keeps its pathname while IFC evidence opens exact split focus (0.218959ms)
+✔ verified BOQ source-free links expose the canonical workspace without a file query (0.140875ms)
+✔ verified BOQ workspace links require an approved or superseded frozen version (0.350667ms)
+✔ bulk evidence resolution fetches the complete bounded entry and anchor file union (16.029708ms)
+✔ verified BOQ Drawing source loader always includes old mapped sources before filling the 200 row page (2.702ms)
+✔ verified BOQ Drawing source loader fails closed for cross-project RLS denial (0.182667ms)
+✔ 1.1 submission calculates trusted input then compare-and-freezes exact hashes (1.492917ms)
+✔ 1.1 submission fails closed on uncalculated input and finalize race (0.523666ms)
+✔ 1.1 decision reruns frozen hashes, requires an independent reviewer, and forwards no hashes (2.069666ms)
+✔ approved export reloads authoritative input and denies non-approved or stale snapshots before bytes (20.251167ms)
+✔ approved export pages every WBS row instead of accepting a PostgREST-capped workbook (72.974792ms)
+✔ approved export continues WBS pagination below the requested page size (22.040625ms)
+✔ approved export batches the complete immutable evidence-file union (60.06775ms)
+✔ approved export binds source anchor IDs to the frozen database input (0.200083ms)
+✔ approved estimate replay confirms only hash-matched persisted drawing quantity and BOQ links (1.252625ms)
+✔ approved estimate replay rejects hash, project, link, and snapshot mismatches (0.943958ms)
+✔ approved estimate replay rejects an unexpected persisted BOQ link instead of confirming a superset (0.250875ms)
+✔ approved estimate replay rejects duplicate tuples and changed exact allocation factors (0.371292ms)
+✔ approved estimate replay rejects an extra BOQ link backed by another drawing snapshot (0.209834ms)
+✔ approved estimate replay preserves one persisted quantity split across BOQ lines (0.308ms)
+✔ P6 converts P4 length, area, and count exactly (1.078583ms)
+✔ P6 rejects unavailable, wrong-rule, and volume measurements (0.257958ms)
+✔ P6 conversion rejects quantities outside the approved numeric(29,12) contract (0.127292ms)
+✔ P6 fingerprints the existing canonical P4 object fingerprint (0.458417ms)
+✔ P6 derives exact material quantities with six-place half-away rounding (0.329042ms)
+✔ P6 preserves an intentionally blank material specification (0.071459ms)
+✔ P6 material handoff rejects incompatible, duplicate, negative, and overflowing components (0.207875ms)
+✔ P6 rejects conflicting material identities in either input order (0.090625ms)
+✔ P6 material plans are bytewise sorted and byte-identical across 100 runs (2.216208ms)
+✔ DrawingObjectSource accepts only exact PDF, IFC, and DXF evidence keys (7.135875ms)
+✔ DrawingObjectSource preserves exact DXF entity and conversion lineage (3.063375ms)
+✔ source hashes, GlobalIds, cameras, and normalized regions are canonical (3.317041ms)
+✔ camera canonicalization cannot turn finite input into non-finite evidence (0.390292ms)
+✔ source-map validation checks final object/revision identity and active uniqueness (1.854208ms)
+✔ source structure actions use exact bases, versions, inverses, and final graphs (7.758625ms)
+✔ source canonical comparison ignores key order but detects value normalization and shape changes (0.955167ms)
+✔ a privileged direct group cannot wrap an unchanged baseline layer (2000.093416ms)
+✔ canonical operation proof survives a session timezone change (55.912292ms)
+✔ issuer authority, target bindings, complete topology, and exact re-attestation fail closed (98.209208ms)
+✔ issuer rejects inherited layer_delete phases without issuing partial proofs (27.547834ms)
+✔ issuer rejects inherited object_source_delete phases without issuing partial proofs (24.41125ms)
+✔ additive rollout reconciles exact committed prefixes with absent or unconsumed proofs (99.413958ms)
+✔ re-attestation rejects rogue, sparse, and reordered legacy group members atomically (74.46425ms)
+✔ reference-aware original, undo, and redo rewrites cannot introduce a novel DXF source (87.5595ms)
+✔ a real server plan requires service attestation and rejects a one-coordinate mutation atomically (43.770708ms)
+✔ an explicitly discarded DXF plan operation stays terminal before attestation recovery (28.774625ms)
+✔ canonical DXF three-phase plan persists, resumes, finalizes v1 to v2, and rejects mixed compounds (35.66075ms)
+✔ DXF history group metadata is required and exact for new imports (15.483167ms)
+✔ ungrouped P2 layer rename, reorder, and canvas moves are not DXF finalization (26.187417ms)
+✔ ungrouped layer deletion stays on the generic P2 structure authority (19.090167ms)
+✔ grouped finalization cannot attest an ordinary preexisting layer (7.490834ms)
+✔ freezing and frozen rooms reject new grouped operation application (19.835125ms)
+✔ freeze leases reject incomplete groups and fence later grouped appends (18.451084ms)
+✔ freezing and frozen rooms reject direct grouped operation append (15.1585ms)
+✔ freezing and frozen rooms reject privileged grouped ledger rewrites (44.297875ms)
+✔ freeze completion rechecks group completeness after a racing append (18.847834ms)
+✔ exact direct grouped undo cannot claim a layer mutation that never happened (42.001917ms)
+✔ a privileged empty grouped payload fails at the provenance boundary (5.295833ms)
+✔ a privileged fake later operation cannot bridge a history version gap (21.257417ms)
+✔ two privileged direct ordinary operations cannot bridge a history version gap (17.633541ms)
+✔ grouped layer history rejects an undo targeting another valid layer (34.142667ms)
+✔ grouped layer history rejects an undo with another valid phase (25.703667ms)
+✔ grouped compound history rejects an undo targeting another valid object-source pair (34.377375ms)
+✔ exact direct grouped compound history cannot omit object or source mutations (30.822708ms)
+✔ DXF history groups fence partial import, undo, redo, and a second undo (251.929166ms)
+✔ completed grouped imports remain valid after ordinary layer and object edits (45.145917ms)
+✔ the actual INSERT adapter plan persists raw BLOCK-child source lineage (32.964208ms)
+✔ DXF source insert reload, strict JSON, retry, and direct DML authority (20.646625ms)
+✔ wrong kind, project, SHA, mutable file, and mixed payload fail atomically (16.667458ms)
+✔ put object plus source is atomic and its exact inverse deletes source before object (63.557708ms)
+✔ an edited DXF object deletes only with its current canonical inverse (25.626667ms)
+✔ checkpoint restore and approved clones preserve exact DXF lineage (93.763417ms)
+✔ BOQ anchor JSON is exact for DXF and byte-compatible for PDF and IFC (62.706417ms)
+✔ source loader returns exact active PDF, IFC, DXF, and native DWG payloads (23.64275ms)
+✔ source loader rejects cross-revision evidence (1.619333ms)
+✔ source loader rejects native payload attempts to shadow row identity (0.432666ms)
+✔ only signed source capability failures use the panel-local unavailable error (0.657875ms)
+✔ failed PDF capability retains the authorized catalog and loaded IFC (1.571958ms)
+✔ failed IFC capability retains the authorized catalog and loaded PDF (0.357458ms)
+✔ PDF source bundle exposes exact predecessor metadata without signing it (0.18425ms)
+✔ PDF compare opt-in signs exactly one revalidated predecessor capability (0.291833ms)
+✔ PDF compare lazy signer rejects stale edge or inactive page before signing (23.468917ms)
+✔ PDF source bundle never guesses a predecessor without one exact supersedes edge (0.2275ms)
+✔ workspace view state accepts only strict shareable 2D, 3D, and split values (0.326958ms)
+✔ 2D source bundles validate the selected IFC without minting its URL (0.128875ms)
+✔ source-free workspaces list project PDF, IFC, and DXF sources without minting capabilities (0.149041ms)
+✔ source-free workspaces load a derivative only for the selected IFC (0.218291ms)
+✔ an IFC primary also remains unsigned until 3D is requested (0.076209ms)
+✔ source bundle signs PDF only and exposes IFC through its derivative descriptor (0.172292ms)
+✔ source bundle rejects foreign, mutable, wrong-kind, and malformed-SHA IFC selections before signing (0.348375ms)
+✔ canonical block instances require immutable lineage (1.673791ms)
+✔ structure actions reject unknown fields and restore exact prior entities (1.579542ms)
+✔ canvas creation and deletion require exact recorded layer actions (2.112875ms)
+✔ page tree derives every deletion reason from one shared occupancy index (0.265458ms)
+✔ page and canvas factories record atomic structural creation and deterministic layer reorder (8.484542ms)
+✔ page, canvas, and layer navigation commands reject duplicates, pin defaults, and normalize order (14.008584ms)
+✔ canvas factories suffix editable layer names across the page and replay layer order history (2.884333ms)
+✔ active canvas slices cache by canonical maps and deletion focus intents survive non-active removal (84.709417ms)
+✔ standalone P2 layer creation uses legacy add_layer with canonical canvas fields (0.235292ms)
+✔ structure reducer rejects deleting the last page (0.284458ms)
+✔ table rows require exactly one object or block instance target (0.41475ms)
+✔ resolved style merges a referenced definition with finite validated overrides (0.242459ms)
+✔ strict structure actions reject duplicate trimmed style definition names (0.200417ms)
+✔ structure object actions require the matching block conversion batch (0.712583ms)
+✔ block conversion batches pair a new instance with their new definition (0.190625ms)
+✔ objects without a style reference retain complete inline styles (0.088ms)
+✔ structure reduction is atomic, ordered, and keeps inverse versions monotonic (0.24525ms)
+✔ default canvases, cross-kind IDs, nested extras, and invalid calendar dates fail closed (0.479125ms)
+✔ block conversion primitives must exactly represent the deleted objects (0.193916ms)
+✔ block conversion rejects objects from a layer other than its instance layer (0.4825ms)
+✔ translation-only block conversion preserves the canonical primitive through its inverse (0.662417ms)
+✔ rotated and scaled block conversion is rejected before geometry or style mutation (0.181083ms)
+✔ fresh structure entities start at version one and documents cannot lose their final page (0.220417ms)
+✔ a fresh empty ledger clones its validated authoritative graph only once (12.337792ms)
+✔ a fresh empty ledger reuses an immutable validated hydration without cloning (2.279917ms)
+✔ an immutable base proof does not weaken offline ledger replay validation (3.150958ms)
+✔ a fabricated authoritative proof is rejected (0.639792ms)
+✔ canonical Yjs history hydrates a homogeneous native DWG import group (13.450167ms)
+✔ canonical Yjs history rejects native sources labeled as a DXF import (2.148125ms)
+✔ canonical Yjs history rejects source kinds alternating across chunks (8.276167ms)
+✔ an offline ledger keeps the replay clone and full projection validation path (1.011083ms)
+✔ a malformed authoritative base cannot enter the trusted projection path (0.813084ms)
+✔ structured projections preserve canonical object and layer map identity (9.814292ms)
+✔ client bootstrap keeps base metadata local while an offline operation remains projectable (0.832541ms)
+✔ projects base plus validated operations and publishes once per Yjs transaction (1.2535ms)
+✔ concurrent different-object edits converge in opposite update arrival order (4.221959ms)
+✔ authoritative outcome selects a same-object winner without quarantining the room (2.757125ms)
+✔ authoritative deletion replays a null result without quarantining the room (0.824167ms)
+✔ keeps undo history actor-scoped and excludes acknowledged checkpoint operations (2.592042ms)
+✔ prepareLocal is side-effect free and durable append is idempotent (0.8115ms)
+✔ a durable new layer projects instead of becoming a provisional conflict (3.513ms)
+✔ bridge normalizes recorded undo and redo while every local and remote transaction projects once (2.979625ms)
+✔ bridge durably projects atomic host and two-opening delete undo (21.276083ms)
+✔ persisted history reconstructs redo after reload and same-actor cross-tab sync (5.568583ms)
+✔ compacted acknowledged add and undo authorize a pending redo over a fresh snapshot (1.076ms)
+✔ compacted redo stays provisional when its acknowledged result lineage is wrong (0.799125ms)
+✔ durable enqueue race appends a provisional conflict and boot repair terminates with the remote winner (7.376333ms)
+✔ authorization, freeze, and disposal stop mutation without authoring server status (4.112167ms)
+✔ a service-released failed review restores draft writability (0.540292ms)
+✔ HTTP-only canonical authority ignores a stale realtime freeze without weakening revision freeze (0.464291ms)
+✔ malformed or oversized updates quarantine evidence and preserve the last projection (3.819834ms)
+✔ waits for local persistence before reporting sync (0.297542ms)
+✔ local persistence is isolated by owner and revision without opening legacy v1 (0.100625ms)
+✔ SSR never opens drawing IndexedDB (0.069375ms)
+✔ rejects an authoritative result-version mismatch (0.402041ms)
+✔ an invalid candidate cannot advance the accepted checkpoint boundary (1.233792ms)
+✔ a forged inverse quarantines instead of becoming a provisional conflict (0.476709ms)
+✔ duplicate authoritative sequences quarantine the projection (0.521958ms)
+✔ same durable operation ID from two offline docs converges once in both arrival orders (1.230459ms)
+✔ raw operation and order multiplicities must match before canonical dedupe (0.730958ms)
+✔ one recovery contribution does not consume the 10,000 unique operation capacity (334.2235ms)
+✔ repeated identical recovery contributions converge to one operation (1.210375ms)
+✔ local HTTP acknowledgement overlays projection without authoring protected server status (0.819541ms)
+✔ server-verified acknowledgement supersedes only a stale pending status (0.630792ms)
+✔ server-verified acknowledgement cannot replace an immutable server ACK (1.464208ms)
+✔ a canonical checkpoint absorbs stale ACK evidence without rewriting server status (1.174708ms)
+✔ checkpoint absorption survives later canonical receipt revalidation (8.844583ms)
+✔ checkpoint revalidation rejects a mismatched server ACK beyond the captured boundary (0.858125ms)
+✔ same durable ID with any mismatched offline envelope quarantines in 100 CRDT orders (51.152375ms)
+✔ unknown top-level Yjs collections quarantine the client projection (0.411167ms)
+✔ 1.1 mixes legacy and Drawing sources with exact quantities (11.159792ms)
+✔ 1.1 canonical input byte-sorts every source and normalizes decimals (3.943708ms)
+✔ 1.1 canonical input preserves strict DXF entity and unit lineage (0.911625ms)
+✔ 1.1 canonical input preserves native DWG report and handle lineage (2.425208ms)
+✔ 1.1 canonical business ordering ignores anti-correlated database IDs (3.769917ms)
+✔ split legacy allocations require one identical immutable source (0.713917ms)
+✔ engine dispatch preserves 1.0 and rejects unavailable versions (0.41825ms)
+✔ 1.1 fails closed on split, unit, ID, volume, adjusted, and review errors (1.332542ms)
+✔ calculation and approval manifests bind canonical lineage and evidence (0.762333ms)
+✔ manifest builders reject stale result and approval hashes (0.564917ms)
+✔ download version selection never substitutes another revision for an explicit unknown ID (0.090083ms)
+✔ approved XLSX strips invalid XML controls and chunks manifest cells below Excel limits (21.289084ms)
+✔ approved XLSX chunks large legacy element-ID evidence into ordered rows (18.373583ms)
+✔ approved 1.1 export round-trips canonical CSV, XLSX, and lineage manifest without formulas (22.084708ms)
+✔ 1.1 result and manifests are independent of order, locale, time, and random (20.39775ms)
+✔ verified BOQ 1.1 renders four distinct quantity columns and Drawing mapping UI (6.283208ms)
+✔ approved comparison UI renders every cause state and closure without a primary cause (0.718959ms)
+✔ approved 1.1 comparison attributes each exact waterfall category (6.04ms)
+✔ approved comparison exposes exact raw and final quantity deltas by row and cause (0.878875ms)
+✔ quantity cause waterfall separates adjustment and price without floating arithmetic (0.790834ms)
+✔ added and removed rows use exact zero only for the absent side (0.684167ms)
+✔ comparison fails closed instead of subtracting quantities with different units (0.967708ms)
+✔ comparison keeps multiple visible causes and closes their exact row totals (0.926541ms)
+✔ zero-amount semantic changes remain visible in their declared cause (3.103042ms)
+✔ comparison reports added and removed rows without inventing a sixth cause (1.269292ms)
+✔ a brand-new source and row enters RAW before mapping and price (0.951834ms)
+✔ comparison ignores regenerated database IDs and byte-sorts business item codes (0.978125ms)
+✔ 1.0 to 1.1 replay exposes the engine switch only as FORMULA (0.585292ms)
+✔ byte-identical legacy-adapted inputs still expose a 1.0 to 1.1 engine switch (0.453125ms)
+✔ comparison fails closed for unavailable engines ambiguous rows and invalid counterfactuals (0.592ms)
+✔ comparison rejects non-approved or tampered historical results (0.409958ms)
+✔ stored approved hashes must match the exact historical replay (0.147292ms)
+ℹ tests 589
+ℹ suites 0
+ℹ pass 589
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 36731.987417

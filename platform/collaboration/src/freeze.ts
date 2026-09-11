@@ -5,6 +5,7 @@ import * as Y from "yjs";
 import {
   DrawingCollaborationMetaSchema,
   DrawingCollaborationStatusSchema,
+  DRAWING_COLLABORATION_SERVER_ORIGIN,
   parseDrawingRoomName,
 } from "../../app/lukas/lib/drawing-collaboration-protocol.ts";
 import { readDrawingCollaborationLedger } from "../../app/lukas/lib/drawing-collaboration-yjs.ts";
@@ -20,7 +21,7 @@ export type DrawingFreezeManifestOperation = {
   historyAction: "undo" | "redo" | null;
   originalOperationId: string | null;
   sequence: number;
-  resultVersions: Record<string, number>;
+  resultVersions: Record<string, number | null>;
 };
 
 export type DrawingFreezeManifest = {
@@ -29,7 +30,7 @@ export type DrawingFreezeManifest = {
     clientOperationId: string;
     status: "acked" | "rejected";
     authoritativeSequence: number | null;
-    resultVersions: Record<string, number>;
+    resultVersions: Record<string, number | null>;
   }>;
   stateVectorBase64: string;
   sha256: string;
@@ -112,6 +113,21 @@ export type DrawingFreezeDatabase = {
     ownerToken: string;
   }): Promise<DrawingFreezeState>;
 };
+
+export function reconcileDrawingFreezeMetadata(
+  document: Y.Doc,
+  freezeState: DrawingFreezeState["state"],
+  requestId: string | null,
+): void {
+  const meta = document.getMap("serverMeta");
+  const stateChanged = meta.get("freezeState") !== freezeState;
+  const requestChanged = meta.get("freezeRequestId") !== requestId;
+  if (!stateChanged && !requestChanged) return;
+  document.transact(() => {
+    if (stateChanged) meta.set("freezeState", freezeState);
+    if (requestChanged) meta.set("freezeRequestId", requestId);
+  }, DRAWING_COLLABORATION_SERVER_ORIGIN);
+}
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -265,10 +281,7 @@ export function createDrawingFreezeCoordinator(input: {
     const requestId = state.ownerRequestId ?? state.requestId;
     if (!requestId) throw new Error("Drawing freeze lease request is missing.");
     const freezeState = state.state === "frozen" ? "frozen" : "freezing";
-    document.transact(() => {
-      document.getMap("serverMeta").set("freezeState", freezeState);
-      document.getMap("serverMeta").set("freezeRequestId", requestId);
-    });
+    reconcileDrawingFreezeMetadata(document, freezeState, requestId);
     return result({ ...state, state: freezeState, requestId });
   };
   const leaseIsLive = (state: DrawingFreezeState) =>
@@ -353,8 +366,7 @@ export function createDrawingFreezeCoordinator(input: {
     if (!preparation || preparation.requestId !== requestId) return false;
     preparation.count -= 1;
     if (preparation.count > 0) return false;
-    if (preparation.heartbeat !== null)
-      clearInterval(preparation.heartbeat);
+    if (preparation.heartbeat !== null) clearInterval(preparation.heartbeat);
     preparations.delete(roomName);
     return true;
   };
@@ -409,7 +421,11 @@ export function createDrawingFreezeCoordinator(input: {
         ownerToken,
         yjsState: Y.encodeStateAsUpdate(candidate),
       });
-      Y.applyUpdate(document, Y.encodeStateAsUpdate(candidate));
+      Y.applyUpdate(
+        document,
+        Y.encodeStateAsUpdate(candidate),
+        DRAWING_COLLABORATION_SERVER_ORIGIN,
+      );
       return released;
     } finally {
       candidate.destroy();
@@ -455,7 +471,7 @@ export function createDrawingFreezeCoordinator(input: {
     document.transact(() => {
       document.getMap("serverMeta").set("freezeState", "freezing");
       document.getMap("serverMeta").set("freezeRequestId", requestId);
-    });
+    }, DRAWING_COLLABORATION_SERVER_ORIGIN);
     try {
       await input.database.acquireFreezeLease({
         ...scope,
@@ -511,7 +527,7 @@ export function createDrawingFreezeCoordinator(input: {
         document.transact(() => {
           serverMeta.set("freezeState", "frozen");
           serverMeta.set("freezeRequestId", requestId);
-        });
+        }, DRAWING_COLLABORATION_SERVER_ORIGIN);
       const manifest = drawingFreezeManifest(document);
       if (
         existing.revisionStatus === "draft" &&
@@ -550,7 +566,7 @@ export function createDrawingFreezeCoordinator(input: {
       await renew();
       document.transact(() => {
         document.getMap("serverMeta").set("freezeState", "frozen");
-      });
+      }, DRAWING_COLLABORATION_SERVER_ORIGIN);
       const manifest = drawingFreezeManifest(document);
       const frozen = await input.database.completeFreeze({
         ...scope,
@@ -648,6 +664,25 @@ export function createDrawingFreezeCoordinator(input: {
     prepare,
     cancelPreparation,
     shareOwner,
+    async hasCommittedFreeze({
+      roomName,
+      requestId,
+    }: {
+      roomName: string;
+      requestId: string;
+    }) {
+      const state = await input.database.readFreeze(
+        parseDrawingRoomName(roomName),
+      );
+      return (
+        state?.state === "frozen" &&
+        state.requestId === requestId &&
+        state.reviewCommitted === true &&
+        ["review_requested", "reviewed", "approved"].includes(
+          state.revisionStatus ?? "",
+        )
+      );
+    },
     dispose() {
       for (const preparation of preparations.values())
         if (preparation.heartbeat !== null)
@@ -668,7 +703,7 @@ export function createDrawingFreezeCoordinator(input: {
       const state = await input.database.readFreeze(scope);
       if (!state) return null;
       const owner = owners.get(roomName);
-      const committed = ["review_requested", "approved"].includes(
+      const committed = ["review_requested", "reviewed", "approved"].includes(
         state.revisionStatus ?? "",
       );
       if (committed) {
@@ -701,27 +736,18 @@ export function createDrawingFreezeCoordinator(input: {
         if (owner.phase === "completed" && owner.expiresAt <= now())
           forgetOwner(roomName, owner);
         else if (["active", "freezing"].includes(state.state)) {
-          document.transact(() => {
-            document.getMap("serverMeta").set("freezeState", "freezing");
-            document
-              .getMap("serverMeta")
-              .set("freezeRequestId", owner.requestId);
-          });
+          reconcileDrawingFreezeMetadata(
+            document,
+            "freezing",
+            owner.requestId,
+          );
           return result({
             ...state,
             state: "freezing",
             requestId: owner.requestId,
           });
         } else if (state.state === "frozen") {
-          const serverMeta = document.getMap("serverMeta");
-          if (
-            serverMeta.get("freezeState") !== "frozen" ||
-            serverMeta.get("freezeRequestId") !== owner.requestId
-          )
-            document.transact(() => {
-              serverMeta.set("freezeState", "frozen");
-              serverMeta.set("freezeRequestId", owner.requestId);
-            });
+          reconcileDrawingFreezeMetadata(document, "frozen", owner.requestId);
           return frozenResult(state, document);
         } else {
           return result(state);
@@ -752,7 +778,11 @@ export function createDrawingFreezeCoordinator(input: {
             ownerToken,
             yjsState: Y.encodeStateAsUpdate(candidate),
           });
-          Y.applyUpdate(document, Y.encodeStateAsUpdate(candidate));
+          Y.applyUpdate(
+            document,
+            Y.encodeStateAsUpdate(candidate),
+            DRAWING_COLLABORATION_SERVER_ORIGIN,
+          );
           return result(synchronized);
         } finally {
           candidate.destroy();
@@ -795,10 +825,7 @@ export function createDrawingFreezeCoordinator(input: {
           forgetOwner(roomName);
           return result(released);
         }
-        document.transact(() => {
-          document.getMap("serverMeta").set("freezeState", "freezing");
-          document.getMap("serverMeta").set("freezeRequestId", state.requestId);
-        });
+        reconcileDrawingFreezeMetadata(document, "freezing", state.requestId);
         return result(state);
       }
       if (state.state === "frozen") {
@@ -818,27 +845,11 @@ export function createDrawingFreezeCoordinator(input: {
           forgetOwner(roomName);
           return result(released);
         }
-        const serverMeta = document.getMap("serverMeta");
-        if (
-          serverMeta.get("freezeState") !== "frozen" ||
-          serverMeta.get("freezeRequestId") !== state.requestId
-        )
-          document.transact(() => {
-            serverMeta.set("freezeState", "frozen");
-            serverMeta.set("freezeRequestId", state.requestId);
-          });
+        reconcileDrawingFreezeMetadata(document, "frozen", state.requestId);
         return frozenResult(state, document);
       }
       if (state.state === "active") {
-        const serverMeta = document.getMap("serverMeta");
-        if (
-          serverMeta.get("freezeState") !== "active" ||
-          serverMeta.get("freezeRequestId") !== null
-        )
-          document.transact(() => {
-            serverMeta.set("freezeState", "active");
-            serverMeta.set("freezeRequestId", null);
-          });
+        reconcileDrawingFreezeMetadata(document, "active", null);
       }
       return result(state);
     },

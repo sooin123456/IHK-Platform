@@ -152,7 +152,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   // Return error if verification fails
   if (error) {
-    return data({ error: error.message }, { status: 400 });
+    return data({ error: error.message }, { status: 400, headers });
   }
 
   // Special handling for email change confirmations

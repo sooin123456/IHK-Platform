@@ -1,0 +1,6 @@
+*
+!Dockerfile.reader
+!DwgEngineQualification.csproj
+!packages.lock.json
+!*.cs
+!THIRD_PARTY_NOTICES.md

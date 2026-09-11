@@ -61,6 +61,26 @@ function ifcSource(overrides = {}) {
   };
 }
 
+function dxfSource(overrides = {}) {
+  return {
+    id: ids.source,
+    objectId: ids.object,
+    revisionId: ids.revision,
+    sourceFileId: ids.file,
+    sourceSha256: sha,
+    sourceKind: "dxf_entity",
+    entityKey: "entities:0/block:DOOR:2",
+    entityType: "LINE",
+    sourceLayer: "A-WALL",
+    handle: "1A2B",
+    unitCode: 4,
+    unitSource: "declared",
+    importerVersion: 1,
+    version: 1,
+    ...overrides,
+  };
+}
+
 function structure(sources) {
   return {
     revisionId: ids.revision,
@@ -124,7 +144,7 @@ function structure(sources) {
   };
 }
 
-test("DrawingObjectSource accepts only the exact PDF and IFC evidence keys", () => {
+test("DrawingObjectSource accepts only exact PDF, IFC, and DXF evidence keys", () => {
   assert.deepEqual(DrawingObjectSourceSchema.parse(pdfSource()), pdfSource());
   assert.deepEqual(DrawingObjectSourceSchema.parse(ifcSource()), {
     ...ifcSource(),
@@ -145,6 +165,29 @@ test("DrawingObjectSource accepts only the exact PDF and IFC evidence keys", () 
         ...pdfSource(),
         [excluded]: "leak",
       }).success,
+      false,
+    );
+});
+
+test("DrawingObjectSource preserves exact DXF entity and conversion lineage", () => {
+  assert.deepEqual(DrawingObjectSourceSchema.parse(dxfSource()), dxfSource());
+  assert.deepEqual(
+    DrawingObjectSourceSchema.parse(dxfSource({ handle: null })),
+    dxfSource({ handle: null }),
+  );
+
+  for (const invalid of [
+    { entityKey: " entities:0" },
+    { entityType: "INSERT" },
+    { sourceLayer: "" },
+    { handle: "not-hex" },
+    { unitCode: 3 },
+    { unitSource: "guessed" },
+    { importerVersion: 2 },
+    { pdfPageNumber: 1 },
+  ])
+    assert.equal(
+      DrawingObjectSourceSchema.safeParse(dxfSource(invalid)).success,
       false,
     );
 });

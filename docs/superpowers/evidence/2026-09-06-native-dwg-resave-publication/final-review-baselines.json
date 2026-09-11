@@ -1,0 +1,260 @@
+{
+  "purpose": "Earliest pre-task baselines for final whole-unit review; Tasks1–4 accepted, Task5 pending. Add Task5 new files and refresh final hashes only after accepted story. No HEAD-based diff. CurrentMode is observed pre-final metadata; package.json mode755 already in unchanged HEAD/index and not introduced by Task4.",
+  "rows": [
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-resave-artifacts.server.ts",
+      "baseline": null,
+      "firstTask": 1,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/native-dwg-worker/src/supabase.ts",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-1-supabase.ts",
+      "firstTask": 1,
+      "baselineSha256": "3e83c4eefbad09d035d8385f91f5eaadaca0a03a3e25475b1636a107fc4c7282",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/fixtures/drawing-native-dwg-resave-artifacts.mjs",
+      "baseline": null,
+      "firstTask": 1,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-native-dwg-resave-artifacts.test.mjs",
+      "baseline": null,
+      "firstTask": 1,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-native-dwg-resave-storage.test.mjs",
+      "baseline": null,
+      "firstTask": 1,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-resave-jobs.server.ts",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-2-drawing-native-dwg-resave-jobs.server.ts",
+      "firstTask": 2,
+      "baselineSha256": "7f20ed2c958ac7789a3a4ba673c2cfd3fc038f2b39bb2828ab8fedb2c96cd4d5",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-resave-artifact-jobs.server.ts",
+      "baseline": null,
+      "firstTask": 2,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/supabase/migrations/20260906130844_drawing_native_dwg_resave_publication.sql",
+      "baseline": null,
+      "firstTask": 2,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-native-dwg-resave-artifact-jobs.test.mjs",
+      "baseline": null,
+      "firstTask": 2,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/fixtures/drawing-native-dwg-resave-publication-database.mjs",
+      "baseline": null,
+      "firstTask": 2,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/fixtures/drawing-native-dwg-resave-jobs-database.mjs",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-2-drawing-native-dwg-resave-jobs-database.mjs",
+      "firstTask": 2,
+      "baselineSha256": "8522d138f571326ca9469cea852b12ab184aeb92afd601565b3fdfd040664e20",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-workspace-m1-real-database.test.mjs",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-2-drawing-workspace-m1-real-database.test.mjs",
+      "firstTask": 2,
+      "baselineSha256": "dd1ab084d1b8703919cdf0942fd05f2137adeab15415a5fbc3bc31784f80117a",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/fixtures/drawing-native-dwg-jobs-database.mjs",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-2-drawing-native-dwg-jobs-database.mjs",
+      "firstTask": 2,
+      "baselineSha256": "0f5a71b9619ca8d851eefecd1a85736fddfd280ac3c9d57492fab20289d690d2",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-native-dwg-resave-jobs.test.mjs",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-2-drawing-native-dwg-resave-jobs.test.mjs",
+      "firstTask": 2,
+      "baselineSha256": "a323adea06176d96ca3f9028b3fedff951650b329e601c075c468f3c30c3fe5c",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-resave-worker.server.ts",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-3-drawing-native-dwg-resave-worker.server.ts",
+      "firstTask": 3,
+      "baselineSha256": "95c99102ed97c287594bd22a0662bb2d37f27ca28f2a40bc6aa8f9a5f6302be8",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-resave-publication.server.ts",
+      "baseline": null,
+      "firstTask": 3,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-native-dwg-resave-publication.test.mjs",
+      "baseline": null,
+      "firstTask": 3,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/routes.ts",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-4-routes.ts",
+      "firstTask": 4,
+      "baselineSha256": "293298ab1c8245cce17d22d5c6c5bcfd81f396a8ad6a6b2b54d0291878c26069",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-workspace-paths.ts",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-4-drawing-workspace-paths.ts",
+      "firstTask": 4,
+      "baselineSha256": "bb0e2c2d432c609ee52d4760a6609543aa4f9fbd83fe1e7c9ca70041060e92b0",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/components/drawing-export-dialog.tsx",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-4-drawing-export-dialog.tsx",
+      "firstTask": 4,
+      "baselineSha256": "e0eeac7b241be785b7b4e1c54a0192302f4368207c4d8ac476a65a0c7905a74a",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/components/drawing-workspace.tsx",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-4-drawing-workspace.tsx",
+      "firstTask": 4,
+      "baselineSha256": "13ee81935167cb5b87a87cffccf17f4b7401c2d7e62f2d66dbeef3c2451de937",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-jobs.server.ts",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-4-drawing-native-dwg-jobs.server.ts",
+      "firstTask": 4,
+      "baselineSha256": "002fc668f7ffbc75aea4a2c73e510221af875faf4f0f054616f7bc6208069b25",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/package.json",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-4-package.json",
+      "firstTask": 4,
+      "baselineSha256": "012426666589443366eefd49ef463bbc0d1853c0718072234f0fc2c30744d914",
+      "currentMode": "755"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-resave-resource.server.ts",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-resave-download.server.ts",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/screens/drawing-native-dwg-resave.ts",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/screens/drawing-native-dwg-resave-download.ts",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/components/drawing-native-dwg-resave-control.tsx",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/app/lukas/lib/drawing-native-dwg-resave-contract.ts",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/native-dwg-worker/src/resave.ts",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-native-dwg-resave-resource.test.mjs",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-native-dwg-resave-control.test.mjs",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-native-dwg-resave-entry.test.mjs",
+      "baseline": null,
+      "firstTask": 4,
+      "baselineSha256": null,
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/scripts/run-drawing-workspace-m1-e2e.mjs",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-5-run-drawing-workspace-m1-e2e.mjs",
+      "firstTask": 5,
+      "pending": true,
+      "baselineSha256": "97fff5bcd793698449d4ff148b70b4c6f12e273ea97fb7fb711f3639b37fad8d",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/tests/drawing-workspace-m1-release-harness.test.mjs",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-5-drawing-workspace-m1-release-harness.test.mjs",
+      "firstTask": 5,
+      "pending": true,
+      "baselineSha256": "13b04fd32fd0050c1276e9771fcfb52a7545c09f4ab1095ab9175b98358d7f83",
+      "currentMode": "644"
+    },
+    {
+      "file": "platform/DEPLOYMENT.md",
+      "baseline": "docs/superpowers/evidence/2026-09-06-native-dwg-resave-publication/baseline/task-5-DEPLOYMENT.md",
+      "firstTask": 5,
+      "pending": true,
+      "baselineSha256": "26d87c31ccc041d0191a5e1f764063eb9bf5268413e3023ede66d2a8f6eba180",
+      "currentMode": "644"
+    }
+  ]
+}

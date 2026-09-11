@@ -15,6 +15,13 @@ async function m1Sql() {
   return readFile(new URL(matches[0], directory), "utf8");
 }
 
+async function assertSqlState(promise, code) {
+  await assert.rejects(promise, (error) => {
+    assert.equal(error.code, code, error.message);
+    return true;
+  });
+}
+
 test("M1 creation is retry-safe and estimate bindings are append-only", async () => {
   const sql = await m1Sql();
   assert.match(sql, /add column creation_request_id uuid/i);
@@ -97,7 +104,7 @@ test("M1 protects private helpers and preserves narrow public invokers", async (
   }
 });
 
-test("M1 executable migration returns one starter version and one retry-safe document", async () => {
+test("M1 executable migrations return retry-safe documents and one personal drawing project per actor", async () => {
   const db = new PGlite({ extensions: { pgcrypto } });
   try {
     await db.exec(`
@@ -151,10 +158,31 @@ test("M1 executable migration returns one starter version and one retry-safe doc
 
     const actor = "71000000-0000-4000-8000-000000000001";
     const request = "71000000-0000-4000-8000-000000000002";
+    const quickOwner = "71000000-0000-4000-8000-000000000011";
+    const secondOwner = "71000000-0000-4000-8000-000000000012";
+    const quotaOwner = "71000000-0000-4000-8000-000000000013";
+    const archivedOwner = "71000000-0000-4000-8000-000000000014";
+    const movedOwner = "71000000-0000-4000-8000-000000000015";
+    const anonymousOwner = "71000000-0000-4000-8000-000000000016";
     await db.query(
       `insert into auth.users(id,email,email_confirmed_at,is_anonymous)
-       values($1,'m1-owner@example.com',clock_timestamp(),false)`,
-      [actor],
+       values
+        ($1,'m1-owner@example.com',clock_timestamp(),false),
+        ($2,'quick-owner@example.com',clock_timestamp(),false),
+        ($3,'second-owner@example.com',clock_timestamp(),false),
+        ($4,'quota-owner@example.com',clock_timestamp(),false),
+        ($5,'archived-owner@example.com',clock_timestamp(),false),
+        ($6,'moved-owner@example.com',clock_timestamp(),false),
+        ($7,'anonymous-owner@example.com',clock_timestamp(),true)`,
+      [
+        actor,
+        quickOwner,
+        secondOwner,
+        quotaOwner,
+        archivedOwner,
+        movedOwner,
+        anonymousOwner,
+      ],
     );
     await db.exec("set role authenticated");
     await db.query("select set_config('request.jwt.claims',$1,false)", [
@@ -226,6 +254,182 @@ test("M1 executable migration returns one starter version and one retry-safe doc
       [project.id, request],
     );
     assert.equal(counts[0].count, 1);
+
+    async function assumeActor(userId, isAnonymous = false) {
+      await db.exec("reset role");
+      await db.exec("set role authenticated");
+      await db.query("select set_config('request.jwt.claims',$1,false)", [
+        JSON.stringify({
+          sub: userId,
+          role: "authenticated",
+          email: `${userId}@example.com`,
+          is_anonymous: isAnonymous,
+        }),
+      ]);
+    }
+
+    async function ensurePersonalProject() {
+      const { rows } = await db.query(
+        "select public.lukas_drawing_ensure_personal_project() value",
+      );
+      return rows[0].value;
+    }
+
+    await assumeActor(quickOwner);
+    const firstPersonal = await ensurePersonalProject();
+    const retriedPersonal = await ensurePersonalProject();
+    assert.deepEqual(retriedPersonal, firstPersonal);
+    const { rows: firstPersonalState } = await db.query(
+      `select p.id project_id,p.owner_id,p.name,p.organization_id,
+        o.owner_id organization_owner,o.is_personal,pm.role
+       from public.lukas_qto_projects p
+       join public.lukas_qto_organizations o on o.id=p.organization_id
+       join public.lukas_qto_project_members pm
+         on pm.project_id=p.id and pm.user_id=$1
+       where p.id=$2`,
+      [quickOwner, firstPersonal.projectId],
+    );
+    assert.deepEqual(firstPersonalState, [
+      {
+        project_id: firstPersonal.projectId,
+        owner_id: quickOwner,
+        name: "내 도면",
+        organization_id: firstPersonal.organizationId,
+        organization_owner: quickOwner,
+        is_personal: true,
+        role: "owner",
+      },
+    ]);
+    const { rows: firstPersonalCount } = await db.query(
+      "select count(*)::integer count from public.lukas_qto_projects where owner_id=$1",
+      [quickOwner],
+    );
+    assert.equal(firstPersonalCount[0].count, 1);
+
+    for (const statement of [
+      "select * from private.lukas_drawing_personal_projects",
+      `insert into private.lukas_drawing_personal_projects(user_id,project_id,organization_id)
+       values('${quickOwner}','${firstPersonal.projectId}','${firstPersonal.organizationId}')`,
+      `update private.lukas_drawing_personal_projects
+       set organization_id='${firstPersonal.organizationId}' where user_id='${quickOwner}'`,
+      `delete from private.lukas_drawing_personal_projects where user_id='${quickOwner}'`,
+    ]) {
+      await assertSqlState(db.exec(statement), "42501");
+    }
+
+    await assumeActor(secondOwner);
+    const secondPersonal = await ensurePersonalProject();
+    assert.notEqual(secondPersonal.projectId, firstPersonal.projectId);
+    assert.notEqual(secondPersonal.organizationId, firstPersonal.organizationId);
+
+    await db.exec("reset role");
+    await db.exec("set role authenticated");
+    await db.query("select set_config('request.jwt.claims',$1,false)", ["{}"]);
+    await assertSqlState(ensurePersonalProject(), "P1R01");
+    await assumeActor(anonymousOwner);
+    await assertSqlState(ensurePersonalProject(), "P1R01");
+    await assumeActor(secondOwner, true);
+    await assertSqlState(ensurePersonalProject(), "P1R01");
+    await db.exec("reset role");
+    await db.exec("set role anon");
+    await assertSqlState(ensurePersonalProject(), "42501");
+
+    await assumeActor(quotaOwner);
+    for (let index = 1; index <= 3; index += 1)
+      await db.query(
+        `insert into public.lukas_qto_projects(
+          owner_id,name,description,contact_name,contact_phone,workflow_status
+        ) values($1,$2,'','','','inquiry_received')`,
+        [quotaOwner, `Quota ${index}`],
+      );
+    await assertSqlState(ensurePersonalProject(), "P7A07");
+    await db.exec("reset role");
+    const { rows: quotaState } = await db.query(
+      `select
+        (select count(*)::integer from public.lukas_qto_projects
+          where owner_id=$1) projects,
+        (select count(*)::integer from private.lukas_drawing_personal_projects
+          where user_id=$1) mappings`,
+      [quotaOwner],
+    );
+    assert.deepEqual(quotaState[0], { projects: 3, mappings: 0 });
+
+    await assumeActor(archivedOwner);
+    const archivedPersonal = await ensurePersonalProject();
+    await db.query(
+      `select (public.lukas_qto_archive_project($1,$2,'retain personal drawing project',$3)).id`,
+      [
+        archivedPersonal.organizationId,
+        archivedPersonal.projectId,
+        "71000000-0000-4000-8000-000000000114",
+      ],
+    );
+    await assertSqlState(ensurePersonalProject(), "P1R01");
+    await db.exec("reset role");
+    const { rows: archivedState } = await db.query(
+      `select p.archived_at is not null archived,
+        p.deletion_requested_at is not null deletion_requested,
+        m.project_id,m.organization_id,
+        (select count(*)::integer from public.lukas_qto_projects owned
+          where owned.owner_id=$1) project_count
+       from private.lukas_drawing_personal_projects m
+       join public.lukas_qto_projects p on p.id=m.project_id
+       where m.user_id=$1`,
+      [archivedOwner],
+    );
+    assert.deepEqual(archivedState, [
+      {
+        archived: true,
+        deletion_requested: false,
+        project_id: archivedPersonal.projectId,
+        organization_id: archivedPersonal.organizationId,
+        project_count: 1,
+      },
+    ]);
+
+    await assumeActor(movedOwner);
+    const movedPersonal = await ensurePersonalProject();
+    const destinationId = "71000000-0000-4000-8000-000000000215";
+    await db.query(
+      `insert into public.lukas_qto_organizations(id,name,owner_id,is_personal)
+       values($1,'Moved destination',$2,false)`,
+      [destinationId, movedOwner],
+    );
+    await db.exec("reset role");
+    await db.query(
+      `insert into public.lukas_qto_organization_members(organization_id,user_id,role)
+       values($1,$2,'owner')`,
+      [destinationId, movedOwner],
+    );
+    await assumeActor(movedOwner);
+    await db.query(
+      `select (public.lukas_qto_move_project($1,$2,$3,'move default away',$4)).id`,
+      [
+        movedPersonal.organizationId,
+        movedPersonal.projectId,
+        destinationId,
+        "71000000-0000-4000-8000-000000000115",
+      ],
+    );
+    await assertSqlState(ensurePersonalProject(), "P1R01");
+    await db.exec("reset role");
+    const { rows: movedState } = await db.query(
+      `select p.organization_id project_organization_id,
+        m.organization_id mapped_organization_id,
+        (select count(*)::integer from public.lukas_qto_projects owned
+          where owned.owner_id=$1) project_count
+       from private.lukas_drawing_personal_projects m
+       join public.lukas_qto_projects p on p.id=m.project_id
+       where m.user_id=$1`,
+      [movedOwner],
+    );
+    assert.deepEqual(movedState, [
+      {
+        project_organization_id: destinationId,
+        mapped_organization_id: movedPersonal.organizationId,
+        project_count: 1,
+      },
+    ]);
   } finally {
     await db.close();
   }

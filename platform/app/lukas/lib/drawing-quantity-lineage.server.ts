@@ -8,6 +8,7 @@ import {
   deriveP6MaterialPlans,
   drawingObjectFingerprintSha256,
   P6_MEASUREMENT_RULE_VERSION,
+  type DrawingQuantitySource,
   type DrawingQuantityMeasurementKind,
   type DrawingQuantityUnit,
   type P6MaterialComponentInput,
@@ -18,11 +19,15 @@ import {
   parseDrawingWorkspaceCollaborationBootstrap,
 } from "./drawing-workspace.server.ts";
 import {
+  DrawingNativeDwgEntityPayloadSchema,
   DrawingObjectSchema,
   DrawingObjectSourceSchema,
 } from "./drawing-workspace.types.ts";
 import { compareExact, parseExactDecimal } from "./exact-decimal.server.ts";
-import { collectBoundedRows } from "./material-control.server.ts";
+import {
+  collectBoundedRows,
+  collectBoundedRowsByFilterChunks,
+} from "./material-control.server.ts";
 import { buildVerifiedBoqCalculationManifest } from "./verified-boq-manifest.server.ts";
 import {
   calculateVerifiedBoqV1_1,
@@ -42,6 +47,11 @@ const FiniteNumber = z
   .union([z.number(), z.string()])
   .transform(Number)
   .refine(Number.isFinite);
+const Timestamp = z
+  .union([z.string().datetime({ offset: true }), z.date()])
+  .transform((value) =>
+    value instanceof Date ? value.toISOString() : new Date(value).toISOString(),
+  );
 const P6Codes = [
   "P6A01",
   "P6Q01",
@@ -54,6 +64,8 @@ const P6Codes = [
   "P6M01",
   "P6M02",
 ] as const;
+const MATERIAL_HANDOFF_ID_QUERY_CHUNK_SIZE = 100;
+const MATERIAL_LINEAGE_TRANSACTION_LIMIT = 10_000;
 
 export type P6LineageErrorCode = (typeof P6Codes)[number];
 
@@ -121,8 +133,18 @@ export type DrawingObjectQuantityLineageRow = {
     boqLineId: string;
     itemCode: string;
     allocationFactor: string;
+    hasMaterialLineage: boolean;
+    materialProgress: DrawingMaterialLineageProgress;
     version: number;
   }>;
+};
+
+export type DrawingMaterialLineageProgress = {
+  handoff: boolean;
+  purchaseOrder: boolean;
+  goodsReceipt: boolean;
+  siteActivity: boolean;
+  carbonEvidence: boolean;
 };
 
 const CreateInputSchema = z
@@ -157,7 +179,12 @@ const AuthoritySourceRowSchema = z
     revision_id: Uuid,
     source_file_id: Uuid,
     source_sha256: Sha256,
-    source_kind: z.enum(["pdf_region", "ifc_element"]),
+    source_kind: z.enum([
+      "pdf_region",
+      "ifc_element",
+      "dxf_entity",
+      "dwg_entity",
+    ]),
     pdf_page_number: z.coerce.number().int().positive().nullable(),
     x: z.union([z.string(), z.number()]).transform(Number).nullable(),
     y: z.union([z.string(), z.number()]).transform(Number).nullable(),
@@ -166,12 +193,47 @@ const AuthoritySourceRowSchema = z
     element_id: z.string().nullable(),
     ifc_global_id: z.string().nullable(),
     camera_json: z.unknown().nullable(),
+    dwg_entity_json: z.unknown().nullable().default(null),
+    dxf_entity_key: z.string().nullable().default(null),
+    dxf_entity_type: z.string().nullable().default(null),
+    dxf_source_layer: z.string().nullable().default(null),
+    dxf_handle: z.string().nullable().default(null),
+    dxf_unit_code: z.coerce.number().int().nullable().default(null),
+    dxf_unit_source: z.string().nullable().default(null),
+    dxf_importer_version: z.coerce.number().int().nullable().default(null),
     version: z.coerce.number().int().positive(),
   })
   .passthrough();
 
 function authoritySource(input: unknown) {
   const row = AuthoritySourceRowSchema.parse(input);
+  const nativePayloadIsExclusive =
+    row.source_kind === "dwg_entity"
+      ? row.dwg_entity_json !== null &&
+        [
+          row.pdf_page_number,
+          row.x,
+          row.y,
+          row.width,
+          row.height,
+          row.element_id,
+          row.ifc_global_id,
+          row.camera_json,
+          row.dxf_entity_key,
+          row.dxf_entity_type,
+          row.dxf_source_layer,
+          row.dxf_handle,
+          row.dxf_unit_code,
+          row.dxf_unit_source,
+          row.dxf_importer_version,
+        ].every((value) => value === null)
+      : row.dwg_entity_json === null;
+  if (!nativePayloadIsExclusive)
+    throw new Error("Drawing source payload is invalid.");
+  const nativePayload =
+    row.source_kind === "dwg_entity"
+      ? DrawingNativeDwgEntityPayloadSchema.parse(row.dwg_entity_json)
+      : null;
   return DrawingObjectSourceSchema.parse(
     row.source_kind === "pdf_region"
       ? {
@@ -188,18 +250,46 @@ function authoritySource(input: unknown) {
           height: row.height,
           version: row.version,
         }
-      : {
-          id: row.id,
-          objectId: row.object_id,
-          revisionId: row.revision_id,
-          sourceFileId: row.source_file_id,
-          sourceSha256: row.source_sha256,
-          sourceKind: row.source_kind,
-          ifcGlobalId: row.ifc_global_id,
-          elementId: row.element_id,
-          camera: row.camera_json,
-          version: row.version,
-        },
+      : row.source_kind === "ifc_element"
+        ? {
+            id: row.id,
+            objectId: row.object_id,
+            revisionId: row.revision_id,
+            sourceFileId: row.source_file_id,
+            sourceSha256: row.source_sha256,
+            sourceKind: row.source_kind,
+            ifcGlobalId: row.ifc_global_id,
+            elementId: row.element_id,
+            camera: row.camera_json,
+            version: row.version,
+          }
+        : row.source_kind === "dxf_entity"
+          ? {
+              id: row.id,
+              objectId: row.object_id,
+              revisionId: row.revision_id,
+              sourceFileId: row.source_file_id,
+              sourceSha256: row.source_sha256,
+              sourceKind: row.source_kind,
+              entityKey: row.dxf_entity_key,
+              entityType: row.dxf_entity_type,
+              sourceLayer: row.dxf_source_layer,
+              handle: row.dxf_handle,
+              unitCode: row.dxf_unit_code,
+              unitSource: row.dxf_unit_source,
+              importerVersion: row.dxf_importer_version,
+              version: row.version,
+            }
+          : {
+              id: row.id,
+              objectId: row.object_id,
+              revisionId: row.revision_id,
+              sourceFileId: row.source_file_id,
+              sourceSha256: row.source_sha256,
+              sourceKind: row.source_kind,
+              ...nativePayload!,
+              version: row.version,
+            },
   );
 }
 
@@ -267,7 +357,7 @@ const QuantityRowSchema = z
     unit: z.enum(["EA", "m", "m2"]),
     measurement_rule_version: z.literal("P4_MEASUREMENT_V1"),
     created_by: Uuid,
-    created_at: z.string(),
+    created_at: Timestamp,
   })
   .passthrough();
 
@@ -620,6 +710,47 @@ const BoqLinkSchema = z
   })
   .passthrough();
 
+const MaterialLineageScopeRowSchema = z
+  .object({
+    id: Uuid,
+    project_id: Uuid,
+    boq_version_id: Uuid,
+    boq_line_id: Uuid,
+    material_plan_id: Uuid,
+    material_plan: z.object({
+      id: Uuid,
+      baseline_factor_id: Uuid.nullable(),
+    }),
+  })
+  .passthrough();
+
+const MaterialTransactionProgressRowSchema = z
+  .object({
+    id: Uuid,
+    project_id: Uuid,
+    material_plan_id: Uuid,
+    transaction_type: z.enum([
+      "purchase_order",
+      "goods_receipt",
+      "invoice_evidence",
+      "installation",
+      "return_to_supplier",
+      "waste_disposal",
+    ]),
+    carbon_factor_id: Uuid.nullable(),
+  })
+  .passthrough();
+
+function emptyMaterialProgress(): DrawingMaterialLineageProgress {
+  return {
+    handoff: false,
+    purchaseOrder: false,
+    goodsReceipt: false,
+    siteActivity: false,
+    carbonEvidence: false,
+  };
+}
+
 const CursorSchema = z
   .object({ createdAt: z.string().datetime(), id: Uuid })
   .strict();
@@ -726,6 +857,117 @@ export async function listDrawingObjectQuantityLineage(
     if (exactLink && !links.some((link) => link.id === exactLink.id))
       links.unshift(exactLink);
   }
+  const exactBoqLines = new Set(
+    links.map((link) => `${link.boq_version_id}:${link.boq_line_id}`),
+  );
+  const materialProgressByBoqLine = new Map<
+    string,
+    DrawingMaterialLineageProgress
+  >();
+  if (exactBoqLines.size) {
+    const lineIdsByVersion = new Map<string, Set<string>>();
+    for (const link of links) {
+      const lineIds = lineIdsByVersion.get(link.boq_version_id) ?? new Set();
+      lineIds.add(link.boq_line_id);
+      lineIdsByVersion.set(link.boq_version_id, lineIds);
+    }
+    try {
+      let remainingMaterialRows = 10_000;
+      const materialPlanBoqLines = new Map<string, Set<string>>();
+      for (const [versionId, lineIds] of lineIdsByVersion) {
+        const materialRows = await collectBoundedRowsByFilterChunks(
+          [...lineIds],
+          async (chunk, afterId, limit) => {
+            let query = userClient
+              .from("lukas_drawing_material_links")
+              .select(
+                "id,project_id,boq_version_id,boq_line_id,material_plan_id,material_plan:lukas_qto_material_plans!inner(id,baseline_factor_id)",
+              )
+              .eq("project_id", projectId)
+              .eq("boq_version_id", versionId)
+              .in("boq_line_id", chunk)
+              .order("id", { ascending: true });
+            if (afterId) query = query.gt("id", afterId);
+            const result = await query.limit(limit);
+            return {
+              data: (result.data ?? []).map((row) =>
+                MaterialLineageScopeRowSchema.parse(row),
+              ),
+              error: result.error,
+            };
+          },
+          remainingMaterialRows,
+        );
+        remainingMaterialRows -= materialRows.length;
+        for (const row of materialRows) {
+          const key = `${row.boq_version_id}:${row.boq_line_id}`;
+          if (
+            row.project_id !== projectId ||
+            row.material_plan.id !== row.material_plan_id ||
+            !exactBoqLines.has(key)
+          )
+            throw new Error("material lineage scope mismatch");
+          const progress =
+            materialProgressByBoqLine.get(key) ?? emptyMaterialProgress();
+          progress.handoff = true;
+          progress.carbonEvidence ||= Boolean(
+            row.material_plan.baseline_factor_id,
+          );
+          materialProgressByBoqLine.set(key, progress);
+          const planBoqLines =
+            materialPlanBoqLines.get(row.material_plan_id) ?? new Set();
+          planBoqLines.add(key);
+          materialPlanBoqLines.set(row.material_plan_id, planBoqLines);
+        }
+      }
+      const materialPlanIds = [...materialPlanBoqLines.keys()];
+      const transactions = materialPlanIds.length
+        ? await collectBoundedRowsByFilterChunks(
+            materialPlanIds,
+            async (chunk, afterId, limit) => {
+              let query = userClient
+                .from("lukas_qto_material_transactions")
+                .select(
+                  "id,project_id,material_plan_id,transaction_type,carbon_factor_id",
+                )
+                .eq("project_id", projectId)
+                .in("material_plan_id", chunk)
+                .order("id", { ascending: true });
+              if (afterId) query = query.gt("id", afterId);
+              const result = await query.limit(limit);
+              return {
+                data: (result.data ?? []).map((row) =>
+                  MaterialTransactionProgressRowSchema.parse(row),
+                ),
+                error: result.error,
+              };
+            },
+            MATERIAL_LINEAGE_TRANSACTION_LIMIT,
+          )
+        : [];
+      for (const transaction of transactions) {
+        const boqLines = materialPlanBoqLines.get(transaction.material_plan_id);
+        if (transaction.project_id !== projectId || !boqLines)
+          throw new Error("material transaction scope mismatch");
+        for (const key of boqLines) {
+          const progress = materialProgressByBoqLine.get(key);
+          if (!progress) throw new Error("material progress is missing");
+          progress.purchaseOrder ||=
+            transaction.transaction_type === "purchase_order";
+          progress.goodsReceipt ||=
+            transaction.transaction_type === "goods_receipt";
+          progress.siteActivity ||= [
+            "installation",
+            "return_to_supplier",
+            "waste_disposal",
+          ].includes(transaction.transaction_type);
+          progress.carbonEvidence ||= Boolean(transaction.carbon_factor_id);
+        }
+      }
+    } catch {
+      throw new DrawingQuantityLineageServerError("P6A01");
+    }
+  }
   return {
     rows: quantities.map((quantity) => ({
       quantity,
@@ -738,6 +980,14 @@ export async function listDrawingObjectQuantityLineage(
           boqLineId: link.boq_line_id,
           itemCode: link.boq_line.item_code,
           allocationFactor: link.allocation_factor,
+          hasMaterialLineage:
+            materialProgressByBoqLine.get(
+              `${link.boq_version_id}:${link.boq_line_id}`,
+            )?.handoff ?? false,
+          materialProgress:
+            materialProgressByBoqLine.get(
+              `${link.boq_version_id}:${link.boq_line_id}`,
+            ) ?? emptyMaterialProgress(),
           version: link.version,
         })),
     })),
@@ -778,7 +1028,7 @@ export async function resolveDrawingWorkspaceEntry(
   boqVersionId: string;
   boqLineId: string;
   evidenceFileId?: string;
-  evidenceKind?: "pdf" | "ifc";
+  evidenceKind?: "pdf" | "ifc" | "dxf" | "dwg";
 }> {
   try {
     const parsed = {
@@ -926,7 +1176,12 @@ export async function resolveDrawingWorkspaceEntry(
       ["project_id", parsed.projectId],
       ["immutable", true],
     ]);
-    if (file.kind !== "pdf" && file.kind !== "ifc")
+    if (
+      file.kind !== "pdf" &&
+      file.kind !== "ifc" &&
+      file.kind !== "dxf" &&
+      file.kind !== "dwg"
+    )
       throw new Error("unsupported evidence file");
     return {
       ...entry,
@@ -1115,6 +1370,46 @@ function positiveDecimal(value: string) {
   }
 }
 
+/** @internal Exported so the bounded PostgREST request seam can be regression-tested. */
+export async function collectExactRowsByIdChunks<Row extends { id: string }>(
+  ids: readonly string[],
+  loadPage: (
+    chunkIds: readonly string[],
+    afterId: string | null,
+    limit: number,
+  ) => Promise<{ data: Row[] | null; error: unknown }>,
+) {
+  if (new Set(ids).size !== ids.length)
+    throw new Error("bounded id input contains duplicates");
+  const rows: Row[] = [];
+  const seen = new Set<string>();
+  for (
+    let offset = 0;
+    offset < ids.length;
+    offset += MATERIAL_HANDOFF_ID_QUERY_CHUNK_SIZE
+  ) {
+    const chunkIds = ids.slice(
+      offset,
+      offset + MATERIAL_HANDOFF_ID_QUERY_CHUNK_SIZE,
+    );
+    const expected = new Set(chunkIds);
+    const chunkRows = await collectBoundedRows(
+      (afterId, limit) =>
+        loadPage(chunkIds, afterId, Math.min(limit, chunkIds.length)),
+      chunkIds.length,
+    );
+    if (chunkRows.length !== chunkIds.length)
+      throw new Error("bounded id query is incomplete");
+    for (const row of chunkRows) {
+      if (!expected.has(row.id) || seen.has(row.id))
+        throw new Error("bounded id query returned an unexpected identity");
+      seen.add(row.id);
+    }
+    rows.push(...chunkRows);
+  }
+  return rows.sort((left, right) => left.id.localeCompare(right.id));
+}
+
 function materialHandoffRows(
   boqVersionId: string,
   operationId: string,
@@ -1171,19 +1466,21 @@ function materialHandoffRows(
   return { plans, links };
 }
 
-async function loadMaterialHandoffContext(
+/** @internal Exported so large approved selections can be request-boundary tested. */
+export async function loadMaterialHandoffContext(
   userClient: SupabaseClient,
   input: CreateP6MaterialHandoffInput,
 ): Promise<P6MaterialHandoffContext> {
-  const boundedRows = async <Row>(
+  const exactRowsByIds = async <Row extends { id: string }>(
+    ids: readonly string[],
     loadPage: (
-      from: number,
-      to: number,
+      chunkIds: readonly string[],
+      afterId: string | null,
+      limit: number,
     ) => Promise<{ data: Row[] | null; error: unknown }>,
-    maximum: number,
   ) => {
     try {
-      return await collectBoundedRows(loadPage, maximum);
+      return await collectExactRowsByIdChunks(ids, loadPage);
     } catch {
       throw new DrawingQuantityLineageServerError("P6M01");
     }
@@ -1208,17 +1505,22 @@ async function loadMaterialHandoffContext(
         .select("id,owner_id")
         .eq("id", input.projectId)
         .single(),
-      boundedRows(async (from, to) => {
-        const { data, error } = await userClient
-          .from("lukas_qto_boq_rate_components")
-          .select("id,version_id,line_id,resource_id,coefficient")
-          .eq("project_id", input.projectId)
-          .eq("version_id", input.boqVersionId)
-          .in("id", input.selectedRateComponentIds)
-          .order("id", { ascending: true })
-          .range(from, to);
-        return { data, error };
-      }, input.selectedRateComponentIds.length),
+      exactRowsByIds(
+        input.selectedRateComponentIds,
+        async (chunkIds, afterId, limit) => {
+          let query = userClient
+            .from("lukas_qto_boq_rate_components")
+            .select("id,version_id,line_id,resource_id,coefficient")
+            .eq("project_id", input.projectId)
+            .eq("version_id", input.boqVersionId)
+            .in("id", [...chunkIds]);
+          if (afterId) query = query.gt("id", afterId);
+          const { data, error } = await query
+            .order("id", { ascending: true })
+            .limit(limit);
+          return { data, error };
+        },
+      ),
     ]);
   if (
     projectError ||
@@ -1229,30 +1531,34 @@ async function loadMaterialHandoffContext(
   const resourceIds = [...new Set(componentRows.map((row) => row.resource_id))];
   const lineIds = [...new Set(componentRows.map((row) => row.line_id))];
   const [resources, lines] = await Promise.all([
-    boundedRows(async (from, to) => {
-      const { data, error } = await userClient
+    exactRowsByIds(resourceIds, async (chunkIds, afterId, limit) => {
+      let query = userClient
         .from("lukas_qto_price_resources")
         .select(
           "id,project_id,price_book_id,resource_type,resource_code,resource_name,specification,unit",
         )
         .eq("project_id", input.projectId)
         .eq("price_book_id", version.price_book_id)
-        .in("id", resourceIds)
+        .in("id", [...chunkIds]);
+      if (afterId) query = query.gt("id", afterId);
+      const { data, error } = await query
         .order("id", { ascending: true })
-        .range(from, to);
+        .limit(limit);
       return { data, error };
-    }, resourceIds.length),
-    boundedRows(async (from, to) => {
-      const { data, error } = await userClient
+    }),
+    exactRowsByIds(lineIds, async (chunkIds, afterId, limit) => {
+      let query = userClient
         .from("lukas_qto_boq_lines")
         .select("id,version_id,project_id,item_code,unit")
         .eq("project_id", input.projectId)
         .eq("version_id", input.boqVersionId)
-        .in("id", lineIds)
+        .in("id", [...chunkIds]);
+      if (afterId) query = query.gt("id", afterId);
+      const { data, error } = await query
         .order("id", { ascending: true })
-        .range(from, to);
+        .limit(limit);
       return { data, error };
-    }, lineIds.length),
+    }),
   ]);
   if (
     resources.length !== resourceIds.length ||
@@ -1378,9 +1684,22 @@ function applyApprovedManifest(
   };
 }
 
-async function persistMaterialManifest(
+/** @internal Exported only so the server persistence boundary can be race-tested. */
+export async function persistMaterialManifest(
   input: Parameters<P6MaterialHandoffAuthority["persistManifest"]>[0],
 ) {
+  let canonicalPath: string;
+  try {
+    canonicalPath = boqManifestStorageObjectPath({
+      ownerId: input.actorId,
+      projectId: input.projectId,
+      manifestFileSha256: input.manifestFileSha256,
+    });
+  } catch {
+    throw new DrawingQuantityLineageServerError("P6O01");
+  }
+  if (input.path !== canonicalPath)
+    throw new DrawingQuantityLineageServerError("P6O01");
   const manifestFileId = stableP6Uuid(
     input.boqVersionId,
     input.operationId,
@@ -1425,19 +1744,28 @@ async function persistMaterialManifest(
       throw new DrawingQuantityLineageServerError("P6M01");
     const { data: existing, error } = await input.userClient
       .from("lukas_qto_files")
-      .select("id,project_id,storage_path,sha256,byte_size,immutable")
-      .eq("id", manifestFileId)
+      .select(
+        "id,project_id,uploaded_by,kind,storage_path,original_filename,content_type,byte_size,sha256,immutable",
+      )
+      .eq("storage_path", input.path)
       .eq("project_id", input.projectId)
       .maybeSingle();
     if (
       error ||
       !existing ||
+      !Uuid.safeParse(existing.id).success ||
+      existing.project_id !== input.projectId ||
+      existing.uploaded_by !== input.actorId ||
+      existing.kind !== "other" ||
       existing.storage_path !== input.path ||
+      existing.original_filename !== `${input.handoffSha256}.manifest.json` ||
+      existing.content_type !== "application/json" ||
       existing.sha256 !== input.manifestFileSha256 ||
       Number(existing.byte_size) !== input.bytes.byteLength ||
       existing.immutable !== true
     )
       throw new DrawingQuantityLineageServerError("P6O01");
+    return existing.id;
   }
   return manifestFileId;
 }
@@ -1490,11 +1818,22 @@ export async function createP6MaterialHandoff(
   materialLinkIds: string[];
 }> {
   const requestId = randomUUID();
+  let stage:
+    | "validate-input"
+    | "authorize"
+    | "load-approved-export"
+    | "load-context"
+    | "verify-approved-manifest"
+    | "derive-material-rows"
+    | "persist-manifest"
+    | "insert-handoff" = "validate-input";
   try {
     const trusted = authority ?? databaseMaterialHandoffAuthority();
     const parsed = CreateMaterialHandoffSchema.parse(input);
     Uuid.parse(actorId);
+    stage = "authorize";
     await requireQuantityWriter(userClient, actorId, parsed.projectId);
+    stage = "load-approved-export";
     const approved = await trusted.loadApprovedExport(
       userClient,
       actorId,
@@ -1503,6 +1842,7 @@ export async function createP6MaterialHandoff(
     Sha256.parse(approved.resultSha256);
     Sha256.parse(approved.manifestSha256);
     Sha256.parse(approved.handoffSha256);
+    stage = "load-context";
     const loaded = await trusted.loadContext(userClient, parsed);
     if (
       loaded.projectId !== parsed.projectId ||
@@ -1521,11 +1861,13 @@ export async function createP6MaterialHandoff(
       )
     )
       throw new DrawingQuantityLineageServerError("P6M01");
+    stage = "verify-approved-manifest";
     const context = applyApprovedManifest(
       loaded,
       approved.manifestJson,
       approved.handoffSha256,
     );
+    stage = "derive-material-rows";
     const { plans, links } = materialHandoffRows(
       parsed.boqVersionId,
       parsed.operationId,
@@ -1537,10 +1879,11 @@ export async function createP6MaterialHandoff(
       .update(approved.manifestJson)
       .digest("hex");
     const path = boqManifestStorageObjectPath({
-      ownerId: context.ownerId,
+      ownerId: actorId,
       projectId: context.projectId,
       manifestFileSha256,
     });
+    stage = "persist-manifest";
     const manifestFileId = await trusted.persistManifest({
       userClient,
       actorId,
@@ -1554,6 +1897,7 @@ export async function createP6MaterialHandoff(
       path,
     });
     Uuid.parse(manifestFileId);
+    stage = "insert-handoff";
     await trusted.insertHandoff({
       actorId,
       boqVersionId: parsed.boqVersionId,
@@ -1573,6 +1917,7 @@ export async function createP6MaterialHandoff(
     console.error("Approved BOQ material handoff failed", {
       requestId: bounded.requestId,
       code: bounded.code,
+      stage,
       projectId: input.projectId,
       boqVersionId: input.boqVersionId,
       operationId: input.operationId,
@@ -1728,7 +2073,12 @@ const SourceAnchorInputSchema = z
     id: Uuid,
     sourceFileId: Uuid,
     sourceSha256: Sha256,
-    sourceKind: z.enum(["pdf_region", "ifc_element"]),
+    sourceKind: z.enum([
+      "pdf_region",
+      "ifc_element",
+      "dxf_entity",
+      "dwg_entity",
+    ]),
     pdfPageNumber: z.coerce.number().int().positive().nullable(),
     x: FiniteNumber.nullable(),
     y: FiniteNumber.nullable(),
@@ -1737,9 +2087,124 @@ const SourceAnchorInputSchema = z
     elementId: z.string().nullable(),
     ifcGlobalId: z.string().nullable(),
     camera: z.unknown().nullable(),
+    entityKey: z.string().optional(),
+    entityType: z
+      .enum(["LINE", "LWPOLYLINE", "POLYLINE", "CIRCLE", "ARC", "TEXT"])
+      .optional(),
+    sourceLayer: z.string().optional(),
+    handle: z.string().nullable().optional(),
+    unitCode: z
+      .union([
+        z.literal(1),
+        z.literal(2),
+        z.literal(4),
+        z.literal(5),
+        z.literal(6),
+      ])
+      .optional(),
+    unitSource: z.enum(["declared", "user_selected"]).optional(),
+    importerVersion: z.literal(1).optional(),
+    analysisJobId: Uuid.optional(),
+    reportSha256: Sha256.optional(),
+    ownerHandle: z.string().optional(),
+    layerHandle: z.string().optional(),
     version: z.coerce.number().int().positive(),
   })
-  .strict();
+  .strict()
+  .superRefine((anchor, context) => {
+    const dxfValues = [
+      anchor.entityKey,
+      anchor.entityType,
+      anchor.sourceLayer,
+      anchor.unitCode,
+      anchor.unitSource,
+      anchor.importerVersion,
+    ];
+    const dxfKeysPresent =
+      dxfValues.some((value) => value !== undefined) ||
+      (anchor.sourceKind !== "dwg_entity" && Object.hasOwn(anchor, "handle"));
+    const nativeValues = [
+      anchor.analysisJobId,
+      anchor.reportSha256,
+      anchor.ownerHandle,
+      anchor.layerHandle,
+    ];
+    const nativeKeysPresent = nativeValues.some((value) => value !== undefined);
+    if (
+      anchor.sourceKind !== "dxf_entity" &&
+      anchor.sourceKind !== "dwg_entity"
+    ) {
+      if (
+        dxfKeysPresent ||
+        nativeKeysPresent ||
+        Object.hasOwn(anchor, "handle")
+      )
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Non-CAD anchor contains CAD lineage.",
+        });
+      return;
+    }
+    if (anchor.sourceKind === "dwg_entity") {
+      if (
+        anchor.entityKey !== undefined ||
+        nativeValues.some((value) => value === undefined) ||
+        typeof anchor.handle !== "string" ||
+        anchor.pdfPageNumber !== null ||
+        anchor.x !== null ||
+        anchor.y !== null ||
+        anchor.width !== null ||
+        anchor.height !== null ||
+        anchor.elementId !== null ||
+        anchor.ifcGlobalId !== null ||
+        anchor.camera !== null ||
+        !/^[1-9A-F][0-9A-F]{0,15}$/.test(anchor.handle) ||
+        !/^[1-9A-F][0-9A-F]{0,15}$/.test(anchor.ownerHandle ?? "") ||
+        !/^[1-9A-F][0-9A-F]{0,15}$/.test(anchor.layerHandle ?? "") ||
+        !["LINE", "LWPOLYLINE", "CIRCLE", "ARC", "TEXT"].includes(
+          anchor.entityType ?? "",
+        ) ||
+        !anchor.sourceLayer ||
+        anchor.sourceLayer.length > 255 ||
+        anchor.sourceLayer !== anchor.sourceLayer.trim() ||
+        anchor.sourceLayer.includes("\0") ||
+        ![1, 2, 4, 5, 6].includes(anchor.unitCode ?? 0) ||
+        !["declared", "user_selected"].includes(anchor.unitSource ?? "") ||
+        anchor.importerVersion !== 1
+      )
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Native DWG anchor lineage is invalid.",
+        });
+      return;
+    }
+    if (
+      nativeKeysPresent ||
+      dxfValues.some((value) => value === undefined) ||
+      !Object.hasOwn(anchor, "handle") ||
+      anchor.pdfPageNumber !== null ||
+      anchor.x !== null ||
+      anchor.y !== null ||
+      anchor.width !== null ||
+      anchor.height !== null ||
+      anchor.elementId !== null ||
+      anchor.ifcGlobalId !== null ||
+      anchor.camera !== null ||
+      anchor.entityKey!.length < 1 ||
+      anchor.entityKey!.length > 1_024 ||
+      anchor.entityKey !== anchor.entityKey!.trim() ||
+      /[\u0000-\u001f\u007f]/u.test(anchor.entityKey!) ||
+      anchor.sourceLayer!.length < 1 ||
+      anchor.sourceLayer!.length > 255 ||
+      anchor.sourceLayer !== anchor.sourceLayer!.trim() ||
+      anchor.sourceLayer!.includes("\0") ||
+      (anchor.handle !== null && !/^[0-9A-F]{1,32}$/.test(anchor.handle ?? ""))
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DXF anchor lineage is invalid.",
+      });
+  });
 
 const DrawingSourceInputSchema = z
   .object({
@@ -1928,28 +2393,73 @@ export function parseVerifiedBoqV1_1RpcInput(value: unknown): {
             rawQuantity: row.source.rawQuantity,
             unit: row.source.unit,
             measurementRuleVersion: row.source.rule,
-            sourceAnchors: row.source.anchors.map((anchor) => ({
-              sourceFileId: anchor.sourceFileId,
-              sourceSha256: anchor.sourceSha256,
-              sourceKind: anchor.sourceKind,
-              pdfRegion:
-                anchor.sourceKind === "pdf_region" &&
-                anchor.pdfPageNumber !== null &&
-                anchor.x !== null &&
-                anchor.y !== null &&
-                anchor.width !== null &&
-                anchor.height !== null
+            sourceAnchors: row.source.anchors.map(
+              (anchor): DrawingQuantitySource["sourceAnchors"][number] => {
+                const common = {
+                  sourceFileId: anchor.sourceFileId,
+                  sourceSha256: anchor.sourceSha256,
+                };
+                if (anchor.sourceKind === "pdf_region")
+                  return {
+                    ...common,
+                    sourceKind: "pdf_region",
+                    pdfRegion: {
+                      pageNumber: anchor.pdfPageNumber!,
+                      x: anchor.x!,
+                      y: anchor.y!,
+                      width: anchor.width!,
+                      height: anchor.height!,
+                    },
+                    ifcGlobalId: null,
+                  };
+                if (anchor.sourceKind === "ifc_element")
+                  return {
+                    ...common,
+                    sourceKind: "ifc_element",
+                    pdfRegion: null,
+                    ifcGlobalId: anchor.ifcGlobalId!,
+                  };
+                return anchor.sourceKind === "dxf_entity"
                   ? {
-                      pageNumber: anchor.pdfPageNumber,
-                      x: anchor.x,
-                      y: anchor.y,
-                      width: anchor.width,
-                      height: anchor.height,
+                      ...common,
+                      sourceKind: "dxf_entity",
+                      pdfRegion: null,
+                      ifcGlobalId: null,
+                      dxfEntity: {
+                        entityKey: anchor.entityKey!,
+                        entityType: anchor.entityType!,
+                        sourceLayer: anchor.sourceLayer!,
+                        handle: anchor.handle ?? null,
+                        unitCode: anchor.unitCode!,
+                        unitSource: anchor.unitSource!,
+                        importerVersion: anchor.importerVersion!,
+                      },
                     }
-                  : null,
-              ifcGlobalId:
-                anchor.sourceKind === "ifc_element" ? anchor.ifcGlobalId : null,
-            })),
+                  : {
+                      ...common,
+                      sourceKind: "dwg_entity",
+                      pdfRegion: null,
+                      ifcGlobalId: null,
+                      dwgEntity: {
+                        analysisJobId: anchor.analysisJobId!,
+                        reportSha256: anchor.reportSha256!,
+                        handle: anchor.handle!,
+                        ownerHandle: anchor.ownerHandle!,
+                        layerHandle: anchor.layerHandle!,
+                        entityType: anchor.entityType as
+                          | "LINE"
+                          | "LWPOLYLINE"
+                          | "CIRCLE"
+                          | "ARC"
+                          | "TEXT",
+                        sourceLayer: anchor.sourceLayer!,
+                        unitCode: anchor.unitCode!,
+                        unitSource: anchor.unitSource!,
+                        importerVersion: anchor.importerVersion!,
+                      },
+                    };
+              },
+            ),
             issueLinks: row.source.issues.map((issue) => ({
               issueId: issue.issueId,
             })),
@@ -2232,7 +2742,7 @@ export type VerifiedBoqDrawingSourceRow = {
       evidenceHrefs: Array<{
         href: string;
         sourceFileId: string;
-        sourceKind: "pdf_region" | "ifc_element";
+        sourceKind: "pdf_region" | "ifc_element" | "dxf_entity" | "dwg_entity";
       }>;
     }
   >;
@@ -2386,13 +2896,18 @@ export async function listVerifiedBoqDrawingSources(
       throw new DrawingQuantityLineageServerError("P6B04");
     const sourceFiles = new Map<
       string,
-      Map<string, "pdf_region" | "ifc_element">
+      Map<string, "pdf_region" | "ifc_element" | "dxf_entity" | "dwg_entity">
     >();
     for (const row of sourceData ?? []) {
       const key = `${String(row.revision_id)}:${String(row.object_id)}`;
       const values = sourceFiles.get(key) ?? new Map();
       const sourceKind = String(row.source_kind);
-      if (sourceKind !== "pdf_region" && sourceKind !== "ifc_element")
+      if (
+        sourceKind !== "pdf_region" &&
+        sourceKind !== "ifc_element" &&
+        sourceKind !== "dxf_entity" &&
+        sourceKind !== "dwg_entity"
+      )
         throw new DrawingQuantityLineageServerError("P6B04");
       const sourceFileId = String(row.source_file_id);
       if (values.has(sourceFileId) && values.get(sourceFileId) !== sourceKind)
@@ -2402,7 +2917,7 @@ export async function listVerifiedBoqDrawingSources(
     }
     const evidenceByQuantity = new Map<
       string,
-      Map<string, "pdf_region" | "ifc_element">
+      Map<string, "pdf_region" | "ifc_element" | "dxf_entity" | "dwg_entity">
     >();
     for (const quantity of linkedQuantities) {
       const evidence = sourceFiles.get(
@@ -2421,7 +2936,7 @@ export async function listVerifiedBoqDrawingSources(
           .select("id,kind")
           .eq("project_id", projectId)
           .eq("immutable", true)
-          .in("kind", ["pdf", "ifc"])
+          .in("kind", ["pdf", "ifc", "dxf", "dwg"])
           .in("id", fileIds)
           .limit(601)
       : { data: [], error: null };
@@ -2451,7 +2966,13 @@ export async function listVerifiedBoqDrawingSources(
         ([fileId, sourceKind]) => {
           if (
             validFiles.get(fileId) !==
-            (sourceKind === "ifc_element" ? "ifc" : "pdf")
+            (sourceKind === "ifc_element"
+              ? "ifc"
+              : sourceKind === "dxf_entity"
+                ? "dxf"
+                : sourceKind === "dwg_entity"
+                  ? "dwg"
+                  : "pdf")
           )
             throw new DrawingQuantityLineageServerError("P6B04");
           return {
@@ -2461,7 +2982,11 @@ export async function listVerifiedBoqDrawingSources(
               evidenceKind:
                 sourceKind === "ifc_element"
                   ? ("ifc" as const)
-                  : ("pdf" as const),
+                  : sourceKind === "dxf_entity"
+                    ? ("dxf" as const)
+                    : sourceKind === "dwg_entity"
+                      ? ("dwg" as const)
+                      : ("pdf" as const),
             }),
             sourceFileId: fileId,
             sourceKind,

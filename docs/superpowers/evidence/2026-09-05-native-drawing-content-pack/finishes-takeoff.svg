@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="420mm" height="297mm" viewBox="0 0 21000 14850">
+<rect x="0" y="0" width="21000" height="14850" fill="#ffffff"/>
+<g data-export-id="40000000-0000-4000-8400-000000000009" data-semantic-type="area" role="img" aria-label="바닥 마감 예제 영역 24㎡ · area" transform="matrix(1 0 0 1 0 0)">
+<polygon points="3000,3000 9000,3000 9000,7000 3000,7000" fill="#f5efe2" stroke="#27313a" stroke-width="25"/>
+<clipPath id="drawing-export-clip-0-semantic-label"><rect x="0" y="0" width="1800" height="168"/></clipPath>
+<g transform="translate(5100 4930) rotate(0)"><text aria-hidden="true" clip-path="url(#drawing-export-clip-0-semantic-label)" fill="#27313a" font-family="sans-serif" font-size="140" text-anchor="middle" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="900" y="0">바닥 마감 예제 영역 24㎡</tspan></text></g>
+</g>
+<g data-export-id="40000000-0000-4000-8400-000000000023" transform="matrix(1 0 0 1 0 0)">
+<clipPath id="drawing-export-clip-1"><rect x="1500" y="900" width="12000" height="336"/></clipPath>
+<text x="1500" y="900" clip-path="url(#drawing-export-clip-1)" fill="#285c88" font-family="sans-serif" font-size="140" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="1500" y="900">마감 수량 예제</tspan><tspan x="1500" y="1068">예제·가정값 — 현장 확인 필요</tspan></text>
+</g>
+<g data-export-id="40000000-0000-4000-8400-000000000010" transform="matrix(1 0 0 1 0 0)">
+<line x1="3000" y1="2400" x2="9000" y2="2400" fill="none" stroke="#285c88" stroke-width="18"/>
+<line x1="3000" y1="3000" x2="3000" y2="2400" fill="none" stroke="#285c88" stroke-width="18"/>
+<line x1="9000" y1="3000" x2="9000" y2="2400" fill="none" stroke="#285c88" stroke-width="18"/>
+<clipPath id="drawing-export-clip-2"><rect x="6000" y="2400" width="756" height="168"/></clipPath>
+<text x="6000" y="2400" clip-path="url(#drawing-export-clip-2)" fill="#285c88" font-family="sans-serif" font-size="140" dominant-baseline="text-before-edge" xml:space="preserve"><tspan x="6000" y="2400">6000.0 mm</tspan></text>
+</g>
+<g data-export-id="40000000-0000-4000-8400-000000000012/top" transform="matrix(1 0 0 1 10500 4000)">
+<rect x="0" y="0" width="1200" height="600" fill="#f8fafc" stroke="#475569" stroke-width="8"/>
+</g>
+<g data-export-id="40000000-0000-4000-8400-000000000012/modesty" transform="matrix(1 0 0 1 10500 4000)">
+<line x1="100" y1="500" x2="1100" y2="500" fill="none" stroke="#1f2937" stroke-width="10"/>
+</g>
+</svg>

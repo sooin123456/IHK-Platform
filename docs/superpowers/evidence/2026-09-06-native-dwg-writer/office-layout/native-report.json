@@ -1,0 +1,567 @@
+{
+  "qualification": "experimental-unqualified",
+  "status": "passed-internal-semantic-comparison",
+  "productionDwgDeliveryQualification": "not-qualified",
+  "independentCadVerification": "not-performed",
+  "canonicalSourceValidation": "producer-required",
+  "engine": {
+    "package": "ACadSharp",
+    "pinnedVersion": "3.7.1",
+    "assemblyVersion": "3.7.1.0",
+    "framework": ".NET 8.0"
+  },
+  "tolerances": {
+    "geometryAbsoluteMillimeters": 1E-07,
+    "angularRadians": 1E-10
+  },
+  "input": {
+    "fileName": "office-layout.cad.json",
+    "sha256": "bb8cf4197c5e0197e5edd7df709245823638a4bc34ee70e7a22205c34f4870d7",
+    "bytes": 20786,
+    "scope": {
+      "projectId": "90000000-0000-4000-8000-000000000001",
+      "documentId": "90000000-0000-4000-8000-000000000002",
+      "revisionId": "20000000-0000-4000-8200-000000000001",
+      "operationSequence": 0,
+      "structureSha256": "33db4a7c14aa6a6fafe50cb4993144b90b65e14322c5790b7e04fb6ad201df63"
+    },
+    "originalBytesPreserved": true
+  },
+  "outputs": {
+    "dwg": {
+      "fileName": "native.dwg",
+      "sha256": "c14aa5b83339d776ac47b88483c33952349aef107ed5420154c4d9f5871275b8"
+    },
+    "sourceManifest": {
+      "fileName": "source-manifest.json",
+      "sha256": "bb8cf4197c5e0197e5edd7df709245823638a4bc34ee70e7a22205c34f4870d7"
+    },
+    "report": "native-report.json"
+  },
+  "outputProfile": {
+    "paper": "A3",
+    "orientation": "landscape",
+    "width": 420,
+    "height": 297,
+    "scaleDenominator": 50
+  },
+  "verification": {
+    "failures": [],
+    "entities": [
+      {
+        "id": "block/20000000-0000-4000-8200-000000000011/top/0",
+        "handle": "52",
+        "owner": "B_20000000000040008200000000000011",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000011/top/1",
+        "handle": "53",
+        "owner": "B_20000000000040008200000000000011",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,0/1200,0/1200,-600/0,-600"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000011/modesty/2",
+        "handle": "54",
+        "owner": "B_20000000000040008200000000000011",
+        "type": "LINE",
+        "layer": "0",
+        "geometry": "start=100,-500,0;end=1100,-500,0"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/top/0",
+        "handle": "55",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/top/1",
+        "handle": "56",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "LWPOLYLINE",
+        "layer": "0",
+        "geometry": "closed=True;points=0,-125/1800,-125/1800,-775/0,-775"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/chair-top-1/2",
+        "handle": "57",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/chair-top-1/3",
+        "handle": "58",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=540,-125,0;radius=125"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/chair-bottom-1/4",
+        "handle": "59",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/chair-bottom-1/5",
+        "handle": "5A",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=540,-775,0;radius=125"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/chair-top-2/6",
+        "handle": "5B",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/chair-top-2/7",
+        "handle": "5C",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=1260,-125,0;radius=125"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/chair-bottom-2/8",
+        "handle": "5D",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "HATCH",
+        "layer": "0",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "block/20000000-0000-4000-8200-000000000020/chair-bottom-2/9",
+        "handle": "5E",
+        "owner": "B_20000000000040008200000000000020",
+        "type": "CIRCLE",
+        "layer": "0",
+        "geometry": "center=1260,-775,0;radius=125"
+      },
+      {
+        "id": "object/20000000-0000-4000-8200-000000000009/0",
+        "handle": "5F",
+        "owner": "*Model_Space",
+        "type": "HATCH",
+        "layer": "L_20000000000040008200000000000004",
+        "geometry": "solid=True;associative=False;paths=1;transparency=0"
+      },
+      {
+        "id": "object/20000000-0000-4000-8200-000000000009/1",
+        "handle": "60",
+        "owner": "*Model_Space",
+        "type": "LWPOLYLINE",
+        "layer": "L_20000000000040008200000000000004",
+        "geometry": "closed=True;points=2000,-2500/12000,-2500/12000,-8500/2000,-8500"
+      },
+      {
+        "id": "object/20000000-0000-4000-8200-000000000009/2",
+        "handle": "61",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_20000000000040008200000000000004",
+        "geometry": "origin=6100,-5430,0;height=140;width=1800;rotation=0;text=O-01 \u00B7 \uC0AC\uBB34\uC2E4 \uC608\uC81C \uACF5\uAC04"
+      },
+      {
+        "id": "object/20000000-0000-4000-8200-000000000032/3",
+        "handle": "62",
+        "owner": "*Model_Space",
+        "type": "MTEXT",
+        "layer": "L_20000000000040008200000000000004",
+        "geometry": "origin=1500,-900,0;height=140;width=12000;rotation=0;text=\uC0AC\uBB34\uC2E4 \uBC30\uCE58 \uC608\uC81C\n\uC608\uC81C\u00B7\uAC00\uC815\uAC12 \u2014 \uD604\uC7A5 \uD655\uC778 \uD544\uC694"
+      },
+      {
+        "id": "instance/20000000-0000-4000-8200-000000000012",
+        "handle": "63",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_20000000000040008200000000000007",
+        "geometry": "block=B_20000000000040008200000000000011;origin=3000,-3500,0;scale=1,1,1;rotation=0"
+      },
+      {
+        "id": "instance/20000000-0000-4000-8200-000000000014",
+        "handle": "64",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_20000000000040008200000000000007",
+        "geometry": "block=B_20000000000040008200000000000011;origin=5000,-3500,0;scale=1,1,1;rotation=0"
+      },
+      {
+        "id": "instance/20000000-0000-4000-8200-000000000016",
+        "handle": "65",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_20000000000040008200000000000007",
+        "geometry": "block=B_20000000000040008200000000000011;origin=3000,-5000,0;scale=1,1,1;rotation=0"
+      },
+      {
+        "id": "instance/20000000-0000-4000-8200-000000000018",
+        "handle": "66",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_20000000000040008200000000000007",
+        "geometry": "block=B_20000000000040008200000000000011;origin=5000,-5000,0;scale=1,1,1;rotation=0"
+      },
+      {
+        "id": "instance/20000000-0000-4000-8200-000000000021",
+        "handle": "67",
+        "owner": "*Model_Space",
+        "type": "INSERT",
+        "layer": "L_20000000000040008200000000000007",
+        "geometry": "block=B_20000000000040008200000000000020;origin=8000,-4500,0;scale=1,1,1;rotation=0"
+      },
+      {
+        "id": "object/20000000-0000-4000-8200-000000000010/9",
+        "handle": "69",
+        "owner": "*Model_Space",
+        "type": "DIMENSION",
+        "layer": "L_20000000000040008200000000000008",
+        "geometry": "first=2000,-2500,0;second=12000,-2500,0;definition=12000,-1850,0;measurement=10000;text=10000.0 mm"
+      }
+    ],
+    "layers": [
+      {
+        "id": "20000000-0000-4000-8200-000000000004",
+        "cadName": "L_20000000000040008200000000000004",
+        "sourceName": "\uC791\uC5C5",
+        "handle": "48",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "20000000-0000-4000-8200-000000000007",
+        "cadName": "L_20000000000040008200000000000007",
+        "sourceName": "\uAC00\uAD6C",
+        "handle": "49",
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "20000000-0000-4000-8200-000000000008",
+        "cadName": "L_20000000000040008200000000000008",
+        "sourceName": "\uCE58\uC218",
+        "handle": "4A",
+        "visible": true,
+        "locked": false
+      }
+    ],
+    "blocks": [
+      {
+        "id": "20000000-0000-4000-8200-000000000011",
+        "cadName": "B_20000000000040008200000000000011",
+        "sourceName": "Desk 1200 \u00D7 600 mm",
+        "handle": "4C",
+        "entityHandles": [
+          "52",
+          "53",
+          "54"
+        ]
+      },
+      {
+        "id": "20000000-0000-4000-8200-000000000020",
+        "cadName": "B_20000000000040008200000000000020",
+        "sourceName": "4-seat meeting table 1800 \u00D7 900 mm",
+        "handle": "4F",
+        "entityHandles": [
+          "55",
+          "56",
+          "57",
+          "58",
+          "59",
+          "5A",
+          "5B",
+          "5C",
+          "5D",
+          "5E"
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "name": "NATIVE_A3",
+        "paperWidth": 420,
+        "paperHeight": 297,
+        "paperUnits": "Millimeters",
+        "viewports": [
+          {
+            "handle": "47",
+            "id": 1,
+            "representsPaper": true,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 0,
+              "y": 0
+            },
+            "viewHeight": 0,
+            "scaleFactor": null
+          },
+          {
+            "handle": "78",
+            "id": 2,
+            "representsPaper": false,
+            "center": {
+              "x": 210,
+              "y": 148.5
+            },
+            "width": 420,
+            "height": 297,
+            "viewCenter": {
+              "x": 10500,
+              "y": -7425
+            },
+            "viewHeight": 14850,
+            "scaleFactor": 0.02
+          }
+        ]
+      }
+    ],
+    "quantizations": [
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000011/top/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000011/top/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000011/top/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000011/modesty/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.2,
+        "stored": 0.2,
+        "nativeValue": "W20"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/top/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/top/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/top/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-top-1/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-top-1/2",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-top-1/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-bottom-1/4",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-bottom-1/4",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-bottom-1/5",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-top-2/6",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-top-2/6",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-top-2/7",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-bottom-2/8",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-bottom-2/8",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "block/20000000-0000-4000-8200-000000000020/chair-bottom-2/9",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.16,
+        "stored": 0.15,
+        "nativeValue": "W15"
+      },
+      {
+        "entityId": "object/20000000-0000-4000-8200-000000000009/0",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/20000000-0000-4000-8200-000000000009/0",
+        "kind": "opacity",
+        "requested": 1,
+        "stored": 1,
+        "nativeValue": "transparency=0;packedAlpha=255"
+      },
+      {
+        "entityId": "object/20000000-0000-4000-8200-000000000009/1",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/20000000-0000-4000-8200-000000000009/2",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.5,
+        "stored": 0.5,
+        "nativeValue": "W50"
+      },
+      {
+        "entityId": "object/20000000-0000-4000-8200-000000000032/3",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      },
+      {
+        "entityId": "object/20000000-0000-4000-8200-000000000010/9",
+        "kind": "paper-lineweight-millimeters",
+        "requested": 0.36,
+        "stored": 0.35,
+        "nativeValue": "W35"
+      }
+    ],
+    "dimensionChildHandles": {
+      "object/20000000-0000-4000-8200-000000000010/9": [
+        "6D",
+        "6F",
+        "70",
+        "71",
+        "72",
+        "73",
+        "74",
+        "75",
+        "76",
+        "77"
+      ]
+    },
+    "actualInventory": {
+      "version": "AC1024",
+      "units": "Millimeters",
+      "modelEntityCount": 10,
+      "allBlockEntityCount": 35,
+      "layerCount": 5,
+      "blockRecordCount": 5,
+      "layoutCount": 2,
+      "textStyles": [
+        {
+          "handle": "2D",
+          "name": "Standard",
+          "fontFile": ""
+        },
+        {
+          "handle": "4B",
+          "name": "NATIVE_NOTO_SANS_KR",
+          "fontFile": "NotoSansKR-Regular.ttf"
+        }
+      ]
+    }
+  },
+  "diagnostics": {
+    "writer": [],
+    "reader": [
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle",
+      "ACadSharp.Tables.TextStyle table reference with handle:  | name:  not found for ACadSharp.Objects.TableStyle\u002BCellStyle"
+    ]
+  },
+  "failures": [],
+  "warnings": [
+    "Canonical source validation and authority remain producer-required.",
+    "NotoSansKR-Regular.ttf is named but is not read, embedded, redistributed, or visually qualified.",
+    "MTEXT automatic font-dependent wrapping and recipient rendering are not qualified.",
+    "Independent CAD open/save/print verification was not performed.",
+    "This output does not qualify production DWG delivery or existing-DWG preservation."
+  ]
+}

@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -30,6 +35,9 @@ const storageModule = await import("../collaboration/src/storage.ts").catch(
 const serverModule = await import("../collaboration/src/server.ts").catch(
   () => null,
 );
+const protocolModule = await import(
+  "../app/lukas/lib/drawing-collaboration-protocol.ts"
+).catch(() => null);
 const collaborationClientModule =
   await import("../app/lukas/lib/drawing-collaboration-client.ts").catch(
     () => null,
@@ -54,7 +62,50 @@ function requireModules() {
   assert.ok(authModule, "collaboration auth must exist");
   assert.ok(storageModule, "collaboration storage must exist");
   assert.ok(serverModule, "collaboration server must exist");
-  return { ...configModule, ...authModule, ...storageModule, ...serverModule };
+  assert.ok(protocolModule, "collaboration protocol must exist");
+  return {
+    ...configModule,
+    ...authModule,
+    ...storageModule,
+    ...serverModule,
+    ...protocolModule,
+  };
+}
+
+function storedState(state, generation = 1, baseOperationSequence = 0) {
+  return {
+    yjsState: state,
+    generation,
+    sha256: createHash("sha256").update(state).digest("hex"),
+    baseOperationSequence,
+  };
+}
+
+function durableBootstrapStorage() {
+  let persisted = null;
+  return storageModule.createDrawingCollaborationStorage({
+    validateState: serverModule.validatePersistedDrawingState,
+    database: {
+      load: async () => persisted,
+      initializeState: async (input) =>
+        (persisted ??= storedState(
+          input.state,
+          1,
+          input.baseOperationSequence,
+        )),
+      bootstrap: async () => ({ sha256: "a".repeat(64), operationSequence: 0 }),
+      store: async (input) => {
+        assert.equal(input.expectedGeneration, persisted.generation);
+        assert.equal(input.expectedSha256, persisted.sha256);
+        persisted = storedState(
+          input.state,
+          persisted.generation + 1,
+          input.baseOperationSequence,
+        );
+        return persisted;
+      },
+    },
+  });
 }
 
 async function signingFixture(algorithm = "RS256") {
@@ -125,6 +176,86 @@ function updateLayerOperation(overrides = {}) {
       patch: { name: "Annotations" },
     },
     ...overrides,
+  });
+}
+
+function deleteObjectOperation(overrides = {}) {
+  return operation({
+    type: "delete_objects",
+    baseVersions: { [ids.layer]: 1 },
+    forward: { type: "delete_objects", objectIds: [ids.layer] },
+    inverse: {
+      type: "add_objects",
+      objects: [
+        {
+          id: ids.layer,
+          name: "Deleted rectangle",
+          layerId: ids.layer2,
+          geometry: {
+            type: "rectangle",
+            origin: { x: 0, y: 0 },
+            width: 10,
+            height: 10,
+            rotation: 0,
+          },
+          style: { stroke: "#111111", strokeWidth: 1, fill: null },
+          version: 3,
+        },
+      ],
+    },
+    ...overrides,
+  });
+}
+
+function oversizedSnapshotOutcome() {
+  const objects = Array.from({ length: 250 }, (_, index) => ({
+    id: `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    name: `Snapshot import ${index} ${"x".repeat(120)}`,
+    layerId: ids.layer,
+    geometry: {
+      type: "line",
+      start: { x: index, y: index },
+      end: { x: index + 1, y: index + 1 },
+    },
+    style: { stroke: "#2563eb", strokeWidth: 2, fill: null },
+    version: 1,
+  }));
+  return {
+    revisionId: ids.revision,
+    clientOperationId: ids.operation,
+    actorId: ids.actor,
+    operationType: "add_objects",
+    baseVersions: {},
+    forward: { type: "add_objects", objects },
+    inverse: {
+      type: "delete_objects",
+      objectIds: objects.map(({ id }) => id),
+    },
+    sequence: 1,
+    resultVersions: {},
+  };
+}
+
+function largeValidReceiptOperation() {
+  const objects = Array.from({ length: 100 }, (_, index) => ({
+    id: `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    name: `Receipt object ${index} ${"x".repeat(180)}`,
+    layerId: ids.layer,
+    geometry: {
+      type: "line",
+      start: { x: index, y: index },
+      end: { x: index + 1, y: index + 1 },
+    },
+    style: { stroke: "#2563eb", strokeWidth: 2, fill: null },
+    version: 1,
+  }));
+  return operation({
+    type: "add_objects",
+    forward: { type: "add_objects", objects },
+    inverse: {
+      type: "delete_objects",
+      objectIds: objects.map(({ id }) => id),
+    },
   });
 }
 
@@ -411,6 +542,26 @@ test("empty documents are initialized by the server and complete client updates 
   }
 });
 
+test("server bootstrap keeps oversized authoritative outcomes at the snapshot boundary", async () => {
+  const { initializeDrawingCollaborationDocument } = requireModules();
+  const document = new Y.Doc();
+
+  await initializeDrawingCollaborationDocument(document, {
+    projectId: ids.project,
+    revisionId: ids.revision,
+    bootstrap: async () => ({
+      sha256: "a".repeat(64),
+      operationSequence: 1,
+      recentOutcomes: [oversizedSnapshotOutcome()],
+    }),
+  });
+
+  assert.equal(document.getMap("serverMeta").get("baseOperationSequence"), 1);
+  assert.deepEqual(document.getArray("operationOrder").toArray(), []);
+  assert.deepEqual(document.getArray("operations").toArray(), []);
+  assert.deepEqual(document.getMap("operationStatus").toJSON(), {});
+});
+
 test("client ingress and persisted validation reject malformed actor history transitions", () => {
   const { validateDrawingClientUpdate, validatePersistedDrawingState } =
     requireModules();
@@ -528,6 +679,10 @@ test("service bootstrap reconstructs accepted history before a restart redo", as
     resultVersions: {},
   });
   const restarted = new Y.Doc();
+  let bootstrapTransactions = 0;
+  restarted.on("afterTransaction", () => {
+    bootstrapTransactions += 1;
+  });
   await initializeDrawingCollaborationDocument(restarted, {
     projectId: ids.project,
     revisionId: ids.revision,
@@ -537,6 +692,11 @@ test("service bootstrap reconstructs accepted history before a restart redo", as
       recentOutcomes: [outcome(original, 1), outcome(undo, 2)],
     }),
   });
+  assert.equal(
+    bootstrapTransactions,
+    1,
+    "valid service history must be reconstructed in one Yjs transaction",
+  );
   const redo = updateLayerOperation({
     clientOperationId: ids.operation3,
     historyAction: "redo",
@@ -549,6 +709,112 @@ test("service bootstrap reconstructs accepted history before a restart redo", as
       revisionId: ids.revision,
       canWrite: true,
     }),
+  );
+});
+
+test("service bootstrap preserves authoritative deletion results", async () => {
+  const { initializeDrawingCollaborationDocument } = requireModules();
+  const deleted = deleteObjectOperation();
+  const restarted = new Y.Doc();
+
+  await initializeDrawingCollaborationDocument(restarted, {
+    projectId: ids.project,
+    revisionId: ids.revision,
+    bootstrap: async () => ({
+      sha256: "a".repeat(64),
+      operationSequence: 1,
+      recentOutcomes: [
+        {
+          revisionId: ids.revision,
+          clientOperationId: deleted.clientOperationId,
+          actorId: deleted.actorId,
+          operationType: deleted.type,
+          baseVersions: deleted.baseVersions,
+          forward: deleted.forward,
+          inverse: deleted.inverse,
+          sequence: 1,
+          resultVersions: { [ids.layer]: null },
+        },
+      ],
+    }),
+  });
+
+  assert.deepEqual(
+    restarted.getMap("operationStatus").get(ids.operation).resultVersions,
+    { [ids.layer]: null },
+  );
+});
+
+test("service bootstrap timestamp repair converges with the same durable client envelope", async () => {
+  const {
+    initializeDrawingCollaborationDocument,
+    validateDrawingClientUpdate,
+    validatePersistedDrawingState,
+  } = requireModules();
+  const durable = operation();
+  const restarted = new Y.Doc();
+  await initializeDrawingCollaborationDocument(restarted, {
+    projectId: ids.project,
+    revisionId: ids.revision,
+    bootstrap: async () => ({
+      sha256: "a".repeat(64),
+      operationSequence: 1,
+      recentOutcomes: [
+        {
+          revisionId: ids.revision,
+          clientOperationId: durable.clientOperationId,
+          actorId: durable.actorId,
+          operationType: durable.type,
+          baseVersions: durable.baseVersions,
+          forward: durable.forward,
+          inverse: durable.inverse,
+          sequence: 1,
+          resultVersions: { [ids.layer]: 1 },
+        },
+      ],
+    }),
+  });
+  const client = new Y.Doc();
+  Y.applyUpdate(client, Y.encodeStateAsUpdate(restarted));
+  const serverVector = Y.encodeStateVector(restarted);
+  client.transact(() => {
+    client.getArray("operations").push([durable]);
+    client.getArray("operationOrder").push([durable.clientOperationId]);
+  });
+  const update = Y.encodeStateAsUpdate(client, serverVector);
+  const context = {
+    userId: ids.actor,
+    projectId: ids.project,
+    revisionId: ids.revision,
+    canWrite: true,
+  };
+
+  assert.doesNotThrow(() =>
+    validateDrawingClientUpdate(restarted, update, context),
+  );
+  Y.applyUpdate(restarted, update);
+  assert.doesNotThrow(() =>
+    validatePersistedDrawingState(Y.encodeStateAsUpdate(restarted), context),
+  );
+
+  const live = initializedDocument();
+  Y.applyUpdate(live, appendUpdate(live, durable));
+  const fresh = new Y.Doc();
+  Y.applyUpdate(fresh, Y.encodeStateAsUpdate(live));
+  const liveVector = Y.encodeStateVector(live);
+  fresh.transact(() => {
+    fresh.getArray("operations").push([
+      { ...durable, createdAt: "1970-01-01T00:00:00.000Z" },
+    ]);
+    fresh.getArray("operationOrder").push([durable.clientOperationId]);
+  });
+  const reconstructedUpdate = Y.encodeStateAsUpdate(fresh, liveVector);
+  assert.doesNotThrow(() =>
+    validateDrawingClientUpdate(live, reconstructedUpdate, context),
+  );
+  Y.applyUpdate(live, reconstructedUpdate);
+  assert.doesNotThrow(() =>
+    validatePersistedDrawingState(Y.encodeStateAsUpdate(live), context),
   );
 });
 
@@ -1047,14 +1313,7 @@ test("real HocuspocusProvider syncs and publishes one bounded cursor state", asy
       canWrite: true,
       revisionStatus: "draft",
     }),
-    storage: {
-      load: async () => null,
-      bootstrap: async () => ({
-        sha256: "a".repeat(64),
-        operationSequence: 0,
-      }),
-      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
-    },
+    storage: durableBootstrapStorage(),
   });
   const server = await runtime.start();
   let provider;
@@ -1246,14 +1505,7 @@ test("production-shaped first boot keeps server metadata authoritative and conve
       canWrite: true,
       revisionStatus: "draft",
     }),
-    storage: {
-      load: async () => null,
-      bootstrap: async () => ({
-        sha256: "a".repeat(64),
-        operationSequence: 0,
-      }),
-      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
-    },
+    storage: durableBootstrapStorage(),
   });
   const server = await runtime.start();
   let provider;
@@ -1523,6 +1775,21 @@ test("accepted polling and signed outcome receipts are authoritative and idempot
   const signature = createHmac("sha256", secret).update(body).digest("hex");
   const verifier = createOutcomeReceiptVerifier(secret);
   assert.deepEqual(verifier(body, signature).outcome, "rejected");
+  const deletionBody = JSON.stringify({
+    receiptId: ids.operation,
+    roomName,
+    operationId: ids.operation,
+    operation: deleteObjectOperation(),
+    outcome: "acked",
+    authoritativeSequence: 8,
+    resultVersions: { [ids.layer]: null },
+  });
+  const deletionSignature = createHmac("sha256", secret)
+    .update(deletionBody)
+    .digest("hex");
+  assert.deepEqual(verifier(deletionBody, deletionSignature).resultVersions, {
+    [ids.layer]: null,
+  });
   const historyOperation = operation({
     historyAction: "undo",
     originalOperationId: ids.operation2,
@@ -1593,6 +1860,159 @@ test("accepted polling and signed outcome receipts are authoritative and idempot
     1,
     "acked rows are not polled again after a lost receipt",
   );
+});
+
+test("signed outcome receipts preserve every protocol-valid operation size", () => {
+  const {
+    createOutcomeReceiptVerifier,
+    DRAWING_OUTCOME_RECEIPT_MAX_BYTES,
+    DrawingCollaborationOperationSchema,
+  } = requireModules();
+  const secret = "large-receipt-secret-that-is-long-enough";
+  const receipt = {
+    receiptId: "00000000-0000-4000-8000-000000000406",
+    roomName,
+    operationId: ids.operation,
+    operation: largeValidReceiptOperation(),
+    outcome: "acked",
+    authoritativeSequence: 1,
+    resultVersions: Object.fromEntries(
+      largeValidReceiptOperation().forward.objects.map(({ id }) => [id, 1]),
+    ),
+  };
+  DrawingCollaborationOperationSchema.parse(receipt.operation);
+  const body = JSON.stringify(receipt);
+  assert.ok(Buffer.byteLength(body) > 16 * 1024);
+  assert.ok(Buffer.byteLength(body) < DRAWING_OUTCOME_RECEIPT_MAX_BYTES);
+  const signature = createHmac("sha256", secret).update(body).digest("hex");
+
+  assert.equal(
+    createOutcomeReceiptVerifier(secret)(body, signature).operation.type,
+    "add_objects",
+  );
+});
+
+test("signed outcome receipt verifier has one explicit 96 KiB boundary", () => {
+  const { createOutcomeReceiptVerifier, DRAWING_OUTCOME_RECEIPT_MAX_BYTES } =
+    requireModules();
+  const secret = "bounded-receipt-secret-that-is-long-enough";
+  const receipt = JSON.stringify({
+    receiptId: "00000000-0000-4000-8000-000000000406",
+    roomName,
+    operationId: ids.operation,
+    operation: operation(),
+    outcome: "rejected",
+    resultVersions: {},
+  });
+  assert.equal(DRAWING_OUTCOME_RECEIPT_MAX_BYTES, 96 * 1024);
+  const atLimit = receipt.padEnd(DRAWING_OUTCOME_RECEIPT_MAX_BYTES, " ");
+  const aboveLimit = `${atLimit} `;
+  const verify = createOutcomeReceiptVerifier(secret);
+
+  assert.doesNotThrow(() =>
+    verify(
+      atLimit,
+      createHmac("sha256", secret).update(atLimit).digest("hex"),
+    ),
+  );
+  assert.throws(() =>
+    verify(
+      aboveLimit,
+      createHmac("sha256", secret).update(aboveLimit).digest("hex"),
+    ),
+  );
+});
+
+test("outcome endpoint persists a protocol-valid receipt above the legacy 16 KiB cap", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const secret = "large-endpoint-secret-that-is-long-enough";
+  const largeOperation = largeValidReceiptOperation();
+  const body = JSON.stringify({
+    receiptId: "00000000-0000-4000-8000-000000000406",
+    roomName,
+    operationId: ids.operation,
+    operation: largeOperation,
+    outcome: "acked",
+    authoritativeSequence: 1,
+    resultVersions: Object.fromEntries(
+      largeOperation.forward.objects.map(({ id }) => [id, 1]),
+    ),
+  });
+  assert.ok(Buffer.byteLength(body) > 16 * 1024);
+  let persisted = null;
+  let stores = 0;
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: secret,
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 60_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      store: async () => {
+        throw new Error("receipt must use service storage");
+      },
+      loadService: async () =>
+        persisted ? storedState(persisted, stores + 1) : null,
+      initializeServiceState: async (input) => {
+        persisted ??= input.state;
+        return storedState(persisted, 1, input.baseOperationSequence);
+      },
+      bootstrapService: async () => ({
+        sha256: "a".repeat(64),
+        operationSequence: 0,
+      }),
+      async storeService(input) {
+        stores += 1;
+        persisted = input.state;
+        return {
+          generation: stores,
+          sha256: "a".repeat(64),
+          state: input.state,
+          baseOperationSequence: input.baseOperationSequence,
+        };
+      },
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const server = await runtime.start();
+  try {
+    const response = await fetch(`${server.httpURL}/internal/outcomes`, {
+      method: "POST",
+      body,
+      headers: {
+        "x-1hk-signature": createHmac("sha256", secret)
+          .update(body)
+          .digest("hex"),
+      },
+    });
+    assert.equal(response.status, 204);
+    assert.equal(stores, 1);
+    const document = new Y.Doc();
+    Y.applyUpdate(document, persisted);
+    assert.equal(
+      document.getMap("operationStatus").get(ids.operation).status,
+      "acked",
+    );
+  } finally {
+    await runtime.stop();
+  }
 });
 
 test("poll reconciliation validates the complete batch before one atomic status transaction", async () => {
@@ -1686,6 +2106,7 @@ test("signed outcomes persist before 204 semantics, survive an unloaded room, an
   const signature = createHmac("sha256", secret).update(receipt).digest("hex");
   let persisted = null;
   let stores = 0;
+  let initializations = 0;
   const storage = {
     load: async () => {
       throw Object.assign(new Error("removed actor"), { code: "P3A01" });
@@ -1700,11 +2121,16 @@ test("signed outcomes persist before 204 semantics, survive an unloaded room, an
       persisted
         ? {
             yjsState: persisted,
-            generation: stores,
-            sha256: "a".repeat(64),
+            generation: stores + 1,
+            sha256: createHash("sha256").update(persisted).digest("hex"),
             baseOperationSequence: 0,
           }
         : null,
+    initializeServiceState: async (input) => {
+      initializations += 1;
+      persisted ??= input.state;
+      return storedState(persisted, 1, input.baseOperationSequence);
+    },
     bootstrapService: async () => ({
       sha256: "a".repeat(64),
       operationSequence: 0,
@@ -1771,6 +2197,115 @@ test("signed outcomes persist before 204 semantics, survive an unloaded room, an
     2,
     "restart replay performs one idempotent durable store",
   );
+  assert.equal(initializations, 1);
+});
+
+test("signed outcome replay accepts only a clock-repaired DB bootstrap operation", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  const secret = "receipt-secret-that-is-long-enough";
+  const durable = operation();
+  const resultVersions = { [ids.layer]: 1 };
+  const signedReceipt = (envelope) => {
+    const body = JSON.stringify({
+      receiptId: "00000000-0000-4000-8000-000000000406",
+      roomName,
+      operationId: ids.operation,
+      operation: envelope,
+      outcome: "acked",
+      authoritativeSequence: 1,
+      resultVersions,
+    });
+    return {
+      body,
+      signature: createHmac("sha256", secret).update(body).digest("hex"),
+    };
+  };
+  let stores = 0;
+  let persisted = null;
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: secret,
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: Date.now() + 60_000,
+    }),
+    authorize: async () => ({
+      capability: "editor",
+      canWrite: true,
+      revisionStatus: "draft",
+    }),
+    storage: {
+      load: async () => null,
+      store: async () => {
+        throw new Error("receipt must not use actor storage");
+      },
+      loadService: async () =>
+        persisted ? storedState(persisted, stores + 1, 1) : null,
+      initializeServiceState: async (input) => {
+        persisted ??= input.state;
+        return storedState(persisted, 1, input.baseOperationSequence);
+      },
+      bootstrapService: async () => ({
+        sha256: "a".repeat(64),
+        operationSequence: 1,
+        recentOutcomes: [
+          {
+            revisionId: ids.revision,
+            clientOperationId: durable.clientOperationId,
+            actorId: durable.actorId,
+            operationType: durable.type,
+            baseVersions: durable.baseVersions,
+            forward: durable.forward,
+            inverse: durable.inverse,
+            sequence: 1,
+            resultVersions,
+          },
+        ],
+      }),
+      async storeService(input) {
+        stores += 1;
+        persisted = input.state;
+        return {
+          generation: stores,
+          sha256: "a".repeat(64),
+          state: input.state,
+          baseOperationSequence: input.baseOperationSequence,
+        };
+      },
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  try {
+    const replay = signedReceipt(durable);
+    await runtime.applyOutcomeReceipt(replay.body, replay.signature);
+    assert.equal(stores, 1);
+
+    const tampered = signedReceipt({
+      ...durable,
+      forward: {
+        ...durable.forward,
+        layer: { ...durable.forward.layer, name: "Tampered" },
+      },
+    });
+    await assert.rejects(
+      () => runtime.applyOutcomeReceipt(tampered.body, tampered.signature),
+      /operation is immutable/,
+    );
+    assert.equal(stores, 1, "durable-field tampering must not be persisted");
+  } finally {
+    await runtime.stop();
+  }
 });
 
 test("polling persists server status with room scope and contains room lookup failures", async () => {
@@ -1868,7 +2403,7 @@ test("polling persists server status with room scope and contains room lookup fa
   await runtime.stop();
 });
 
-test("service hooks reauthorize token sync/messages/Awareness and passive connections", async () => {
+test("service reauthorization strips locks on a live read-only downgrade without dropping presence", async () => {
   const { createDrawingCollaborationServer } = requireModules();
   let access = {
     capability: "editor",
@@ -1942,15 +2477,81 @@ test("service hooks reauthorize token sync/messages/Awareness and passive connec
     payload: appendUpdate(syncDocument),
   });
   const awareness = new Map([
-    [1, { user: { id: randomUUID(), displayName: "spoof", color: "#ffffff" } }],
+    [
+      1,
+      {
+        user: { id: randomUUID(), displayName: "spoof", color: "#ffffff" },
+        pageId: ids.project,
+        canvasId: ids.revision,
+        cursorWorld: { x: 12, y: 34 },
+        selectedIds: [ids.layer],
+        activeTool: "select",
+        softLocks: [
+          {
+            entityId: ids.layer,
+            leaseId: ids.operation2,
+            expiresAt: 10_000,
+          },
+        ],
+      },
+    ],
   ]);
   await runtime.hooks.beforeAwareness({ context, states: awareness });
   assert.equal(awareness.get(1).user.id, ids.actor);
+  assert.deepEqual(awareness.get(1).softLocks, [
+    {
+      entityId: ids.layer,
+      leaseId: ids.operation2,
+      expiresAt: 10_000,
+    },
+  ]);
+  const sourceDocument = new Y.Doc();
+  sourceDocument.clientID = 1;
+  const sourceAwareness = new Awareness(sourceDocument);
+  sourceAwareness.setLocalState(awareness.get(1));
+  const roomDocument = new Y.Doc();
+  const roomAwareness = new Awareness(roomDocument);
+  applyAwarenessUpdate(
+    roomAwareness,
+    encodeAwarenessUpdate(sourceAwareness, [1]),
+    null,
+  );
+  const propagated = [];
+  roomAwareness.on("update", ({ updated }) => {
+    if (updated.includes(1)) propagated.push(roomAwareness.getStates().get(1));
+  });
+  connection.document = {
+    awareness: roomAwareness,
+    getClients: (target) => (target === connection ? new Set([1]) : new Set()),
+  };
   access = { capability: "viewer", canWrite: false, revisionStatus: "draft" };
-  now = 30_000;
+  now = 5_000;
   await runtime.runPassiveAuthorizationCheck();
   assert.equal(connection.readOnly, true);
   assert.equal(connection.closed, false);
+  assert.deepEqual(roomAwareness.getStates().get(1).cursorWorld, {
+    x: 12,
+    y: 34,
+  });
+  assert.deepEqual(roomAwareness.getStates().get(1).selectedIds, [ids.layer]);
+  assert.deepEqual(
+    roomAwareness.getStates().get(1).softLocks,
+    [],
+    "a live downgrade must immediately rewrite its old edit lock",
+  );
+  assert.deepEqual(
+    propagated.at(-1)?.softLocks,
+    [],
+    "the server rewrite must be propagated without waiting for a heartbeat",
+  );
+  await runtime.hooks.beforeAwareness({ context, states: awareness });
+  assert.deepEqual(awareness.get(1).cursorWorld, { x: 12, y: 34 });
+  assert.deepEqual(awareness.get(1).selectedIds, [ids.layer]);
+  assert.deepEqual(
+    awareness.get(1).softLocks,
+    [],
+    "read-only Awareness must keep presence fields but never accept locks",
+  );
   access = { capability: "editor", canWrite: true, revisionStatus: "draft" };
   now = 90_000;
   await runtime.runPassiveAuthorizationCheck();
@@ -1959,6 +2560,102 @@ test("service hooks reauthorize token sync/messages/Awareness and passive connec
   await runtime.runPassiveAuthorizationCheck();
   assert.equal(connection.closed, true);
   await runtime.stop();
+  sourceAwareness.destroy();
+  sourceDocument.destroy();
+  roomAwareness.destroy();
+  roomDocument.destroy();
+});
+
+test("token sync strips live locks when refreshed authority becomes read-only", async () => {
+  const { createDrawingCollaborationServer } = requireModules();
+  let access = {
+    capability: "editor",
+    canWrite: true,
+    revisionStatus: "draft",
+  };
+  const runtime = createDrawingCollaborationServer({
+    config: {
+      port: 0,
+      supabaseUrl,
+      databaseUrl: "postgres://unused",
+      allowedOrigins: new Set(["https://app.example.com"]),
+      internalSecret: "x".repeat(32),
+      authorizationIntervalMs: 30_000,
+      debounceMs: 10,
+      maxDebounceMs: 20,
+    },
+    verifyToken: async () => ({
+      userId: ids.actor,
+      email: null,
+      expiresAtMs: 120_000,
+    }),
+    authorize: async () => access,
+    storage: {
+      load: async () => null,
+      store: async () => ({ generation: 1, sha256: "a".repeat(64) }),
+    },
+    now: () => 0,
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+  const context = await runtime.hooks.authenticate({
+    token: "writer-token",
+    origin: "https://app.example.com",
+    roomName,
+  });
+  const sourceDocument = new Y.Doc();
+  sourceDocument.clientID = 1;
+  const sourceAwareness = new Awareness(sourceDocument);
+  sourceAwareness.setLocalState({
+    cursorWorld: { x: 7, y: 9 },
+    selectedIds: [ids.layer],
+    softLocks: [
+      {
+        entityId: ids.layer,
+        leaseId: ids.operation2,
+        expiresAt: 10_000,
+      },
+    ],
+  });
+  const roomDocument = new Y.Doc();
+  const roomAwareness = new Awareness(roomDocument);
+  applyAwarenessUpdate(
+    roomAwareness,
+    encodeAwarenessUpdate(sourceAwareness, [1]),
+    null,
+  );
+  const connection = {
+    context,
+    readOnly: false,
+    close() {},
+    document: {
+      awareness: roomAwareness,
+      getClients: (target) =>
+        target === connection ? new Set([1]) : new Set(),
+    },
+  };
+
+  access = { capability: "viewer", canWrite: false, revisionStatus: "draft" };
+  await runtime.hocuspocus.configuration.onTokenSync({
+    token: "viewer-token",
+    requestHeaders: new Headers({ origin: "https://app.example.com" }),
+    documentName: roomName,
+    context,
+    connection,
+  });
+
+  assert.equal(connection.readOnly, true);
+  assert.deepEqual(roomAwareness.getStates().get(1).cursorWorld, {
+    x: 7,
+    y: 9,
+  });
+  assert.deepEqual(roomAwareness.getStates().get(1).selectedIds, [ids.layer]);
+  assert.deepEqual(roomAwareness.getStates().get(1).softLocks, []);
+  await runtime.stop();
+  sourceAwareness.destroy();
+  sourceDocument.destroy();
+  roomAwareness.destroy();
+  roomDocument.destroy();
 });
 
 test("Hocuspocus v4 decodes a real framed Sync/Update before collaboration validation", async () => {
@@ -1984,21 +2681,7 @@ test("Hocuspocus v4 decodes a real framed Sync/Update before collaboration valid
       canWrite: true,
       revisionStatus: "draft",
     }),
-    storage: {
-      load: async () => null,
-      bootstrap: async () => ({
-        sha256: "a".repeat(64),
-        operationSequence: 0,
-      }),
-      async store(input) {
-        return {
-          generation: 1,
-          sha256: "a".repeat(64),
-          state: input.state,
-          baseOperationSequence: input.baseOperationSequence,
-        };
-      },
-    },
+    storage: durableBootstrapStorage(),
     setInterval: () => 1,
     clearInterval: () => {},
   });
@@ -2154,8 +2837,11 @@ test("the one-port server exposes real liveness and readiness HTTP probes", asyn
   }
 });
 
-test("internal endpoints reject a single valid JSON chunk above 16 KiB before parsing", async () => {
-  const { createDrawingCollaborationServer } = requireModules();
+test("internal endpoints enforce their distinct bounded request sizes before parsing", async () => {
+  const {
+    createDrawingCollaborationServer,
+    DRAWING_OUTCOME_RECEIPT_MAX_BYTES,
+  } = requireModules();
   const secret = "bounded-internal-secret-is-long-enough";
   let serviceLoads = 0;
   let freezeReads = 0;
@@ -2211,7 +2897,9 @@ test("internal endpoints reject a single valid JSON chunk above 16 KiB before pa
   });
   const server = await runtime.start();
   try {
-    const outcomeBody = `${JSON.stringify({ valid: true })}${" ".repeat(17 * 1024)}`;
+    const outcomeBody = `${JSON.stringify({ valid: true })}${" ".repeat(
+      DRAWING_OUTCOME_RECEIPT_MAX_BYTES,
+    )}`;
     const outcome = await fetch(`${server.httpURL}/internal/outcomes`, {
       method: "POST",
       body: outcomeBody,
@@ -2249,6 +2937,7 @@ test("outcome endpoint distinguishes invalid signatures from retriable persisten
   });
   const signature = createHmac("sha256", secret).update(body).digest("hex");
   let stores = 0;
+  let persisted = null;
   const runtime = createDrawingCollaborationServer({
     config: {
       port: 0,
@@ -2272,7 +2961,13 @@ test("outcome endpoint distinguishes invalid signatures from retriable persisten
     }),
     storage: {
       load: async () => null,
-      loadService: async () => null,
+      loadService: async () => persisted,
+      initializeServiceState: async (input) =>
+        (persisted ??= storedState(
+          input.state,
+          1,
+          input.baseOperationSequence,
+        )),
       bootstrap: async () => ({
         sha256: "a".repeat(64),
         operationSequence: 0,

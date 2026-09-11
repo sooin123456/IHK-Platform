@@ -1,0 +1,31 @@
+import {chromium,expect} from '@playwright/test';import {createServer} from 'vite';
+const vite=await createServer({configFile:false,appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+const {createWorkflow}=await vite.ssrLoadModule('/app/lukas/lib/workflow-prototype.ts');const codec=await vite.ssrLoadModule('/app/lukas/lib/workflow-prototype-session.ts');
+const {addDocumentFieldNote}=await vite.ssrLoadModule('/app/lukas/lib/workflow-document-field.ts');
+const {recordInspection}=await vite.ssrLoadModule('/app/lukas/lib/workflow-inspections.ts');
+let doc=addDocumentFieldNote({id:'daily',title:'일일 현장도',source:{name:'site.pdf',sha256:'a'.repeat(64),pages:1},shapes:[{id:'pipe',label:'배관',x:20,y:30}]},'pipe','author',{title:'배관 확인',note:'현장 관찰',location:'2공구',condition:'needs-check'});
+doc=recordInspection(doc,1,'reviewer','inspect',{note:'간격 시정 필요',checks:['pass','fail','na']});
+const raw=codec.encodeWorkflowSession({scenarios:Object.fromEntries(['architecture','ifc','civil'].map(s=>[s,createWorkflow(s)])),drafts:{},blankDocuments:[doc]});await vite.close();
+const browser=await chromium.launch();try{
+ const page=await browser.newPage();page.setDefaultTimeout(7000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.addInitScript(({key,raw})=>{if(!sessionStorage.getItem(key))sessionStorage.setItem(key,raw);},{key:codec.workflowSessionKey,raw});
+ await page.goto('http://127.0.0.1:4181/workspace-preview/flow?page=field&scope=local',{waitUntil:'networkidle'});
+ await page.getByRole('navigation',{name:'현장 세부 화면'}).getByRole('button',{name:'일일 작업 보고',exact:true}).click();
+ const report=page.getByRole('region',{name:'일일 작업 보고',exact:true});
+ await report.getByLabel('보고 날짜',{exact:true}).fill('2026-09-11');await report.getByLabel('작업 내용',{exact:true}).fill('배관 설치');await report.getByLabel('다음 작업·주의사항',{exact:true}).fill('간격 보완');await report.getByLabel('날씨',{exact:true}).fill('맑음');await report.getByLabel('투입 인원',{exact:true}).fill('5');await report.getByLabel('보고 진행률',{exact:true}).fill('40');
+ await page.reload({waitUntil:'networkidle'});await expect(report.getByLabel('작업 내용',{exact:true})).toHaveValue('배관 설치');
+ await report.getByRole('button',{name:'일일 보고 제출',exact:true}).click();await expect(report.getByRole('heading',{name:'#1 · 2026-09-11',exact:true})).toBeVisible();await expect(report).toContainText('시정 필요');
+ await report.getByLabel('보고 처리 역할',{exact:true}).selectOption('reviewer');await report.getByLabel('보고 #1 검토 의견',{exact:true}).fill('조치 내용을 보완하세요');await report.getByRole('button',{name:'보고 #1 보완 요청',exact:true}).click();
+ await report.getByLabel('보고 처리 역할',{exact:true}).selectOption('author');await report.getByRole('button',{name:'보고 #1 보완 작성',exact:true}).click();await report.getByLabel('작업 내용',{exact:true}).fill('간격 조정 후 재보고');await report.getByRole('button',{name:'보완 보고 제출',exact:true}).click();
+ await expect(report.getByRole('heading',{name:'#2 · 2026-09-11',exact:true})).toBeVisible();
+ await report.getByLabel('보고 처리 역할',{exact:true}).selectOption('reviewer');await report.getByLabel('보고 #2 검토 의견',{exact:true}).fill('일일 보고 확인');
+ await report.getByRole('button',{name:'보고 #2 도면 근거 확인',exact:true}).click();await expect(page).toHaveURL(/target=pipe/);await page.getByRole('button',{name:'일일 보고로 돌아가기',exact:true}).click();await expect(report.getByLabel('보고 #2 검토 의견',{exact:true})).toHaveValue('일일 보고 확인');
+ await report.getByRole('button',{name:'보고 #2 확인',exact:true}).click();await page.reload({waitUntil:'networkidle'});await expect(report).toContainText('일일 보고 확인');await expect(report).toContainText('조치 내용을 보완하세요');
+ await report.getByLabel('보고 날짜 필터',{exact:true}).fill('2026-09-12');await expect(report).toContainText('해당 날짜의 보고가 없습니다');await report.getByRole('button',{name:'모든 날짜 보기',exact:true}).click();
+ await report.getByLabel('보고 처리 역할',{exact:true}).selectOption('viewer');await expect(report.getByLabel('작업 내용',{exact:true})).toHaveCount(0);await expect(report.getByLabel('보고 #2 검토 의견',{exact:true})).toHaveCount(0);
+ await expect(report.getByLabel('보고 날짜 필터',{exact:true})).toHaveValue('');
+ await expect(report.getByRole('heading',{name:'#2 · 2026-09-11',exact:true})).toBeVisible();
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await report.screenshot({path:'/tmp/1hk-daily-reports.png'});
+ const saved=await page.evaluate(key=>JSON.parse(sessionStorage.getItem(key)).blankDocuments[0],codec.workflowSessionKey);expect(saved.dailyReports[1].phase).toBe('accepted');expect(saved.dailyReports[0].phase).toBe('changes');expect(saved.quantityReviews).toBeUndefined();expect(errors).toEqual([]);
+ console.log('PASS daily report submit/correct/resubmit/confirm, frozen inspection evidence, draft/Viewer return, dates and mobile');
+}finally{await browser.close();}

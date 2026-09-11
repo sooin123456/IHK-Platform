@@ -13,10 +13,12 @@ import {
   ORGANIZATION_LIBRARY_LIST_LIMIT,
   assertOrganizationDrawingLibraryMutationAllowed,
   listOrganizationDrawingLibrary,
+  listOrganizationPriceBookReuseCandidates,
   parseOrganizationDrawingLibraryForm,
   parseOrganizationDrawingLibrarySearch,
   runOrganizationDrawingLibraryMutation,
 } from "../app/lukas/lib/organization-drawing-library.server.ts";
+import { buildNativeDrawingTemplate } from "../app/lukas/lib/drawing-native-templates.ts";
 
 const vite = await createServer({
   appType: "custom",
@@ -397,6 +399,38 @@ test("platform starter rows keep nullable provenance, a closed payload, and read
   );
 });
 
+test("native library entry visibly identifies its authored asset version and stays read-only", async () => {
+  const [existing] = await listOrganizationDrawingLibrary(listClient(), ids.organization, {});
+  const definition = buildNativeDrawingTemplate("measured-plan");
+  const native = {
+    ...existing,
+    source_kind: "platform_native",
+    version_no: 7,
+    native_asset_key: "measured-plan",
+    native_asset_version: 1,
+    platform_starter_key: null,
+    platform_starter_version: null,
+    canonical_payload: definition,
+    entry: { ...existing.entry, name: definition.name },
+  };
+  const html = renderLibrary({
+    actionData: undefined,
+    loaderData: {
+      organization: { id: ids.organization, name: "1HK 조직" },
+      importRequestId: ids.request,
+      mayManage: true,
+      filters: {},
+      projects: [],
+      revisions: [],
+      sources: { style: [], block: [], property_schema: [] },
+      versions: [native],
+      allVersions: [native],
+    },
+  });
+  assert.match(html, />1HK 기본 · 예제 · v1 · 읽기 전용<\/p>/);
+  assert.doesNotMatch(html, /name="intent" value="(?:publish|deprecate)"/);
+});
+
 test("a platform starter without an accessible project renders no ambient use target", async () => {
   const versions = await listOrganizationDrawingLibrary(
     listClient(),
@@ -542,4 +576,172 @@ test("organization library route is mounted in authenticated navigation", () => 
   assert.doesNotMatch(screen, /원본 객체 UUID|직전 버전 UUID/);
   assert.match(screen, /predecessorOptions/);
   assert.match(dashboard, /drawing-library/);
+});
+
+test("price-book reuse candidates are parsed from the organization-authorized RPC", async () => {
+  const calls = [];
+  const candidates = await listOrganizationPriceBookReuseCandidates(
+    {
+      rpc(name, args) {
+        calls.push({ name, args });
+        return Promise.resolve({
+          data: [
+            {
+              source_sha256: "c".repeat(64),
+              project_count: 2,
+              price_book_count: 3,
+              projects: [
+                { id: ids.projectTwo, name: "부산 프로젝트" },
+                { id: ids.project, name: "서울 프로젝트" },
+              ],
+            },
+          ],
+          error: null,
+        });
+      },
+    },
+    ids.organization,
+  );
+  assert.deepEqual(calls, [
+    {
+      name: "lukas_qto_list_organization_price_book_reuse_candidates",
+      args: { p_organization_id: ids.organization },
+    },
+  ]);
+  assert.equal(candidates[0].project_count, 2);
+  assert.equal(candidates[0].price_book_count, 3);
+  assert.deepEqual(
+    candidates[0].projects.map(({ name }) => name),
+    ["부산 프로젝트", "서울 프로젝트"],
+  );
+});
+
+test("optional price-book reuse evidence failure settles as unavailable", async () => {
+  const library = await import(
+    "../app/lukas/lib/organization-drawing-library.server.ts"
+  );
+  assert.equal(
+    typeof library.loadOrganizationPriceBookReuseEvidence,
+    "function",
+    "the optional evidence loader must settle RPC failures",
+  );
+  const evidence = await library.loadOrganizationPriceBookReuseEvidence(
+    {
+      rpc() {
+        return Promise.resolve({
+          data: null,
+          error: { message: "schema cache has not reloaded" },
+        });
+      },
+    },
+    ids.organization,
+  );
+  assert.deepEqual(evidence, { candidates: [], status: "unavailable" });
+});
+
+test("price-book reuse evidence rejects duplicate project rows that disagree with its count", async () => {
+  await assert.rejects(
+    listOrganizationPriceBookReuseCandidates(
+      {
+        rpc() {
+          return Promise.resolve({
+            data: [
+              {
+                source_sha256: "d".repeat(64),
+                project_count: 2,
+                price_book_count: 3,
+                projects: [
+                  { id: ids.project, name: "서울 프로젝트" },
+                  { id: ids.project, name: "서울 프로젝트" },
+                  { id: ids.projectTwo, name: "부산 프로젝트" },
+                ],
+              },
+            ],
+            error: null,
+          });
+        },
+      },
+      ids.organization,
+    ),
+    /단가표 반복 사용 근거/,
+  );
+});
+
+test("organization managers see read-only reuse evidence or the explicit no-registry reason", async () => {
+  const versions = await listOrganizationDrawingLibrary(
+    listClient(),
+    ids.organization,
+    {},
+  );
+  const baseLoaderData = {
+    organization: { id: ids.organization, name: "1HK 조직" },
+    importRequestId: ids.request,
+    mayManage: true,
+    filters: {},
+    projects: [],
+    revisions: [],
+    sources: { style: [], block: [], property_schema: [] },
+    versions,
+    allVersions: versions,
+  };
+  const evidence = renderLibrary({
+    actionData: undefined,
+    loaderData: {
+      ...baseLoaderData,
+      priceBookReuseEvidence: {
+        status: "available",
+        candidates: [
+          {
+            source_sha256: "c".repeat(64),
+            project_count: 2,
+            price_book_count: 3,
+            projects: [
+              { id: ids.projectTwo, name: "부산 프로젝트" },
+              { id: ids.project, name: "서울 프로젝트" },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  assert.match(evidence, /단가표 반복 사용 증거/);
+  assert.match(evidence, /2개 프로젝트 · 3개 단가표/);
+  assert.match(evidence, /부산 프로젝트/);
+  assert.match(evidence, /서울 프로젝트/);
+  assert.match(evidence, new RegExp(`SHA-256 ${"c".repeat(64)}`));
+  assert.doesNotMatch(evidence, /단가표 레지스트리 만들기/);
+
+  const empty = renderLibrary({
+    actionData: undefined,
+    loaderData: {
+      ...baseLoaderData,
+      priceBookReuseEvidence: { status: "available", candidates: [] },
+    },
+  });
+  assert.match(empty, /2개 이상의 프로젝트에서 반복 사용한 근거가 없어/);
+  assert.match(empty, /단가표 레지스트리를 만들지 않았습니다/);
+
+  const unavailable = renderLibrary({
+    actionData: undefined,
+    loaderData: {
+      ...baseLoaderData,
+      priceBookReuseEvidence: { status: "unavailable", candidates: [] },
+    },
+  });
+  assert.match(unavailable, /단가표 반복 사용 증거를 현재 불러올 수 없습니다/);
+  assert.match(unavailable, /회사 표준 템플릿/);
+  assert.doesNotMatch(
+    unavailable,
+    /반복 사용한 근거가 없어 조직 단가표 레지스트리를 만들지 않았습니다/,
+  );
+
+  const member = renderLibrary({
+    actionData: undefined,
+    loaderData: {
+      ...baseLoaderData,
+      mayManage: false,
+      priceBookReuseEvidence: { status: "unavailable", candidates: [] },
+    },
+  });
+  assert.doesNotMatch(member, /단가표 반복 사용 증거/);
 });

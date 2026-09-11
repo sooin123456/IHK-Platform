@@ -9,6 +9,8 @@ import { Button } from "~/core/components/ui/button";
 import { Input } from "~/core/components/ui/input";
 import { Label } from "~/core/components/ui/label";
 import makeServerClient from "~/core/lib/supa-client.server";
+import { mergeResponseHeaders } from "~/core/lib/response-headers.server";
+import { authLoginPath } from "~/features/auth/lib/auth-link.server";
 import { recordProjectExport } from "~/lukas/lib/project-export-audit.server";
 import {
   buildBcf21FromRequirementFindings,
@@ -28,25 +30,31 @@ export const meta: Route.MetaFunction = ({ data: page }) => [
 ];
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const [client] = makeServerClient(request);
+  const [client, headers] = makeServerClient(request);
   const {
     data: { user },
   } = await client.auth.getUser();
-  if (!user || user.is_anonymous) throw redirect("/login");
-  const { data: project } = await client
-    .from("lukas_qto_projects")
-    .select("id, name, owner_id")
-    .eq("id", params.projectId)
-    .single();
-  if (!project)
-    throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
-  const { data: ledgers } = await client
-    .from("lukas_qto_files")
-    .select("id, original_filename, sha256, created_at")
-    .eq("project_id", project.id)
-    .eq("kind", "element_ledger")
-    .order("created_at", { ascending: false });
-  return { project, ledgers: ledgers ?? [] };
+  if (!user || user.is_anonymous)
+    throw redirect(authLoginPath(request.url), { headers });
+  try {
+    const { data: project } = await client
+      .from("lukas_qto_projects")
+      .select("id, name, owner_id")
+      .eq("id", params.projectId)
+      .single();
+    if (!project)
+      throw new Response("프로젝트를 찾을 수 없습니다.", { status: 404 });
+    const { data: ledgers } = await client
+      .from("lukas_qto_files")
+      .select("id, original_filename, sha256, created_at")
+      .eq("project_id", project.id)
+      .eq("kind", "element_ledger")
+      .order("created_at", { ascending: false });
+    return data({ project, ledgers: ledgers ?? [] }, { headers });
+  } catch (error) {
+    if (error instanceof Response) throw mergeResponseHeaders(error, headers);
+    throw error;
+  }
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -55,10 +63,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     data: { user },
   } = await client.auth.getUser();
   if (!user || user.is_anonymous)
-    return data(
-      { error: "이메일 로그인이 필요합니다." },
-      { status: 401, headers },
-    );
+    throw redirect(authLoginPath(request.url), { headers });
   const form = await request.formData();
   const idsFile = form.get("ids_file");
   const ledgerId = String(form.get("ledger_id") ?? "");
@@ -115,13 +120,16 @@ export async function action({ request, params }: Route.ActionArgs) {
         new Date().toISOString(),
       );
       await recordProjectExport(client, project.id, "ids_bcfzip", bcf);
-      return new Response(bcf as BodyInit, {
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "Content-Disposition": `attachment; filename="lukas-ids-review-${result.idsSha256.slice(0, 12)}.bcfzip"`,
-          "Cache-Control": "private, no-store",
-        },
-      });
+      return mergeResponseHeaders(
+        new Response(bcf as BodyInit, {
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": `attachment; filename="lukas-ids-review-${result.idsSha256.slice(0, 12)}.bcfzip"`,
+            "Cache-Control": "private, no-store",
+          },
+        }),
+        headers,
+      );
     }
     if (intent !== "validate") throw new Error("지원하지 않는 작업입니다.");
     const storagePath = storageObjectPath({

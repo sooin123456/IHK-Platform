@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   VerifiedBoqCause,
   VerifiedBoqV1_1Comparison,
 } from "../lib/verified-boq-comparison-v1-1.server.ts";
+import {
+  verifiedBoqComparisonRowHash,
+  verifiedBoqComparisonRowId,
+} from "../lib/verified-boq-comparison-links.ts";
 
 const causes: Array<{ id: VerifiedBoqCause; label: string }> = [
   { id: "RAW", label: "원수량" },
@@ -20,10 +24,29 @@ const rowStateLabel = {
   unchanged: "동일",
 } as const;
 
+function quantityText(value: string | null, unit: string, absent = false) {
+  return value === null ? (absent ? "없음" : "검토 필요") : `${value} ${unit}`;
+}
+
+export function focusVerifiedBoqComparisonRow(
+  row: Pick<HTMLTableRowElement, "focus"> | null,
+  locationHash: string,
+  itemCode: string,
+) {
+  if (!row || locationHash !== verifiedBoqComparisonRowHash(itemCode))
+    return false;
+  row.focus();
+  return true;
+}
+
 export function VerifiedBoqComparison({
   comparison,
+  focusedItemCode = null,
+  focusedLocationHash = "",
 }: {
   comparison: VerifiedBoqV1_1Comparison;
+  focusedItemCode?: string | null;
+  focusedLocationHash?: string;
 }) {
   const [filter, setFilter] = useState<VerifiedBoqCause | null>(null);
   const rows = filter
@@ -31,6 +54,18 @@ export function VerifiedBoqComparison({
         row.causes.some((cause) => cause.cause === filter),
       )
     : comparison.rows;
+  const focusedRowRef = useRef<HTMLTableRowElement>(null);
+  const focusedRowRendered = Boolean(
+    focusedItemCode && rows.some((row) => row.itemCode === focusedItemCode),
+  );
+  useEffect(() => {
+    if (!focusedItemCode || !focusedRowRendered) return;
+    focusVerifiedBoqComparisonRow(
+      focusedRowRef.current,
+      focusedLocationHash,
+      focusedItemCode,
+    );
+  }, [focusedItemCode, focusedLocationHash, focusedRowRendered]);
   return (
     <section
       aria-labelledby="verified-boq-comparison-title"
@@ -72,40 +107,113 @@ export function VerifiedBoqComparison({
             ))}
           </div>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
+            <table className="w-full min-w-[960px] text-left text-sm">
               <thead className="border-b text-muted-foreground">
                 <tr>
                   <th className="pb-3">품목</th>
                   <th className="pb-3">행 상태</th>
-                  <th className="pb-3">모든 원인</th>
-                  <th className="pb-3">이전 금액</th>
-                  <th className="pb-3">현재 금액</th>
-                  <th className="pb-3">증감</th>
+                  <th className="pb-3">원인별 증감</th>
+                  <th className="pb-3">원수량</th>
+                  <th className="pb-3">최종수량</th>
+                  <th className="pb-3">금액</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr className="border-b" key={row.itemCode}>
-                    <td className="py-3 font-semibold">{row.itemCode}</td>
-                    <td>{rowStateLabel[row.rowState]}</td>
-                    <td>
-                      <div className="flex flex-wrap gap-1">
-                        {row.causes.map((cause) => (
-                          <span
-                            className="rounded bg-muted px-2 py-1 text-xs"
-                            key={cause.cause}
-                          >
-                            {cause.cause} {cause.amountDeltaKrw}원
-                          </span>
-                        ))}
-                        {!row.causes.length ? "없음" : null}
-                      </div>
-                    </td>
-                    <td>{row.previousAmountKrw}원</td>
-                    <td>{row.currentAmountKrw}원</td>
-                    <td className="font-semibold">{row.amountDeltaKrw}원</td>
-                  </tr>
-                ))}
+                {rows.map((row) => {
+                  const linked = row.itemCode === focusedItemCode;
+                  return (
+                    <tr
+                      className={`border-b ${linked ? "target:bg-indigo-50 target:outline target:outline-2 target:outline-indigo-500 dark:target:bg-indigo-950 dark:target:outline-indigo-300" : ""}`}
+                      data-linked-item={linked || undefined}
+                      id={verifiedBoqComparisonRowId(row.itemCode)}
+                      key={row.itemCode}
+                      ref={linked ? focusedRowRef : undefined}
+                      tabIndex={-1}
+                    >
+                      <td className="py-3 font-semibold">{row.itemCode}</td>
+                      <td>{rowStateLabel[row.rowState]}</td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          {row.causes.map((cause) => (
+                            <span
+                              className="rounded bg-muted px-2 py-1 text-xs"
+                              key={cause.cause}
+                            >
+                              {cause.cause} {cause.amountDeltaKrw}원
+                            </span>
+                          ))}
+                          {row.quantityCauses.map((quantity) => (
+                            <span
+                              className="rounded bg-blue-50 px-2 py-1 text-xs text-blue-900"
+                              key={`${quantity.cause}-quantity`}
+                            >
+                              {quantity.cause} 수량 · 원수량{" "}
+                              {quantity.rawQuantityDelta === null
+                                ? "검토"
+                                : `${quantity.rawQuantityDelta} ${quantity.unit}`}
+                              {" · 최종 "}
+                              {quantity.finalQuantityDelta === null
+                                ? "검토"
+                                : `${quantity.finalQuantityDelta} ${quantity.unit}`}
+                            </span>
+                          ))}
+                          {!row.causes.length ? "없음" : null}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap text-xs leading-5">
+                        <div>
+                          이전 원수량 ·{" "}
+                          {quantityText(
+                            row.previousRawQuantity,
+                            row.unit,
+                            row.rowState === "added",
+                          )}
+                        </div>
+                        <div>
+                          현재 원수량 ·{" "}
+                          {quantityText(
+                            row.currentRawQuantity,
+                            row.unit,
+                            row.rowState === "removed",
+                          )}
+                        </div>
+                        <div className="font-semibold">
+                          원수량 증감 ·{" "}
+                          {quantityText(row.rawQuantityDelta, row.unit)}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap text-xs leading-5">
+                        <div>
+                          이전 최종수량 ·{" "}
+                          {quantityText(
+                            row.previousFinalQuantity,
+                            row.unit,
+                            row.rowState === "added",
+                          )}
+                        </div>
+                        <div>
+                          현재 최종수량 ·{" "}
+                          {quantityText(
+                            row.currentFinalQuantity,
+                            row.unit,
+                            row.rowState === "removed",
+                          )}
+                        </div>
+                        <div className="font-semibold">
+                          최종수량 증감 ·{" "}
+                          {quantityText(row.finalQuantityDelta, row.unit)}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap text-xs leading-5">
+                        <div>이전 · {row.previousAmountKrw}원</div>
+                        <div>현재 · {row.currentAmountKrw}원</div>
+                        <div className="font-semibold">
+                          증감 · {row.amountDeltaKrw}원
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
